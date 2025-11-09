@@ -1,0 +1,552 @@
+/**
+ * Interactive Elements - Hover States and Visual Feedback
+ * Provides consistent hover, focus, and active states for all interactive elements
+ */
+
+/* ============================================
+   Button Hover States
+   ============================================ */
+
+/* Base button hover */
+.el-button:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s ease;
+}
+
+.el-button:not(:disabled):active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  transition: all 0.1s ease;
+}
+
+/* Primary button enhancements */
+.el-button--primary:not(:disabled):hover {
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+}
+
+/* Card button hover */
+.el-button.card-action:hover {
+  transform: scale(1.05);
+}
+
+/* Icon button hover */
+.el-button.is-circle:hover {
+  transform: scale(1.1) rotate(5deg);
+}
+
+/* ============================================
+   Card Hover States
+   ============================================ */
+
+/* Generic card hover */
+.el-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  transform: translateY(-4px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.el-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Interactive card (clickable) */
+.el-card.interactive {
+  cursor: pointer;
+}
+
+.el-card.interactive:hover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+  transform: translateY(-6px) scale(1.02);
+  border-color: var(--el-color-primary);
+}
+
+.el-card.interactive:active {
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================
+   Game Card Hover (GameCard.vue)
+   ============================================ */
+
+.game-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.game-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.game-card:hover::before {
+  opacity: 1;
+}
+
+.game-card:hover {
+  transform: translateY(-8px) scale(1.03);
+  box-shadow: 0 16px 40px rgba(102, 126, 234, 0.3);
+}
+
+.game-card:hover .game-card-thumbnail {
+  transform: scale(1.1);
+}
+
+.game-card-thumbnail {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ============================================
+   List Item Hover
+   ============================================ */
+
+.player-list-item,
+.participant-item,
+.accusation-item {
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.player-list-item:hover,
+.participant-item:hover,
+.accusation-item:hover {
+  background: linear-gradient(90deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+  transform: translateX(4px);
+  border-left: 3px solid var(--el-color-primary);
+  padding-left: 12px;
+}
+
+/* ============================================
+   Input Focus States
+   ============================================ */
+
+.el-input__inner:focus,
+.el-textarea__inner:focus,
+.el-select__wrapper:focus {
+  border-color: var(--el-color-primary) !important;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+  transition: all 0.3s ease;
+}
+
+/* ============================================
+   Tag Hover
+   ============================================ */
+
+.el-tag.interactive {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.el-tag.interactive:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* ============================================
+   Link Hover
+   ============================================ */
+
+a:not(.el-button) {
+  position: relative;
+  transition: color 0.3s ease;
+}
+
+a:not(.el-button)::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background: var(--el-color-primary);
+  transition: width 0.3s ease;
+}
+
+a:not(.el-button):hover::after {
+  width: 100%;
+}
+
+/* ============================================
+   Avatar Hover
+   ============================================ */
+
+.el-avatar {
+  transition: all 0.3s ease;
+}
+
+.el-avatar.interactive {
+  cursor: pointer;
+}
+
+.el-avatar.interactive:hover {
+  transform: scale(1.15) rotate(5deg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* ============================================
+   Menu Item Hover
+   ============================================ */
+
+.el-menu-item:hover,
+.el-sub-menu__title:hover {
+  background-color: rgba(102, 126, 234, 0.1) !important;
+  border-left: 3px solid var(--el-color-primary);
+  padding-left: 17px !important;
+  transition: all 0.3s ease;
+}
+
+.el-menu-item {
+  transition: all 0.3s ease;
+}
+
+/* ============================================
+   Table Row Hover
+   ============================================ */
+
+.el-table__row {
+  transition: background-color 0.3s ease;
+}
+
+.el-table__row:hover {
+  background-color: rgba(102, 126, 234, 0.05) !important;
+}
+
+/* ============================================
+   Switch/Checkbox Hover
+   ============================================ */
+
+.el-switch:hover .el-switch__core,
+.el-checkbox:hover .el-checkbox__inner,
+.el-radio:hover .el-radio__inner {
+  transform: scale(1.1);
+  transition: transform 0.2s ease;
+}
+
+/* ============================================
+   Drawer/Dialog Animations
+   ============================================ */
+
+.el-drawer,
+.el-dialog {
+  animation: slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================
+   Ripple Effect (Click Feedback)
+   ============================================ */
+
+.ripple-effect {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple-effect::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+}
+
+.ripple-effect:active::after {
+  width: 300px;
+  height: 300px;
+}
+
+/* ============================================
+   Loading Pulse Effect
+   ============================================ */
+
+.pulse-loading {
+  animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* ============================================
+   Tooltip Enhancements
+   ============================================ */
+
+.el-tooltip__popper {
+  animation: tooltipFadeIn 0.2s ease;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================
+   Badge Pulse
+   ============================================ */
+
+.el-badge__content {
+  animation: badgePulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+/* ============================================
+   Location Card Hover (Crime Scene Board)
+   ============================================ */
+
+.location-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.location-card:hover {
+  transform: translateY(-4px) scale(1.05);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+  border-color: var(--el-color-primary);
+}
+
+.location-card:hover .location-icon {
+  transform: scale(1.2) rotate(10deg);
+  transition: transform 0.3s ease;
+}
+
+.location-card.investigated {
+  border-color: var(--el-color-success);
+}
+
+.location-card.investigated:hover {
+  box-shadow: 0 8px 20px rgba(103, 194, 58, 0.3);
+}
+
+/* ============================================
+   Clue Card Hover
+   ============================================ */
+
+.clue-card {
+  transition: all 0.3s ease;
+}
+
+.clue-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  border-color: var(--el-color-primary);
+}
+
+/* ============================================
+   Hand Summary Hover
+   ============================================ */
+
+.hand-summary {
+  transition: all 0.3s ease;
+}
+
+.hand-summary:hover {
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-left: 4px solid var(--el-color-primary);
+  padding-left: 12px;
+}
+
+.hand-summary.is-current:hover {
+  box-shadow: 0 6px 16px rgba(64, 158, 255, 0.3);
+}
+
+.hand-summary:hover .player-avatar {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* ============================================
+   Room Code Copy Button
+   ============================================ */
+
+.copy-button {
+  transition: all 0.2s ease;
+}
+
+.copy-button:hover {
+  transform: scale(1.2);
+  color: var(--el-color-primary);
+}
+
+.copy-button:active {
+  transform: scale(1.1);
+}
+
+/* ============================================
+   Start Game Button (Enhanced)
+   ============================================ */
+
+.start-button {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.start-button::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+}
+
+.start-button:hover::before {
+  width: 300px;
+  height: 300px;
+}
+
+.start-button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 8px 24px rgba(103, 194, 58, 0.4);
+}
+
+/* ============================================
+   Back Button Hover
+   ============================================ */
+
+.back-button {
+  transition: all 0.3s ease;
+}
+
+.back-button:hover {
+  transform: translateX(-4px);
+  background: rgba(102, 126, 234, 0.1);
+}
+
+/* ============================================
+   Radio/Checkbox Group Hover
+   ============================================ */
+
+.el-radio-button:hover {
+  color: var(--el-color-primary);
+}
+
+.el-radio-button__inner:hover {
+  background: rgba(102, 126, 234, 0.1);
+}
+
+/* ============================================
+   Pagination Hover
+   ============================================ */
+
+.el-pager li:hover {
+  color: var(--el-color-primary);
+  transform: scale(1.1);
+  transition: all 0.2s ease;
+}
+
+/* ============================================
+   Breadcrumb Hover
+   ============================================ */
+
+.el-breadcrumb__item:hover {
+  color: var(--el-color-primary);
+}
+
+.el-breadcrumb__item:hover .el-breadcrumb__inner {
+  transform: translateX(2px);
+  transition: transform 0.2s ease;
+}
+
+/* ============================================
+   Mobile Touch Feedback
+   ============================================ */
+
+@media (hover: none) and (pointer: coarse) {
+  /* Enhanced active states for touch devices */
+  .el-button:active {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+
+  .el-card.interactive:active {
+    transform: scale(0.98);
+  }
+
+  .game-card:active {
+    transform: scale(0.97);
+  }
+
+  .location-card:active {
+    transform: scale(0.96);
+    opacity: 0.9;
+  }
+}
+
+/* ============================================
+   Accessibility - Focus Visible
+   ============================================ */
+
+*:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+button:focus-visible,
+a:focus-visible {
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.2);
+}
+
+/* ============================================
+   Reduced Motion Support
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

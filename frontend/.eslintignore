@@ -1,0 +1,9 @@
+node_modules/
+dist/
+build/
+coverage/
+.nuxt/
+.next/
+.output/
+*.min.js
+*.bundle.js

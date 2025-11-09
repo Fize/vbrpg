@@ -1,0 +1,579 @@
+openapi: 3.0.3
+info:
+  title: AI-Powered Tabletop Game Platform API
+  description: REST API for managing players, game rooms, and gameplay
+  version: 1.0.0
+  contact:
+    name: API Support
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+  - url: https://api.vbrpg.example.com/api/v1
+    description: Production server
+
+tags:
+  - name: Players
+    description: Player account management
+  - name: Games
+    description: Game library and types
+  - name: Rooms
+    description: Game room management
+  - name: Gameplay
+    description: In-game actions (handled via WebSocket)
+
+paths:
+  # ==================== Players ====================
+  
+  /players/guest:
+    post:
+      tags: [Players]
+      summary: Create guest account
+      description: Creates a new guest player with auto-generated username
+      operationId: createGuestPlayer
+      responses:
+        '201':
+          description: Guest account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Player'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+  
+  /players/me:
+    get:
+      tags: [Players]
+      summary: Get current player profile
+      description: Returns profile of authenticated player
+      operationId: getCurrentPlayer
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Player profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  
+  /players/me/upgrade:
+    post:
+      tags: [Players]
+      summary: Upgrade guest to permanent account
+      description: Converts guest account to permanent by setting username
+      operationId: upgradeGuestAccount
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  type: string
+                  minLength: 2
+                  maxLength: 50
+                  pattern: '^[a-zA-Z0-9_\u4e00-\u9fa5]+$'
+                  example: "玩家小明"
+      responses:
+        '200':
+          description: Account upgraded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Player'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Username already taken
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  
+  /players/me/stats:
+    get:
+      tags: [Players]
+      summary: Get player statistics
+      description: Returns gameplay statistics for current player
+      operationId: getPlayerStats
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Player statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerStats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  
+  # ==================== Games ====================
+  
+  /games:
+    get:
+      tags: [Games]
+      summary: List available games
+      description: Returns list of all game types with availability status
+      operationId: listGames
+      responses:
+        '200':
+          description: List of games
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GameType'
+  
+  /games/{gameSlug}:
+    get:
+      tags: [Games]
+      summary: Get game details
+      description: Returns detailed information about specific game
+      operationId: getGameDetails
+      parameters:
+        - name: gameSlug
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "crime-scene"
+      responses:
+        '200':
+          description: Game details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameType'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  
+  # ==================== Rooms ====================
+  
+  /rooms:
+    post:
+      tags: [Rooms]
+      summary: Create game room
+      description: Creates new game room in Waiting status
+      operationId: createGameRoom
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoomRequest'
+      responses:
+        '201':
+          description: Room created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameRoom'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    
+    get:
+      tags: [Rooms]
+      summary: List game rooms
+      description: Returns list of game rooms with optional filtering
+      operationId: listGameRooms
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [Waiting, "In Progress", Completed]
+        - name: gameType
+          in: query
+          schema:
+            type: string
+            example: "crime-scene"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: List of game rooms
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rooms:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GameRoom'
+                  total:
+                    type: integer
+  
+  /rooms/{roomCode}:
+    get:
+      tags: [Rooms]
+      summary: Get room details
+      description: Returns details of specific game room
+      operationId: getGameRoom
+      parameters:
+        - name: roomCode
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "ABCD1234"
+      responses:
+        '200':
+          description: Room details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameRoomDetailed'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  
+  /rooms/{roomCode}/join:
+    post:
+      tags: [Rooms]
+      summary: Join game room
+      description: Adds current player to game room (only if Waiting status)
+      operationId: joinGameRoom
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: roomCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successfully joined room
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameRoomDetailed'
+        '400':
+          description: Room not joinable (full, started, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  
+  /rooms/{roomCode}/leave:
+    post:
+      tags: [Rooms]
+      summary: Leave game room
+      description: Removes current player from room
+      operationId: leaveGameRoom
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: roomCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successfully left room
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  
+  /rooms/{roomCode}/start:
+    post:
+      tags: [Rooms]
+      summary: Start game
+      description: Transitions room from Waiting to In Progress (creator only)
+      operationId: startGame
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: roomCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Game started successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameRoomDetailed'
+        '400':
+          description: Cannot start game (insufficient players, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Only room creator can start game
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+# ==================== Components ====================
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session_id
+  
+  schemas:
+    Player:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        username:
+          type: string
+          example: "Guest_快乐_熊猫"
+        is_guest:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+        last_active:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    
+    PlayerProfile:
+      allOf:
+        - $ref: '#/components/schemas/Player'
+        - type: object
+          properties:
+            total_games:
+              type: integer
+              example: 15
+            total_wins:
+              type: integer
+              example: 7
+            favorite_game:
+              type: string
+              nullable: true
+              example: "犯罪现场"
+            ui_preferences:
+              type: object
+              properties:
+                theme:
+                  type: string
+                  enum: [light, dark]
+                  default: light
+                notifications:
+                  type: boolean
+                  default: true
+    
+    PlayerStats:
+      type: object
+      properties:
+        total_games:
+          type: integer
+        total_wins:
+          type: integer
+        win_rate:
+          type: number
+          format: float
+          example: 46.67
+        games_by_type:
+          type: object
+          additionalProperties:
+            type: integer
+          example:
+            "犯罪现场": 15
+    
+    GameType:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: "犯罪现场"
+        slug:
+          type: string
+          example: "crime-scene"
+        description:
+          type: string
+        rules_summary:
+          type: string
+        min_players:
+          type: integer
+          example: 4
+        max_players:
+          type: integer
+          example: 8
+        avg_duration_minutes:
+          type: integer
+          example: 60
+        is_available:
+          type: boolean
+          example: true
+    
+    GameRoom:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          example: "ABCD1234"
+        game_type:
+          $ref: '#/components/schemas/GameType'
+        status:
+          type: string
+          enum: [Waiting, "In Progress", Completed]
+        max_players:
+          type: integer
+        min_players:
+          type: integer
+        current_player_count:
+          type: integer
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+    
+    GameRoomDetailed:
+      allOf:
+        - $ref: '#/components/schemas/GameRoom'
+        - type: object
+          properties:
+            participants:
+              type: array
+              items:
+                $ref: '#/components/schemas/Participant'
+    
+    Participant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        player:
+          $ref: '#/components/schemas/Player'
+          nullable: true
+        is_ai_agent:
+          type: boolean
+        ai_personality:
+          type: string
+          nullable: true
+          example: "analytical_detective"
+        joined_at:
+          type: string
+          format: date-time
+        left_at:
+          type: string
+          format: date-time
+          nullable: true
+        replaced_by_ai:
+          type: boolean
+    
+    CreateRoomRequest:
+      type: object
+      required:
+        - game_type_slug
+        - max_players
+      properties:
+        game_type_slug:
+          type: string
+          example: "crime-scene"
+        max_players:
+          type: integer
+          minimum: 4
+          maximum: 8
+          example: 6
+        min_players:
+          type: integer
+          minimum: 4
+          maximum: 8
+          example: 4
+    
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Invalid request"
+        message:
+          type: string
+          example: "Username must be 2-50 characters"
+        code:
+          type: string
+          example: "VALIDATION_ERROR"
+  
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    
+    RateLimitExceeded:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
