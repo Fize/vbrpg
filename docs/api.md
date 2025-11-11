@@ -275,6 +275,228 @@ Join an existing game room.
 
 ---
 
+#### POST `/api/rooms/{code}/join`
+
+Join an existing game room using the room code path parameter (Feature 002).
+
+**Authentication**: Required (session cookie)
+
+**Path Parameters**:
+- `code`: 6-character alphanumeric room code (case-insensitive)
+
+**Request Body**:
+```json
+{
+  "player_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "room": {
+    "id": 42,
+    "code": "ABC123",
+    "game_type_id": 1,
+    "status": "Waiting",
+    "max_players": 4,
+    "current_participant_count": 2,
+    "owner_id": "550e8400-e29b-41d4-a716-446655440000",
+    "created_at": "2025-11-08T12:00:00Z",
+    "started_at": null,
+    "completed_at": null
+  },
+  "participants": [
+    {
+      "id": 1,
+      "player_id": "550e8400-e29b-41d4-a716-446655440000",
+      "player_name": "Alice",
+      "avatar_url": "https://example.com/avatars/alice.png",
+      "participant_type": "human",
+      "is_owner": true,
+      "join_timestamp": "2025-11-08T12:00:00Z"
+    },
+    {
+      "id": 2,
+      "player_id": "660e9500-f30c-52e5-b827-557766551111",
+      "player_name": "Bob",
+      "avatar_url": null,
+      "participant_type": "human",
+      "is_owner": false,
+      "join_timestamp": "2025-11-08T12:01:00Z"
+    }
+  ],
+  "is_owner": false
+}
+```
+
+**Error Responses**:
+- `400` - Invalid room code format or duplicate join
+  ```json
+  {
+    "error": "INVALID_ROOM_CODE",
+    "message": "Room code must be 6 alphanumeric characters"
+  }
+  ```
+  ```json
+  {
+    "error": "DUPLICATE_JOIN",
+    "message": "Player already in this room"
+  }
+  ```
+- `404` - Room not found
+  ```json
+  {
+    "error": "ROOM_NOT_FOUND",
+    "message": "No room exists with code ABC123"
+  }
+  ```
+- `409` - Room is full or game already started
+  ```json
+  {
+    "error": "ROOM_FULL",
+    "message": "This room is at maximum capacity (4/4 players)"
+  }
+  ```
+  ```json
+  {
+    "error": "GAME_ALREADY_STARTED",
+    "message": "Cannot join room - game is already in progress"
+  }
+  ```
+
+---
+
+#### DELETE `/api/rooms/{code}/participants/{player_id}`
+
+Leave a game room (Feature 002).
+
+**Authentication**: Required (session cookie)
+
+**Path Parameters**:
+- `code`: 6-character alphanumeric room code
+- `player_id`: UUID of the player leaving
+
+**Behavior**:
+- If the player is the owner, ownership transfers to the next earliest-joined human player
+- If only AI agents remain after owner leaves, the room is dissolved
+- Cannot leave while game is in progress
+
+**Response** (204 No Content): Empty response body on success
+
+**Error Responses**:
+- `404` - Room or player not found
+  ```json
+  {
+    "error": "ROOM_NOT_FOUND",
+    "message": "No room exists with code ABC123"
+  }
+  ```
+  ```json
+  {
+    "error": "PLAYER_NOT_IN_ROOM",
+    "message": "Player is not a participant in this room"
+  }
+  ```
+- `409` - Cannot leave while game is in progress
+  ```json
+  {
+    "error": "GAME_IN_PROGRESS",
+    "message": "Cannot leave room while game is active"
+  }
+  ```
+
+---
+
+#### POST `/api/rooms/{code}/ai-agents`
+
+Add an AI agent to the room (Feature 002, owner only).
+
+**Authentication**: Required (must be room owner)
+
+**Path Parameters**:
+- `code`: 6-character alphanumeric room code
+
+**Request Body**:
+```json
+{
+  "owner_player_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**Response** (201 Created):
+```json
+{
+  "ai_agent": {
+    "id": 3,
+    "player_id": "a1b2c3d4-e5f6-4g7h-8i9j-0k1l2m3n4o5p",
+    "player_name": "AI玩家1",
+    "avatar_url": null,
+    "participant_type": "ai",
+    "is_owner": false,
+    "join_timestamp": "2025-11-08T12:02:00Z"
+  },
+  "room_code": "ABC123"
+}
+```
+
+**Error Responses**:
+- `403` - Not the room owner
+  ```json
+  {
+    "error": "NOT_ROOM_OWNER",
+    "message": "Only the room owner can add AI agents"
+  }
+  ```
+- `404` - Room not found
+- `409` - Room is full or game already started
+  ```json
+  {
+    "error": "ROOM_FULL",
+    "message": "Cannot add AI agent - room is at maximum capacity"
+  }
+  ```
+  ```json
+  {
+    "error": "GAME_ALREADY_STARTED",
+    "message": "Cannot modify participants after game starts"
+  }
+  ```
+
+---
+
+#### DELETE `/api/rooms/{code}/ai-agents/{agent_id}`
+
+Remove an AI agent from the room (Feature 002, owner only).
+
+**Authentication**: Required (must be room owner)
+
+**Path Parameters**:
+- `code`: 6-character alphanumeric room code
+- `agent_id`: UUID of the AI agent to remove
+
+**Request Body**:
+```json
+{
+  "owner_player_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**Response** (204 No Content): Empty response body on success
+
+**Error Responses**:
+- `403` - Not the room owner
+- `404` - Room or AI agent not found
+  ```json
+  {
+    "error": "AI_AGENT_NOT_FOUND",
+    "message": "No AI agent with ID exists in this room"
+  }
+  ```
+- `409` - Game already started
+
+---
+
 #### GET `/api/rooms/{room_code}`
 
 Get room details.
@@ -431,6 +653,30 @@ Another player joined the room.
 
 ---
 
+#### `player_joined` (Feature 002 - Lobby Updates)
+
+Broadcast when a human player joins the room lobby.
+
+**Channel**: `lobby:{room_code}`
+
+**Payload**:
+```json
+{
+  "room_code": "ABC123",
+  "player": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Alice",
+    "avatar_url": "https://example.com/avatars/alice.png",
+    "participant_type": "human",
+    "is_owner": false,
+    "join_timestamp": "2025-11-09T10:30:00Z"
+  },
+  "timestamp": "2025-11-09T10:30:00Z"
+}
+```
+
+---
+
 #### `player_left`
 
 A player left the room.
@@ -442,6 +688,131 @@ A player left the room.
   "current_players": 2
 }
 ```
+
+---
+
+#### `player_left` (Feature 002 - Lobby Updates)
+
+Broadcast when a player leaves the room lobby.
+
+**Channel**: `lobby:{room_code}`
+
+**Payload**:
+```json
+{
+  "room_code": "ABC123",
+  "player_id": "550e8400-e29b-41d4-a716-446655440000",
+  "player_name": "Alice",
+  "timestamp": "2025-11-09T10:35:00Z"
+}
+```
+
+---
+
+#### `ai_agent_added` (Feature 002)
+
+Broadcast when the room owner manually adds an AI agent.
+
+**Channel**: `lobby:{room_code}`
+
+**Payload**:
+```json
+{
+  "room_code": "ABC123",
+  "ai_agent": {
+    "id": "a1b2c3d4-e5f6-4g7h-8i9j-0k1l2m3n4o5p",
+    "name": "AI玩家1",
+    "participant_type": "ai",
+    "is_owner": false,
+    "join_timestamp": "2025-11-09T10:32:00Z"
+  },
+  "added_by": "550e8400-e29b-41d4-a716-446655440000",
+  "added_by_name": "Bob",
+  "timestamp": "2025-11-09T10:32:00Z"
+}
+```
+
+**Notes**:
+- AI agents are auto-named sequentially (AI玩家1, AI玩家2, etc.)
+- `is_owner` is always `false` for AI agents
+- Only room owner can add AI agents
+
+---
+
+#### `ai_agent_removed` (Feature 002)
+
+Broadcast when the room owner removes an AI agent.
+
+**Channel**: `lobby:{room_code}`
+
+**Payload**:
+```json
+{
+  "room_code": "ABC123",
+  "ai_agent_id": "a1b2c3d4-e5f6-4g7h-8i9j-0k1l2m3n4o5p",
+  "ai_agent_name": "AI玩家1",
+  "removed_by": "550e8400-e29b-41d4-a716-446655440000",
+  "removed_by_name": "Bob",
+  "timestamp": "2025-11-09T10:33:00Z"
+}
+```
+
+---
+
+#### `ownership_transferred` (Feature 002)
+
+Broadcast when room ownership changes (owner leaves or manual transfer).
+
+**Channel**: `lobby:{room_code}`
+
+**Payload**:
+```json
+{
+  "room_code": "ABC123",
+  "previous_owner_id": "550e8400-e29b-41d4-a716-446655440000",
+  "previous_owner_name": "Bob",
+  "new_owner_id": "660e9500-f30c-52e5-b827-557766551111",
+  "new_owner_name": "Charlie",
+  "reason": "owner_left",
+  "timestamp": "2025-11-09T10:36:00Z"
+}
+```
+
+**Reason Values**:
+- `owner_left` - Previous owner left the room
+- `manual_transfer` - Owner manually transferred ownership
+
+**Notes**:
+- Ownership transfers to earliest-joined human player
+- AI agents are never eligible to become room owners
+- New owner gains AI management controls
+
+---
+
+#### `room_dissolved` (Feature 002)
+
+Broadcast when the room is dissolved and no longer exists.
+
+**Channel**: `lobby:{room_code}`
+
+**Payload**:
+```json
+{
+  "room_code": "ABC123",
+  "reason": "no_human_players_remaining",
+  "timestamp": "2025-11-09T10:37:00Z"
+}
+```
+
+**Reason Values**:
+- `no_human_players_remaining` - Last human player left, only AI agents remained
+- `timeout` - Room inactive for extended period
+- `manual_deletion` - Admin or owner manually deleted room
+
+**Notes**:
+- All connected clients are disconnected from the lobby channel
+- Room cannot be rejoined (returns 404)
+- Game rooms with only AI agents cannot exist
 
 ---
 

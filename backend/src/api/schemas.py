@@ -90,3 +90,22 @@ class GameRoomDetailedResponse(GameRoomResponse):
 class RoomListResponse(BaseModel):
     rooms: list[GameRoomResponse]
     total: int
+
+
+# Join room response
+class JoinRoomResponse(BaseModel):
+    room: GameRoomDetailedResponse
+    participants: list[ParticipantResponse]
+    is_owner: bool
+
+    class Config:
+        from_attributes = True
+
+
+# AI Agent response
+class AIAgentResponse(BaseModel):
+    ai_agent: PlayerResponse
+    room_code: str
+    
+    class Config:
+        from_attributes = True

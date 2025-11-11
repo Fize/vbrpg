@@ -26,7 +26,7 @@ export default defineConfig({
         'vitest.config.js'
       ]
     },
-    include: ['tests/unit/**/*.spec.js'],
+    include: ['tests/unit/**/*.spec.js', 'tests/integration/**/*.spec.js'],
     exclude: ['node_modules', 'dist', 'tests/e2e']
   }
 })

@@ -8,7 +8,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from src.models.base import Base, UUIDMixin
 
 if TYPE_CHECKING:
+    from src.models.game_room_participant import GameRoomParticipant
     from src.models.game_session import GameSession
+    from src.models.game_state import GameState
+    from src.models.game_type import GameType
+    from src.models.player import Player
 
 
 class GameRoom(Base, UUIDMixin):
@@ -33,10 +37,21 @@ class GameRoom(Base, UUIDMixin):
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    
+    # Phase 2 Extensions: Room ownership and participant tracking
+    owner_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("players.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+    current_participant_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    ai_agent_counter: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Relationships
     game_type: Mapped["GameType"] = relationship("GameType")
     creator: Mapped["Player"] = relationship("Player", foreign_keys=[created_by])
+    owner: Mapped["Player"] = relationship("Player", foreign_keys=[owner_id])
     participants: Mapped[list["GameRoomParticipant"]] = relationship(
         "GameRoomParticipant",
         back_populates="game_room",
@@ -75,6 +90,23 @@ class GameRoom(Base, UUIDMixin):
         """Transition room to Completed status."""
         self.status = "Completed"
         self.completed_at = datetime.utcnow()
+    
+    def has_capacity(self) -> bool:
+        """Check if room has space for additional participants.
+        
+        Returns:
+            True if current_participant_count < max_players, False otherwise
+        """
+        return self.current_participant_count < self.max_players
+    
+    def increment_ai_counter(self) -> str:
+        """Increment AI agent counter and return sequential AI name.
+        
+        Returns:
+            Sequential AI player name in format "AI玩家{N}"
+        """
+        self.ai_agent_counter += 1
+        return f"AI玩家{self.ai_agent_counter}"
 
     def __repr__(self):
         return f"<GameRoom(id={self.id}, code={self.code}, status={self.status})>"

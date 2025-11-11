@@ -5,23 +5,38 @@
     shadow="hover"
     @click="handleClick"
   >
-    <template #header>
-      <div class="game-card__header">
-        <h3 class="game-card__title">{{ game.name }}</h3>
+    <!-- Game Thumbnail -->
+    <div class="game-card__thumbnail">
+      <img 
+        v-if="gameThumbnail" 
+        :src="gameThumbnail" 
+        :alt="game.name"
+        class="game-card__image"
+      />
+      <div v-else class="game-card__placeholder">
+        <el-icon size="48"><Picture /></el-icon>
+      </div>
+      <div class="game-card__overlay">
         <el-tag 
           v-if="!game.is_available" 
           type="info" 
-          size="small"
+          size="large"
         >
           即将推出
         </el-tag>
         <el-tag 
           v-else 
           type="success" 
-          size="small"
+          size="large"
         >
           可游玩
         </el-tag>
+      </div>
+    </div>
+
+    <template #header>
+      <div class="game-card__header">
+        <h3 class="game-card__title">{{ game.name }}</h3>
       </div>
     </template>
 
@@ -57,7 +72,8 @@
 </template>
 
 <script setup>
-import { User, Clock } from '@element-plus/icons-vue'
+import { computed } from 'vue'
+import { User, Clock, Picture } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 
 const props = defineProps({
@@ -68,6 +84,15 @@ const props = defineProps({
 })
 
 const router = useRouter()
+
+// Game thumbnail mapping
+const gameThumbnails = {
+  'crime-scene': new URL('@/assets/images/crimeScene/crime_scene.jpeg', import.meta.url).href
+}
+
+const gameThumbnail = computed(() => {
+  return gameThumbnails[props.game.slug] || props.game.thumbnail || null
+})
 
 const handleClick = () => {
   if (props.game.is_available) {
@@ -112,6 +137,48 @@ const handleViewDetails = () => {
 
 .game-card--unavailable:hover {
   transform: none;
+}
+
+.game-card__thumbnail {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: #f5f7fa;
+  border-radius: 4px 4px 0 0;
+}
+
+.game-card__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s;
+}
+
+.game-card:hover .game-card__image {
+  transform: scale(1.05);
+}
+
+.game-card__placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #c0c4cc;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e4e7ed 100%);
+}
+
+.game-card__overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 8px 12px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.6), transparent);
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
 }
 
 .game-card__header {

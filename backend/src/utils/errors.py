@@ -61,6 +61,34 @@ class RateLimitError(APIError):
         super().__init__(message, 429, "RATE_LIMIT_EXCEEDED", details)
 
 
+class RoomNotFoundError(NotFoundError):
+    """Game room not found."""
+
+    def __init__(self, message: str = "Game room not found", details: Dict[str, Any] | None = None):
+        super().__init__(message, details)
+
+
+class RoomFullError(ConflictError):
+    """Game room is at maximum capacity."""
+
+    def __init__(self, message: str = "Game room is full", details: Dict[str, Any] | None = None):
+        super().__init__(message, details)
+
+
+class GameAlreadyStartedError(ConflictError):
+    """Game has already started."""
+
+    def __init__(self, message: str = "Game has already started", details: Dict[str, Any] | None = None):
+        super().__init__(message, details)
+
+
+class DuplicateJoinError(ConflictError):
+    """Player is already in the room."""
+
+    def __init__(self, message: str = "Player is already in this room", details: Dict[str, Any] | None = None):
+        super().__init__(message, details)
+
+
 def format_error_response(error: APIError) -> Dict[str, Any]:
     """Format error response."""
     return {

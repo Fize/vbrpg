@@ -2,13 +2,14 @@
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.schemas import (
     CreateRoomRequest,
     GameRoomDetailedResponse,
     GameRoomResponse,
+    JoinRoomResponse,
     ParticipantResponse,
     PlayerResponse,
     RoomListResponse
@@ -16,7 +17,7 @@ from src.api.schemas import (
 from src.database import get_db
 from src.services.game_room_service import GameRoomService
 from src.services.ai_agent_service import AIAgentService
-from src.utils.errors import APIError
+from src.utils.errors import APIError, NotFoundError
 from src.websocket import handlers as ws_handlers
 
 logger = logging.getLogger(__name__)
@@ -133,7 +134,7 @@ async def get_room(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
-@router.post("/rooms/{room_code}/join", response_model=GameRoomDetailedResponse)
+@router.post("/rooms/{room_code}/join", response_model=JoinRoomResponse)
 async def join_room(
     room_code: str,
     db: AsyncSession = Depends(get_db),
@@ -143,6 +144,22 @@ async def join_room(
     try:
         service = GameRoomService(db)
         room = await service.join_room(room_code, user_id)
+        
+        # Determine if current user is owner
+        is_owner = room.owner_id == user_id
+        
+        # Map participants
+        participants = []
+        for p in room.participants:
+            participants.append(ParticipantResponse(
+                id=p.id,
+                player=PlayerResponse.from_orm(p.player) if p.player else None,
+                is_ai_agent=p.is_ai_agent,
+                ai_personality=p.ai_personality,
+                joined_at=p.joined_at,
+                left_at=p.left_at,
+                replaced_by_ai=p.replaced_by_ai
+            ))
         
         # Broadcast player joined event via WebSocket
         player_data = None
@@ -159,35 +176,154 @@ async def join_room(
         if player_data:
             await ws_handlers.broadcast_player_joined(room_code, player_data)
         
-        return map_room_to_detailed_response(room)
+        return JoinRoomResponse(
+            room=map_room_to_detailed_response(room),
+            participants=participants,
+            is_owner=is_owner
+        )
     except APIError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
-@router.post("/rooms/{room_code}/leave")
+@router.delete("/rooms/{room_code}/participants/{player_id}", status_code=204)
 async def leave_room(
     room_code: str,
+    player_id: str,
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id)
 ):
-    """Leave a game room."""
+    """Remove a participant from a game room (RESTful leave endpoint)."""
     try:
         service = GameRoomService(db)
         
-        # Get player name before leaving
+        # Get room state before leaving
         room = await service.get_room(room_code)
         player_name = None
+        is_owner_leaving = False
+        
         for participant in room.participants:
-            if participant.player_id == user_id and participant.is_active():
+            if participant.player_id == player_id and participant.is_active():
                 player_name = participant.player.username if participant.player else "Unknown"
+                is_owner_leaving = participant.is_owner
                 break
         
-        await service.leave_room(room_code, user_id)
+        # Perform leave operation
+        await service.leave_room(room_code, player_id)
         
         # Broadcast player left event via WebSocket
-        await ws_handlers.broadcast_player_left(room_code, user_id, player_name)
+        await ws_handlers.broadcast_player_left(room_code, player_id, player_name)
         
-        return {"message": "Successfully left room"}
+        # If owner left, check for ownership transfer or room dissolution
+        if is_owner_leaving:
+            # Reload room to check new state
+            try:
+                updated_room = await service.get_room(room_code)
+                
+                if updated_room.status == "Dissolved":
+                    # Room was dissolved (no human participants remain)
+                    await ws_handlers.broadcast_room_dissolved(
+                        room_code,
+                        "No human participants remain"
+                    )
+                else:
+                    # Ownership was transferred
+                    new_owner_name = None
+                    for participant in updated_room.participants:
+                        if participant.is_owner and participant.is_active():
+                            new_owner_name = participant.player.username if participant.player else "Unknown"
+                            await ws_handlers.broadcast_ownership_transferred(
+                                room_code,
+                                player_id,
+                                participant.player_id,
+                                new_owner_name
+                            )
+                            break
+            except NotFoundError:
+                # Room was deleted/dissolved
+                await ws_handlers.broadcast_room_dissolved(
+                    room_code,
+                    "Room has been dissolved"
+                )
+        
+        return Response(status_code=204)
+    except APIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+@router.post("/rooms/{room_code}/ai-agents", status_code=201)
+async def add_ai_agent(
+    room_code: str,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """Add an AI agent to the room (owner only)."""
+    try:
+        service = GameRoomService(db)
+        
+        # Get room and validate owner
+        room = await service.get_room(room_code)
+        
+        if room.owner_id != current_user_id:
+            from src.utils.errors import ForbiddenError
+            raise ForbiddenError("Only room owner can add AI agents")
+        
+        # Validate room status
+        if room.status != "Waiting":
+            from src.utils.errors import GameAlreadyStartedError
+            raise GameAlreadyStartedError("Cannot add AI agents after game starts")
+        
+        # Validate capacity
+        if room.current_participant_count >= room.max_players:
+            from src.utils.errors import RoomFullError
+            raise RoomFullError("Room is at maximum capacity")
+        
+        # Create AI agent
+        ai_agent = await service.create_ai_agent(room.id)
+        
+        # Broadcast AI agent added event
+        ai_data = {
+            "id": ai_agent.id,
+            "username": ai_agent.username,
+            "is_ai": True
+        }
+        await ws_handlers.broadcast_ai_agent_added(room_code, ai_data)
+        
+        # Return response
+        return {
+            "ai_agent": {
+                "id": ai_agent.id,
+                "username": ai_agent.username,
+                "is_guest": ai_agent.is_guest,
+                "player_type": "ai",
+                "created_at": ai_agent.created_at.isoformat(),
+                "last_active": ai_agent.last_active.isoformat(),
+                "expires_at": ai_agent.expires_at.isoformat() if ai_agent.expires_at else None
+            },
+            "room_code": room_code
+        }
+    except APIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+@router.delete("/rooms/{room_code}/ai-agents/{agent_id}", status_code=204)
+async def remove_ai_agent(
+    room_code: str,
+    agent_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """Remove an AI agent from the room (owner only)."""
+    try:
+        service = GameRoomService(db)
+        
+        # Remove AI agent (service will validate)
+        await service.remove_ai_agent(room_code, agent_id, current_user_id)
+        
+        # Broadcast AI agent removed event
+        # Note: We don't need AI name for this event as client has the ID
+        await ws_handlers.broadcast_ai_agent_removed(room_code, agent_id, None)
+        
+        return Response(status_code=204)
     except APIError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 

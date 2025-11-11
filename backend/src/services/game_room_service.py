@@ -3,15 +3,24 @@ import json
 from datetime import datetime
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.game_room import GameRoom
 from src.models.game_room_participant import GameRoomParticipant
 from src.models.game_state import GameState
 from src.models.game_type import GameType
 from src.models.player import Player
-from src.utils.errors import BadRequestError, ConflictError, ForbiddenError, NotFoundError
+from src.utils.errors import (
+    BadRequestError, 
+    ConflictError, 
+    ForbiddenError, 
+    NotFoundError,
+    RoomNotFoundError,
+    RoomFullError,
+    GameAlreadyStartedError,
+    DuplicateJoinError
+)
 from src.utils.logging_config import get_logger
 from src.utils.room_codes import generate_room_code
 
@@ -124,42 +133,137 @@ class GameRoomService:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def join_room(self, room_code: str, player_id: str) -> GameRoom:
-        """Add player to game room."""
-        room = await self.get_room(room_code)
-
-        # Validate can join
-        if not room.can_join():
-            raise BadRequestError(f"Room is {room.status}, cannot join")
-
-        # Check if already in room
+    async def validate_join_request(self, room_code: str, player_id: str) -> bool:
+        """Validate if a player can join a room.
+        
+        Args:
+            room_code: Game room code
+            player_id: Player ID attempting to join
+            
+        Returns:
+            True if validation passes
+            
+        Raises:
+            RoomNotFoundError: Room doesn't exist
+            RoomFullError: Room is at maximum capacity (SC-006)
+            GameAlreadyStartedError: Game is already in progress (FR-004)
+            DuplicateJoinError: Player is already in the room (FR-012)
+        """
+        # Check if room exists
+        result = await self.db.execute(
+            select(GameRoom)
+            .where(GameRoom.code == room_code)
+            .options(selectinload(GameRoom.participants))
+        )
+        room = result.scalar_one_or_none()
+        
+        if not room:
+            raise RoomNotFoundError(f"Room with code '{room_code}' not found")
+        
+        # Check if game has already started (FR-004)
+        if room.status != "Waiting":
+            raise GameAlreadyStartedError(
+                f"Game has already started or completed. Current status: {room.status}"
+            )
+        
+        # Check if room is full (SC-006)
+        if not room.has_capacity():
+            raise RoomFullError(
+                f"Room is full ({room.current_participant_count}/{room.max_players} players)"
+            )
+        
+        # Check if player is already in the room (FR-012)
         for participant in room.participants:
-            if participant.player_id == player_id and participant.is_active():
-                raise ConflictError("Already in this room")
+            if participant.player_id == player_id and participant.left_at is None:
+                raise DuplicateJoinError(
+                    f"Player is already a participant in room '{room_code}'"
+                )
+        
+        return True
 
-        # Check if room is full
-        active_count = room.get_active_participants_count()
-        if active_count >= room.max_players:
-            raise BadRequestError("Room is full")
-
-        # Add participant
+    async def join_room(self, room_code: str, player_id: str) -> GameRoom:
+        """Add player to game room.
+        
+        Args:
+            room_code: Game room code
+            player_id: Player ID attempting to join
+            
+        Returns:
+            GameRoom with updated participants
+            
+        Raises:
+            RoomNotFoundError: Room doesn't exist
+            RoomFullError: Room is at maximum capacity
+            GameAlreadyStartedError: Game is already in progress
+            DuplicateJoinError: Player is already in the room
+        """
+        # Validate join request (uses Phase 2 validation logic)
+        await self.validate_join_request(room_code, player_id)
+        
+        # Get room with lock for concurrent access safety (FR-018)
+        result = await self.db.execute(
+            select(GameRoom)
+            .where(GameRoom.code == room_code)
+            .with_for_update()  # Row-level lock
+        )
+        room = result.scalar_one()
+        
+        # Add participant with current timestamp
+        from datetime import datetime, UTC
         participant = GameRoomParticipant(
             game_room_id=room.id,
             player_id=player_id,
-            is_ai_agent=False
+            is_ai_agent=False,
+            is_owner=(room.owner_id == player_id),  # Set is_owner flag
+            join_timestamp=datetime.now(UTC)  # Set join timestamp
         )
         self.db.add(participant)
+        
+        # Increment participant count
+        room.current_participant_count += 1
+        
+        # Commit the transaction
         await self.db.commit()
-
-        # Reload room with updated participants
-        room = await self.get_room(room.code)
-
+        
+        # Expire all cached instances to force reload from database
+        self.db.expire_all()
+        
+        # Reload room with all participants for return
+        result = await self.db.execute(
+            select(GameRoom)
+            .where(GameRoom.code == room_code)
+            .options(
+                selectinload(GameRoom.game_type),
+                selectinload(GameRoom.participants).selectinload(GameRoomParticipant.player)
+            )
+        )
+        room = result.scalar_one()
+        
         logger.info(f"Player {player_id} joined room {room.code}")
         return room
 
     async def leave_room(self, room_code: str, player_id: str) -> None:
-        """Remove player from game room."""
+        """Remove player from game room.
+        
+        When owner leaves (FR-014):
+        - Transfers ownership to oldest human participant
+        - If no human participants remain, dissolves AI-only room
+        
+        Args:
+            room_code: Game room code
+            player_id: Player ID leaving the room
+            
+        Raises:
+            NotFoundError: Room doesn't exist or player not in room
+            GameAlreadyStartedError: Cannot leave after game starts
+        """
         room = await self.get_room(room_code)
+        
+        # Check if game has started (FR-013: can only leave while Waiting)
+        if room.status != "Waiting":
+            raise GameAlreadyStartedError(
+                f"Cannot leave room - game is {room.status}"
+            )
 
         # Find participant
         participant = None
@@ -170,11 +274,206 @@ class GameRoomService:
 
         if not participant:
             raise NotFoundError("Not in this room")
+        
+        is_owner_leaving = participant.is_owner
 
+        # Mark participant as left (soft delete)
         participant.leave()
+        
+        # Decrement participant count
+        room.current_participant_count -= 1
+        
+        # Handle ownership transfer if owner is leaving (FR-014)
+        if is_owner_leaving:
+            new_owner = await self.transfer_ownership(room.id, player_id)
+            
+            if new_owner is None:
+                # No human participants remain - dissolve room
+                room.status = "Dissolved"
+                logger.info(f"Room {room.code} dissolved - no human participants remain")
+        
         await self.db.commit()
 
         logger.info(f"Player {player_id} left room {room.code}")
+
+    async def transfer_ownership(self, room_id: str, leaving_owner_id: str) -> Player | None:
+        """Transfer room ownership when owner leaves.
+        
+        Args:
+            room_id: Game room ID
+            leaving_owner_id: ID of the player who is leaving/was owner
+            
+        Returns:
+            New owner Player object, or None if room should be dissolved
+        """
+        # Get earliest human participant (excluding the leaving owner)
+        result = await self.db.execute(
+            select(GameRoomParticipant)
+            .where(
+                GameRoomParticipant.game_room_id == room_id,
+                GameRoomParticipant.is_ai_agent == False,  # noqa: E712
+                GameRoomParticipant.left_at == None,  # noqa: E711
+                GameRoomParticipant.player_id != leaving_owner_id  # Exclude leaving owner
+            )
+            .order_by(GameRoomParticipant.join_timestamp.asc())
+            .limit(1)
+        )
+        new_owner_participant = result.scalar_one_or_none()
+        
+        # If no humans remain, dissolve the room
+        if new_owner_participant is None:
+            await self.dissolve_room(room_id)
+            return None
+        
+        # Update old owner's is_owner flag
+        result = await self.db.execute(
+            select(GameRoomParticipant)
+            .where(
+                GameRoomParticipant.game_room_id == room_id,
+                GameRoomParticipant.player_id == leaving_owner_id
+            )
+        )
+        old_owner_participant = result.scalar_one_or_none()
+        if old_owner_participant:
+            old_owner_participant.is_owner = False
+        
+        # Update new owner's is_owner flag
+        new_owner_participant.is_owner = True
+        
+        # Update room's owner_id
+        result = await self.db.execute(
+            select(GameRoom).where(GameRoom.id == room_id)
+        )
+        room = result.scalar_one_or_none()
+        if room:
+            room.owner_id = new_owner_participant.player_id
+        
+        await self.db.commit()
+        
+        # Return new owner Player
+        if new_owner_participant.player_id:
+            result = await self.db.execute(
+                select(Player).where(Player.id == new_owner_participant.player_id)
+            )
+            return result.scalar_one_or_none()
+        
+        return None
+
+    async def dissolve_room(self, room_id: str) -> None:
+        """Dissolve a room (mark as dissolved when no humans remain).
+        
+        Args:
+            room_id: Game room ID
+        """
+        result = await self.db.execute(
+            select(GameRoom).where(GameRoom.id == room_id)
+        )
+        room = result.scalar_one_or_none()
+        
+        if room:
+            room.status = "Dissolved"
+            await self.db.commit()
+            logger.info(f"Room {room.code} dissolved - no human players remaining")
+
+    async def create_ai_agent(self, room_id: str) -> Player:
+        """Create an AI agent for a room.
+        
+        Args:
+            room_id: Game room ID
+            
+        Returns:
+            Created AI Player
+        """
+        # Get room
+        result = await self.db.execute(
+            select(GameRoom).where(GameRoom.id == room_id)
+        )
+        room = result.scalar_one_or_none()
+        
+        if not room:
+            raise NotFoundError(f"Room with ID '{room_id}' not found")
+        
+        # Generate AI name using room's counter
+        ai_name = room.increment_ai_counter()
+        
+        # Create AI player (marked as guest for auto-cleanup)
+        ai_player = Player(
+            username=ai_name,
+            is_guest=True  # AI players are treated as guests
+        )
+        self.db.add(ai_player)
+        await self.db.flush()  # Get player ID
+        
+        # Add as participant
+        participant = GameRoomParticipant(
+            game_room_id=room.id,
+            player_id=ai_player.id,
+            is_ai_agent=True,
+            is_owner=False,
+            joined_at=datetime.utcnow(),
+            join_timestamp=datetime.utcnow(),
+            replaced_by_ai=False
+        )
+        self.db.add(participant)
+        
+        # Update room participant count
+        room.current_participant_count += 1
+        
+        await self.db.commit()
+        await self.db.refresh(ai_player)
+        
+        logger.info(f"Created AI agent '{ai_name}' for room {room.code}")
+        return ai_player
+
+    async def remove_ai_agent(self, room_code: str, agent_id: str, owner_player_id: str) -> None:
+        """Remove an AI agent from a room.
+        
+        Args:
+            room_code: Game room code
+            agent_id: AI agent player ID to remove
+            owner_player_id: ID of the player requesting removal (must be owner)
+            
+        Raises:
+            NotFoundError: Room or AI agent not found
+            ForbiddenError: Requester is not room owner
+            GameAlreadyStartedError: Cannot remove after game starts
+            BadRequestError: Agent is not an AI agent
+        """
+        # Expire cache to ensure fresh data
+        self.db.expire_all()
+        
+        room = await self.get_room(room_code)
+        
+        # Validate owner
+        if room.owner_id != owner_player_id:
+            raise ForbiddenError("Only room owner can remove AI agents")
+        
+        # Validate room status
+        if room.status != "Waiting":
+            raise GameAlreadyStartedError("Cannot remove AI agents after game starts")
+        
+        # Find AI agent participant
+        ai_participant = None
+        for p in room.participants:
+            if p.player_id == agent_id and p.is_active():
+                ai_participant = p
+                break
+        
+        if not ai_participant:
+            raise NotFoundError(f"AI agent '{agent_id}' not found in room")
+        
+        if not ai_participant.is_ai_agent:
+            raise BadRequestError("Cannot remove human players via AI agent endpoint")
+        
+        # Remove participant (soft delete)
+        ai_participant.leave()
+        
+        # Decrement count
+        room.current_participant_count -= 1
+        
+        await self.db.commit()
+        
+        logger.info(f"Removed AI agent {agent_id} from room {room.code}")
 
     async def start_game(self, room_code: str, player_id: str) -> GameRoom:
         """Start the game (creator only)."""

@@ -111,6 +111,26 @@ export const roomsApi = {
   async startGame(roomCode) {
     const response = await apiClient.post(`/rooms/${roomCode}/start`)
     return response.data
+  },
+
+  /**
+   * Add an AI agent to the room (owner only)
+   * @param {string} roomCode - Room code
+   * @returns {Promise<Object>} Created AI agent data
+   */
+  async addAIAgent(roomCode) {
+    const response = await apiClient.post(`/rooms/${roomCode}/ai-agents`)
+    return response.data
+  },
+
+  /**
+   * Remove an AI agent from the room (owner only)
+   * @param {string} roomCode - Room code
+   * @param {string} agentId - AI agent ID to remove
+   * @returns {Promise<void>}
+   */
+  async removeAIAgent(roomCode, agentId) {
+    await apiClient.delete(`/rooms/${roomCode}/ai-agents/${agentId}`)
   }
 }
 

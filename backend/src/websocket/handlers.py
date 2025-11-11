@@ -285,6 +285,102 @@ async def join_room(sid: str, data: dict, callback=None):
 
 
 @sio.event
+async def join_lobby(sid: str, data: dict, callback=None):
+    """
+    Handle player joining a lobby room for real-time updates.
+    Validates room exists and player is a participant before subscribing.
+    
+    Args:
+        sid: Socket session ID
+        data: {"room_code": str, "player_id": str}
+        callback: Optional callback function
+    """
+    try:
+        room_code = data.get("room_code")
+        player_id = data.get("player_id")
+        
+        if not room_code or not player_id:
+            await sio.emit(
+                "error",
+                {"message": "room_code and player_id are required"},
+                room=sid
+            )
+            return
+        
+        # Validate room exists and player is a participant
+        from src.database import get_db
+        
+        async for db in get_db():
+            try:
+                # Check room exists
+                room_result = await db.execute(
+                    select(GameRoom)
+                    .where(GameRoom.code == room_code)
+                )
+                room = room_result.scalar_one_or_none()
+                
+                if not room:
+                    await sio.emit(
+                        "error",
+                        {"message": "Room not found"},
+                        room=sid
+                    )
+                    return
+                
+                # Check player is participant in room
+                participant_result = await db.execute(
+                    select(GameRoomParticipant)
+                    .where(
+                        GameRoomParticipant.game_room_id == room.id,
+                        GameRoomParticipant.player_id == player_id,
+                        GameRoomParticipant.left_at.is_(None)  # Active participant
+                    )
+                )
+                participant = participant_result.scalar_one_or_none()
+                
+                if not participant:
+                    await sio.emit(
+                        "error",
+                        {"message": "You are not a participant in this room"},
+                        room=sid
+                    )
+                    return
+                
+                # Subscribe to lobby room
+                await sio.enter_room(sid, room_code)
+                logger.info(f"Player {player_id} subscribed to lobby:{room_code}")
+                
+                # Send confirmation
+                await sio.emit(
+                    "lobby_joined",
+                    {
+                        "room_code": room_code,
+                        "player_id": player_id,
+                        "message": "Successfully subscribed to lobby updates"
+                    },
+                    room=sid
+                )
+                
+            except Exception as e:
+                logger.error(f"Error validating lobby join: {e}")
+                await sio.emit(
+                    "error",
+                    {"message": f"Failed to join lobby: {str(e)}"},
+                    room=sid
+                )
+            finally:
+                break
+        
+    except Exception as e:
+        logger.error(f"Error in join_lobby: {e}")
+        await sio.emit(
+            "error",
+            {"message": f"Failed to join lobby: {str(e)}"},
+            room=sid
+        )
+
+
+@sio.event
 async def leave_room(sid: str, data: dict, callback=None):
     """
     Handle player leaving a room via WebSocket.
@@ -331,6 +427,52 @@ async def leave_room(sid: str, data: dict, callback=None):
         await sio.emit(
             "error",
             {"message": f"Failed to leave room: {str(e)}"},
+            room=sid
+        )
+
+
+@sio.event
+async def leave_lobby(sid: str, data: dict, callback=None):
+    """
+    Handle player leaving a lobby room (unsubscribe from real-time updates).
+    
+    Args:
+        sid: Socket session ID
+        data: {"room_code": str, "player_id": str}
+        callback: Optional callback function
+    """
+    try:
+        room_code = data.get("room_code")
+        player_id = data.get("player_id")
+        
+        if not room_code:
+            await sio.emit(
+                "error",
+                {"message": "room_code is required"},
+                room=sid
+            )
+            return
+        
+        # Unsubscribe from lobby room
+        await sio.leave_room(sid, room_code)
+        logger.info(f"Player {player_id} unsubscribed from lobby:{room_code}")
+        
+        # Send confirmation
+        await sio.emit(
+            "lobby_left",
+            {
+                "room_code": room_code,
+                "player_id": player_id,
+                "message": "Successfully unsubscribed from lobby updates"
+            },
+            room=sid
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in leave_lobby: {e}")
+        await sio.emit(
+            "error",
+            {"message": f"Failed to leave lobby: {str(e)}"},
             room=sid
         )
 
@@ -563,6 +705,123 @@ async def broadcast_player_left(
         
     except Exception as e:
         logger.error(f"Error broadcasting player_left: {e}")
+
+
+async def broadcast_ownership_transferred(
+    room_code: str,
+    old_owner_id: str,
+    new_owner_id: str,
+    new_owner_name: str | None = None
+):
+    """
+    Broadcast ownership transfer event to all room participants.
+    
+    Args:
+        room_code: Room code to broadcast to
+        old_owner_id: ID of previous owner
+        new_owner_id: ID of new owner
+        new_owner_name: Name of new owner
+    """
+    try:
+        await sio.emit(
+            "ownership_transferred",
+            {
+                "room_code": room_code,
+                "old_owner_id": old_owner_id,
+                "new_owner_id": new_owner_id,
+                "new_owner_name": new_owner_name,
+                "message": f"Room ownership transferred to {new_owner_name or new_owner_id}"
+            },
+            room=room_code
+        )
+        logger.info(f"Broadcasted ownership_transferred for room {room_code}, new owner {new_owner_id}")
+        
+    except Exception as e:
+        logger.error(f"Error broadcasting ownership_transferred: {e}")
+
+
+async def broadcast_room_dissolved(
+    room_code: str,
+    reason: str = "No human participants remain"
+):
+    """
+    Broadcast room dissolution event to all participants.
+    
+    Args:
+        room_code: Room code to broadcast to
+        reason: Reason for dissolution
+    """
+    try:
+        await sio.emit(
+            "room_dissolved",
+            {
+                "room_code": room_code,
+                "reason": reason,
+                "message": f"Room {room_code} has been dissolved: {reason}"
+            },
+            room=room_code
+        )
+        logger.info(f"Broadcasted room_dissolved for room {room_code}: {reason}")
+        
+    except Exception as e:
+        logger.error(f"Error broadcasting room_dissolved: {e}")
+
+
+async def broadcast_ai_agent_added(
+    room_code: str,
+    ai_data: dict[str, Any]
+):
+    """
+    Broadcast AI agent addition to all room participants.
+    
+    Args:
+        room_code: Room code to broadcast to
+        ai_data: AI agent information
+    """
+    try:
+        await sio.emit(
+            "ai_agent_added",
+            {
+                "room_code": room_code,
+                "ai_agent": ai_data,
+                "message": f"AI agent {ai_data.get('username')} added to room"
+            },
+            room=room_code
+        )
+        logger.info(f"Broadcasted ai_agent_added for room {room_code}")
+        
+    except Exception as e:
+        logger.error(f"Error broadcasting ai_agent_added: {e}")
+
+
+async def broadcast_ai_agent_removed(
+    room_code: str,
+    ai_agent_id: str,
+    ai_agent_name: str | None = None
+):
+    """
+    Broadcast AI agent removal to all room participants.
+    
+    Args:
+        room_code: Room code to broadcast to
+        ai_agent_id: ID of removed AI agent
+        ai_agent_name: Name of removed AI agent
+    """
+    try:
+        await sio.emit(
+            "ai_agent_removed",
+            {
+                "room_code": room_code,
+                "ai_agent_id": ai_agent_id,
+                "ai_agent_name": ai_agent_name,
+                "message": f"AI agent {ai_agent_name or ai_agent_id} removed from room"
+            },
+            room=room_code
+        )
+        logger.info(f"Broadcasted ai_agent_removed for room {room_code}")
+        
+    except Exception as e:
+        logger.error(f"Error broadcasting ai_agent_removed: {e}")
 
 
 async def broadcast_game_started(
