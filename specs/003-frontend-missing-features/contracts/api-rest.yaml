@@ -1,0 +1,415 @@
+openapi: 3.1.0
+info:
+  title: VBRPG Platform API - Frontend Missing Features
+  description: REST API contracts for user registration, player profiles, and room management
+  version: 1.0.0
+  contact:
+    name: VBRPG Development Team
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+tags:
+  - name: players
+    description: Player account and profile management
+  - name: rooms
+    description: Game room listing and filtering
+
+paths:
+  /api/v1/players/register:
+    post:
+      operationId: registerPlayer
+      summary: Register a new player account
+      description: |
+        Upgrade guest account to full registered account with username, email, and password.
+        Converts existing guest player to permanent account (FR-001).
+      tags:
+        - players
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - email
+                - password
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 20
+                  pattern: ^[a-zA-Z0-9_\u4e00-\u9fa5]+$
+                  description: Display name (alphanumeric, underscore, Chinese characters)
+                  example: "玩家123"
+                email:
+                  type: string
+                  format: email
+                  description: Unique email address
+                  example: "player@example.com"
+                password:
+                  type: string
+                  minLength: 8
+                  description: Password (minimum 8 characters, no complexity requirements)
+                  example: "password123"
+      responses:
+        '201':
+          description: Player registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisteredPlayer'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "用户名已被使用"
+        '409':
+          description: Username or email already exists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "邮箱已被使用"
+        '500':
+          description: Server error
+
+  /api/v1/players/{player_id}:
+    get:
+      operationId: getPlayerProfile
+      summary: Get player public profile
+      description: |
+        Retrieve public profile information for any player (FR-006).
+        Excludes private data like email address.
+      tags:
+        - players
+      parameters:
+        - name: player_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Player unique ID
+      responses:
+        '200':
+          description: Player profile retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicProfile'
+        '404':
+          description: Player not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Player not found"
+
+  /api/v1/players/me:
+    get:
+      operationId: getCurrentPlayer
+      summary: Get current authenticated player
+      description: |
+        Retrieve full profile of currently logged-in player (FR-007).
+        Includes private information like email.
+      tags:
+        - players
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Current player profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisteredPlayer'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Not authenticated"
+
+  /api/v1/rooms:
+    get:
+      operationId: listRooms
+      summary: List game rooms with filters
+      description: |
+        Retrieve list of game rooms with optional filtering by status and game type (FR-009, FR-010, FR-011).
+        Supports pagination and combining multiple filters.
+      tags:
+        - rooms
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - Waiting
+              - In Progress
+              - Completed
+          description: Filter by room status
+          example: "Waiting"
+        - name: game_type
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by game type
+          example: "Crime Scene"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Maximum number of results
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Pagination offset
+      responses:
+        '200':
+          description: Room list retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rooms:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RoomListItem'
+                  total:
+                    type: integer
+                    description: Total number of rooms matching filters
+                    example: 42
+        '400':
+          description: Invalid filter parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Invalid status value"
+
+  /api/v1/rooms/{room_code}/leave:
+    delete:
+      operationId: leaveRoom
+      summary: Leave a game room
+      description: |
+        Remove current player from specified room (FR-014).
+        Corrected endpoint uses DELETE method instead of POST.
+      tags:
+        - rooms
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: room_code
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^[A-Z0-9]{6}$
+          description: 6-character room code
+          example: "ABC123"
+      responses:
+        '204':
+          description: Successfully left room (no content)
+        '404':
+          description: Room not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Room not found"
+        '403':
+          description: Player not in room
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "You are not in this room"
+
+components:
+  schemas:
+    RegisteredPlayer:
+      type: object
+      required:
+        - id
+        - username
+        - email
+        - is_guest
+        - created_at
+        - total_games
+        - total_wins
+        - win_rate
+      properties:
+        id:
+          type: integer
+          description: Unique player ID
+          example: 1
+        username:
+          type: string
+          description: Display name
+          example: "玩家123"
+        email:
+          type: string
+          format: email
+          description: Email address (private)
+          example: "player@example.com"
+        is_guest:
+          type: boolean
+          description: Guest account flag (always false for registered)
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          description: Registration timestamp
+          example: "2025-11-12T10:30:00Z"
+        total_games:
+          type: integer
+          minimum: 0
+          description: Total games participated
+          example: 15
+        total_wins:
+          type: integer
+          minimum: 0
+          description: Total games won
+          example: 8
+        win_rate:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Win percentage (wins / games)
+          example: 0.533
+
+    PublicProfile:
+      type: object
+      required:
+        - id
+        - username
+        - created_at
+        - total_games
+        - total_wins
+        - win_rate
+      properties:
+        id:
+          type: integer
+          description: Unique player ID
+          example: 1
+        username:
+          type: string
+          description: Display name
+          example: "玩家123"
+        created_at:
+          type: string
+          format: date-time
+          description: Registration timestamp
+          example: "2025-11-12T10:30:00Z"
+        total_games:
+          type: integer
+          minimum: 0
+          description: Total games participated
+          example: 15
+        total_wins:
+          type: integer
+          minimum: 0
+          description: Total games won
+          example: 8
+        win_rate:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Win percentage (wins / games)
+          example: 0.533
+
+    RoomListItem:
+      type: object
+      required:
+        - room_code
+        - game_type
+        - status
+        - current_players
+        - max_players
+        - owner_username
+        - created_at
+      properties:
+        room_code:
+          type: string
+          pattern: ^[A-Z0-9]{6}$
+          description: 6-character room code
+          example: "ABC123"
+        game_type:
+          type: string
+          description: Game type name
+          example: "Crime Scene"
+        status:
+          type: string
+          enum:
+            - Waiting
+            - In Progress
+            - Completed
+          description: Current room status
+          example: "Waiting"
+        current_players:
+          type: integer
+          minimum: 0
+          description: Number of players currently in room
+          example: 3
+        max_players:
+          type: integer
+          minimum: 1
+          description: Maximum player capacity
+          example: 5
+        owner_username:
+          type: string
+          description: Room owner display name
+          example: "房主123"
+        created_at:
+          type: string
+          format: date-time
+          description: Room creation timestamp
+          example: "2025-11-12T11:00:00Z"
+
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session_id
+      description: Session cookie set by backend after guest/login
