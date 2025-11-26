@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
@@ -33,7 +33,7 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
         db_status = "healthy"
     except Exception as e:
         db_status = f"unhealthy: {str(e)}"
-    
+
     return {
         "status": "healthy" if db_status == "healthy" else "degraded",
         "timestamp": datetime.utcnow().isoformat(),
@@ -56,33 +56,33 @@ async def get_metrics(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     )
     active_games_result = await db.execute(active_games_query)
     active_games = active_games_result.scalar() or 0
-    
+
     # Count waiting rooms
     waiting_rooms_query = select(func.count(GameRoom.id)).where(
         GameRoom.status == "waiting"
     )
     waiting_rooms_result = await db.execute(waiting_rooms_query)
     waiting_rooms = waiting_rooms_result.scalar() or 0
-    
+
     # Count total players
     total_players_query = select(func.count(Player.id))
     total_players_result = await db.execute(total_players_query)
     total_players = total_players_result.scalar() or 0
-    
+
     # Count guest players
     guest_players_query = select(func.count(Player.id)).where(
         Player.is_guest == True
     )
     guest_players_result = await db.execute(guest_players_query)
     guest_players = guest_players_result.scalar() or 0
-    
+
     # Count completed games (last 24h would require timestamp filtering)
     completed_games_query = select(func.count(GameRoom.id)).where(
         GameRoom.status == "completed"
     )
     completed_games_result = await db.execute(completed_games_query)
     completed_games = completed_games_result.scalar() or 0
-    
+
     # Format as Prometheus metrics
     metrics = f"""# HELP active_games Number of active game sessions
 # TYPE active_games gauge
@@ -108,7 +108,7 @@ completed_games_total {completed_games}
 # TYPE uptime_seconds counter
 uptime_seconds {int(time.time() - START_TIME)}
 """
-    
+
     return {
         "metrics": metrics,
         "timestamp": datetime.utcnow().isoformat()
@@ -128,36 +128,36 @@ async def get_metrics_json(db: AsyncSession = Depends(get_db)) -> dict[str, Any]
     )
     active_games_result = await db.execute(active_games_query)
     active_games = active_games_result.scalar() or 0
-    
+
     # Count waiting rooms
     waiting_rooms_query = select(func.count(GameRoom.id)).where(
         GameRoom.status == "waiting"
     )
     waiting_rooms_result = await db.execute(waiting_rooms_query)
     waiting_rooms = waiting_rooms_result.scalar() or 0
-    
+
     # Count total players
     total_players_query = select(func.count(Player.id))
     total_players_result = await db.execute(total_players_query)
     total_players = total_players_result.scalar() or 0
-    
+
     # Count guest players
     guest_players_query = select(func.count(Player.id)).where(
         Player.is_guest == True
     )
     guest_players_result = await db.execute(guest_players_query)
     guest_players = guest_players_result.scalar() or 0
-    
+
     # Count registered players
     registered_players = total_players - guest_players
-    
+
     # Count completed games
     completed_games_query = select(func.count(GameRoom.id)).where(
         GameRoom.status == "completed"
     )
     completed_games_result = await db.execute(completed_games_query)
     completed_games = completed_games_result.scalar() or 0
-    
+
     return {
         "timestamp": datetime.utcnow().isoformat(),
         "uptime_seconds": int(time.time() - START_TIME),
@@ -184,7 +184,7 @@ async def readiness_check(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     try:
         # Check database is responsive
         await db.execute(select(1))
-        
+
         return {
             "ready": True,
             "timestamp": datetime.utcnow().isoformat()

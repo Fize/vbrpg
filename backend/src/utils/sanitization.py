@@ -6,7 +6,6 @@ import html
 import re
 from typing import Any
 
-
 # Patterns for dangerous content
 SQL_INJECTION_PATTERN = re.compile(
     r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION|TABLE)\b)|"
@@ -31,26 +30,26 @@ def sanitize_text(text: str, max_length: int = 1000) -> str:
     """
     if not text:
         return ""
-    
+
     # Trim whitespace
     text = text.strip()
-    
+
     # Enforce max length
     if len(text) > max_length:
         text = text[:max_length]
-    
+
     # Remove script tags first
     text = SCRIPT_TAG_PATTERN.sub("", text)
-    
+
     # Remove event handlers
     text = EVENT_HANDLER_PATTERN.sub("", text)
-    
+
     # Remove javascript: protocol
     text = JAVASCRIPT_PROTOCOL.sub("", text)
-    
+
     # HTML escape to prevent XSS
     text = html.escape(text)
-    
+
     return text
 
 
@@ -65,18 +64,18 @@ def sanitize_username(username: str) -> str:
     """
     if not username:
         return ""
-    
+
     # Trim and limit length
     username = username.strip()[:20]
-    
+
     # Remove any SQL injection attempts
     if SQL_INJECTION_PATTERN.search(username):
         # Strip out dangerous patterns
         username = SQL_INJECTION_PATTERN.sub("", username)
-    
+
     # HTML escape
     username = html.escape(username)
-    
+
     return username
 
 
@@ -91,10 +90,10 @@ def sanitize_room_code(room_code: str) -> str:
     """
     if not room_code:
         return ""
-    
+
     # Keep only alphanumeric, convert to uppercase
     room_code = re.sub(r'[^A-Z0-9]', '', room_code.upper())
-    
+
     # Limit to 6 characters
     return room_code[:6]
 
@@ -110,9 +109,9 @@ def sanitize_action_content(action: dict[str, Any]) -> dict[str, Any]:
     """
     if not isinstance(action, dict):
         return action
-    
+
     sanitized = {}
-    
+
     for key, value in action.items():
         if isinstance(value, str):
             # Sanitize string values
@@ -129,7 +128,7 @@ def sanitize_action_content(action: dict[str, Any]) -> dict[str, Any]:
         else:
             # Keep other types as-is
             sanitized[key] = value
-    
+
     return sanitized
 
 
@@ -144,26 +143,26 @@ def sanitize_chat_message(message: str) -> str:
     """
     if not message:
         return ""
-    
+
     # Trim and limit length (chat messages can be longer)
     message = message.strip()
     if len(message) > 500:
         message = message[:500]
-    
+
     # Remove script tags and event handlers first
     message = SCRIPT_TAG_PATTERN.sub("", message)
     message = EVENT_HANDLER_PATTERN.sub("", message)
     message = JAVASCRIPT_PROTOCOL.sub("", message)
-    
+
     # HTML escape
     message = html.escape(message)
-    
+
     # Check for SQL injection patterns (log warning but allow)
     if SQL_INJECTION_PATTERN.search(message):
         import logging
         logger = logging.getLogger(__name__)
         logger.warning(f"Potential SQL injection in chat message: {message[:100]}")
-    
+
     return message
 
 
@@ -178,21 +177,21 @@ def check_for_injection(text: str) -> bool:
     """
     if not text:
         return False
-    
+
     # Check for SQL injection
     if SQL_INJECTION_PATTERN.search(text):
         return True
-    
+
     # Check for script tags
     if SCRIPT_TAG_PATTERN.search(text):
         return True
-    
+
     # Check for event handlers
     if EVENT_HANDLER_PATTERN.search(text):
         return True
-    
+
     # Check for javascript protocol
     if JAVASCRIPT_PROTOCOL.search(text):
         return True
-    
+
     return False

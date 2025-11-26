@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import socketio
 
 from src.database import init_db
-from src.utils.config import settings
+from src.utils.config import settings, SessionMiddleware, session_security, HealthResponse
 from src.utils.logging_config import setup_logging
 from src.websocket.server import sio
 
@@ -27,9 +27,9 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="AI-Powered Tabletop Game Platform",
-    description="Backend API for multiplayer tabletop games with AI agents",
-    version="0.1.0",
+    title="Single-User Tabletop Game Platform",
+    description="Backend API for single-user tabletop games with AI agents",
+    version="1.0.0",
     lifespan=lifespan
 )
 
@@ -43,35 +43,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add session middleware
+app.add_middleware(SessionMiddleware)
 
-@app.get("/health")
+
+@app.get("/api/v1/health", response_model=HealthResponse, tags=["System"])
 async def health_check():
     """Health check endpoint."""
-    from datetime import datetime
-    return {
-        "status": "healthy",
-        "environment": settings.ENVIRONMENT,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    return HealthResponse()
 
 
-@app.get("/")
+@app.get("/", tags=["System"])
 async def root():
     """Root endpoint."""
     return {
-        "message": "AI-Powered Tabletop Game Platform API",
-        "version": "0.1.0",
+        "message": "Single-User Tabletop Game Platform API",
+        "version": "1.0.0",
         "docs": "/docs"
     }
 
 
-# Import and include routers
-from src.api import rooms, games, players, monitoring
+# Import and include merged API routers
+from src.api import sessions
 
-app.include_router(rooms.router)
-app.include_router(games.router)
-app.include_router(players.router)
-app.include_router(monitoring.router)
+# Include new single-user focused routers
+app.include_router(sessions.router)
+
+# Legacy routers for backward compatibility (will be removed later)
+try:
+    from src.api import rooms, games, players, monitoring
+    app.include_router(rooms.router)
+    app.include_router(games.router)
+    app.include_router(players.router)
+    app.include_router(monitoring.router)
+except ImportError:
+    # Ignore if legacy modules are removed
+    pass
 
 # Mount Socket.IO app
 socket_app = socketio.ASGIApp(sio, app)

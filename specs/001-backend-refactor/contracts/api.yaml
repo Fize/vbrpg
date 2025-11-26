@@ -1,0 +1,639 @@
+openapi: 3.0.3
+info:
+  title: Single User Game API
+  description: 简化的单用户游戏平台API，专注于与AI对手的游戏体验
+  version: 1.0.0
+  contact:
+    name: API Support
+
+servers:
+  - url: http://localhost:8000
+    description: 本地开发服务器
+
+paths:
+  /api/v1/health:
+    get:
+      summary: 健康检查
+      description: 检查API服务状态
+      tags:
+        - System
+      responses:
+        '200':
+          description: 服务正常
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /api/v1/sessions:
+    post:
+      summary: 创建新会话
+      description: 为当前用户创建新的游戏会话
+      tags:
+        - Session
+      responses:
+        '201':
+          description: 会话创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+
+  /api/v1/sessions/{sessionId}:
+    get:
+      summary: 获取会话信息
+      description: 获取指定会话的详细信息
+      tags:
+        - Session
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 会话信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/rooms:
+    post:
+      summary: 创建游戏房间
+      description: 创建新的游戏房间，支持单用户游戏
+      tags:
+        - Game Rooms
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoomRequest'
+      responses:
+        '201':
+          description: 房间创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameRoom'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    get:
+      summary: 获取房间列表
+      description: 获取当前会话的房间列表
+      tags:
+        - Game Rooms
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [Waiting, In Progress, Completed]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: 房间列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomListResponse'
+
+  /api/v1/rooms/{roomCode}:
+    get:
+      summary: 获取房间详情
+      description: 根据房间代码获取房间详细信息
+      tags:
+        - Game Rooms
+      parameters:
+        - name: roomCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 房间详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameRoom'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      summary: 删除房间
+      description: 删除指定房间（仅限Waiting状态）
+      tags:
+        - Game Rooms
+      parameters:
+        - name: roomCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 房间删除成功
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 房间状态不允许删除
+
+  /api/v1/rooms/{roomCode}/join:
+    post:
+      summary: 加入房间
+      description: 当前会话加入指定房间
+      tags:
+        - Game Rooms
+      parameters:
+        - name: roomCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 加入成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRoomResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 房间状态不允许加入
+
+  /api/v1/rooms/{roomCode}/leave:
+    post:
+      summary: 离开房间
+      description: 当前会话离开指定房间
+      tags:
+        - Game Rooms
+      parameters:
+        - name: roomCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 离开成功
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/rooms/{roomCode}/ai-agents:
+    post:
+      summary: 添加AI代理
+      description: 向房间添加AI代理
+      tags:
+        - AI Agents
+      parameters:
+        - name: roomCode
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddAIRequest'
+      responses:
+        '201':
+          description: AI代理添加成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAgent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 房间状态不允许添加AI或AI数量已达上限
+
+    get:
+      summary: 获取房间AI代理列表
+      description: 获取房间中所有AI代理
+      tags:
+        - AI Agents
+      parameters:
+        - name: roomCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: AI代理列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AIAgent'
+
+  /api/v1/rooms/{roomCode}/ai-agents/{agentId}:
+    delete:
+      summary: 移除AI代理
+      description: 从房间中移除指定AI代理
+      tags:
+        - AI Agents
+      parameters:
+        - name: roomCode
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: AI代理移除成功
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 房间状态不允许移除AI
+
+  /api/v1/rooms/{roomCode}/start:
+    post:
+      summary: 开始游戏
+      description: 开始房间中的游戏
+      tags:
+        - Game Rooms
+      parameters:
+        - name: roomCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 游戏开始成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameRoom'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 房间状态不允许开始游戏
+
+  /api/v1/rooms/{roomCode}/watch:
+    post:
+      summary: 旁观模式
+      description: 创建AI对战房间用于旁观
+      tags:
+        - Game Rooms
+      parameters:
+        - name: roomCode
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WatchModeRequest'
+      responses:
+        '201':
+          description: 旁观房间创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameRoom'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/game-types:
+    get:
+      summary: 获取游戏类型列表
+      description: 获取所有可用的游戏类型
+      tags:
+        - Game Types
+      responses:
+        '200':
+          description: 游戏类型列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GameType'
+
+  /api/v1/sessions/{sessionId}/history:
+    get:
+      summary: 获取游戏历史
+      description: 获取会话的游戏历史记录
+      tags:
+        - Session
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: 游戏历史
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GameSession'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_active:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateRoomRequest:
+      type: object
+      required:
+        - game_type_slug
+      properties:
+        game_type_slug:
+          type: string
+          description: 游戏类型标识符
+        max_players:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 4
+        min_players:
+          type: integer
+          minimum: 1
+          default: 2
+
+    GameRoom:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        status:
+          type: string
+          enum: [Waiting, In Progress, Completed]
+        max_players:
+          type: integer
+        min_players:
+          type: integer
+        current_player_count:
+          type: integer
+        game_type:
+          $ref: '#/components/schemas/GameType'
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/Participant'
+
+    RoomListResponse:
+      type: object
+      properties:
+        rooms:
+          type: array
+          items:
+            $ref: '#/components/schemas/GameRoom'
+        total:
+          type: integer
+
+    JoinRoomResponse:
+      type: object
+      properties:
+        room:
+          $ref: '#/components/schemas/GameRoom'
+        is_participant:
+          type: boolean
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/Participant'
+
+    Participant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        is_ai_agent:
+          type: boolean
+        ai_personality:
+          type: string
+          nullable: true
+        joined_at:
+          type: string
+          format: date-time
+        left_at:
+          type: string
+          format: date-time
+          nullable: true
+        session:
+          $ref: '#/components/schemas/Session'
+          nullable: true
+        ai_agent:
+          $ref: '#/components/schemas/AIAgent'
+          nullable: true
+
+    AddAIRequest:
+      type: object
+      required:
+        - personality_type
+        - difficulty_level
+      properties:
+        personality_type:
+          type: string
+          enum: [aggressive, defensive, balanced]
+        difficulty_level:
+          type: integer
+          minimum: 1
+          maximum: 5
+
+    AIAgent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        personality_type:
+          type: string
+        difficulty_level:
+          type: integer
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    WatchModeRequest:
+      type: object
+      required:
+        - game_type_slug
+      properties:
+        game_type_slug:
+          type: string
+        ai_count:
+          type: integer
+          minimum: 2
+          maximum: 8
+          default: 2
+        ai_personalities:
+          type: array
+          items:
+            type: string
+          description: AI性格类型列表，长度需与ai_count一致
+        ai_difficulties:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+            maximum: 5
+          description: AI难度等级列表，长度需与ai_count一致
+
+    GameType:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        max_ai_opponents:
+          type: integer
+        min_ai_opponents:
+          type: integer
+
+    GameSession:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        game_type:
+          $ref: '#/components/schemas/GameType'
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        duration_minutes:
+          type: integer
+        user_won:
+          type: boolean
+        final_score:
+          type: integer
+          nullable: true
+        participants_count:
+          type: integer
+        ai_agents_count:
+          type: integer
+
+  responses:
+    NotFound:
+      description: 资源未找到
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+
+    BadRequest:
+      description: 请求参数错误
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+              details:
+                type: object
+
+tags:
+  - name: Session
+    description: 用户会话管理
+  - name: Game Rooms
+    description: 游戏房间管理
+  - name: AI Agents
+    description: AI代理管理
+  - name: Game Types
+    description: 游戏类型管理
+  - name: System
+    description: 系统接口
