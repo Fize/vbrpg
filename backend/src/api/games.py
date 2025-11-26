@@ -1,15 +1,14 @@
 """Games API endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from typing import List
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.api.schemas import GameTypeResponse
 from src.database import get_db
 from src.models.game_type import GameType
-from src.api.schemas import GameTypeResponse
-from src.utils.errors import NotFoundError
-
 
 router = APIRouter(prefix="/api/v1/games", tags=["games"])
 
@@ -29,13 +28,13 @@ async def list_games(
         List of game types with details
     """
     query = select(GameType)
-    
+
     if available_only:
         query = query.where(GameType.is_available == True)
-    
+
     result = await db.execute(query)
     games = result.scalars().all()
-    
+
     return [GameTypeResponse.from_orm(game) for game in games]
 
 
@@ -59,8 +58,8 @@ async def get_game_details(
     query = select(GameType).where(GameType.slug == slug)
     result = await db.execute(query)
     game = result.scalar_one_or_none()
-    
+
     if not game:
         raise HTTPException(status_code=404, detail=f"Game '{slug}' not found")
-    
+
     return GameTypeResponse.from_orm(game)

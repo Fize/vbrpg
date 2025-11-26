@@ -6,12 +6,12 @@ import time
 from collections import defaultdict
 from typing import Optional
 
-from fastapi import Request, HTTPException, status
+from fastapi import HTTPException, Request, status
 
 
 class RateLimiter:
     """Token bucket rate limiter."""
-    
+
     def __init__(
         self,
         requests_per_minute: int = 60,
@@ -29,7 +29,7 @@ class RateLimiter:
             "tokens": self.burst_size,
             "last_update": time.time()
         })
-    
+
     def _get_client_id(self, request: Request) -> str:
         """Get client identifier from request.
         
@@ -42,14 +42,14 @@ class RateLimiter:
         # Try to get user ID from session
         if hasattr(request.state, "player_id"):
             return f"user_{request.state.player_id}"
-        
+
         # Fall back to IP address
         if request.client:
             return f"ip_{request.client.host}"
-        
+
         # Default fallback
         return "anonymous"
-    
+
     def _refill_bucket(self, bucket: dict) -> None:
         """Refill bucket based on elapsed time.
         
@@ -58,14 +58,14 @@ class RateLimiter:
         """
         now = time.time()
         elapsed = now - bucket["last_update"]
-        
+
         # Add tokens based on elapsed time
         bucket["tokens"] = min(
             self.burst_size,
             bucket["tokens"] + elapsed * self.rate
         )
         bucket["last_update"] = now
-    
+
     def check_limit(self, request: Request) -> bool:
         """Check if request is within rate limit.
         
@@ -77,17 +77,17 @@ class RateLimiter:
         """
         client_id = self._get_client_id(request)
         bucket = self.buckets[client_id]
-        
+
         # Refill bucket
         self._refill_bucket(bucket)
-        
+
         # Check if tokens available
         if bucket["tokens"] >= 1:
             bucket["tokens"] -= 1
             return True
-        
+
         return False
-    
+
     def get_retry_after(self, request: Request) -> int:
         """Get retry-after time in seconds.
         
@@ -99,14 +99,14 @@ class RateLimiter:
         """
         client_id = self._get_client_id(request)
         bucket = self.buckets[client_id]
-        
+
         # Calculate time until 1 token available
         tokens_needed = 1 - bucket["tokens"]
         if tokens_needed <= 0:
             return 0
-        
+
         return int(tokens_needed / self.rate) + 1
-    
+
     async def __call__(self, request: Request) -> None:
         """FastAPI dependency for rate limiting.
         
@@ -128,16 +128,16 @@ class RateLimiter:
 # Global rate limiters for different endpoints
 class RateLimiters:
     """Collection of rate limiters for different endpoint categories."""
-    
+
     # Authentication endpoints (stricter limits)
     auth = RateLimiter(requests_per_minute=5, burst_size=10)
-    
+
     # Room creation (prevent spam)
     room_creation = RateLimiter(requests_per_minute=10, burst_size=15)
-    
+
     # General API endpoints
     api = RateLimiter(requests_per_minute=100, burst_size=150)
-    
+
     # WebSocket messages
     websocket = RateLimiter(requests_per_minute=60, burst_size=100)
 
@@ -157,5 +157,5 @@ def get_rate_limiter(limit_type: str = "api") -> RateLimiter:
         "api": RateLimiters.api,
         "websocket": RateLimiters.websocket
     }
-    
+
     return limiters.get(limit_type, RateLimiters.api)

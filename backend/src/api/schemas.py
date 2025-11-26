@@ -106,6 +106,6 @@ class JoinRoomResponse(BaseModel):
 class AIAgentResponse(BaseModel):
     ai_agent: PlayerResponse
     room_code: str
-    
+
     class Config:
         from_attributes = True

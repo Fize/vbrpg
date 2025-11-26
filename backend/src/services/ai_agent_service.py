@@ -1,12 +1,11 @@
 """AI Agent service for managing AI players."""
-import json
 from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.integrations.llm_client import LLMClient
 from src.models.game_room import GameRoom
 from src.models.game_room_participant import GameRoomParticipant
-from src.integrations.llm_client import LLMClient
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -61,7 +60,7 @@ class AIAgentService:
         ai_participants = []
         for i in range(slots_to_fill):
             personality = AI_PERSONALITIES[i % len(AI_PERSONALITIES)]
-            
+
             participant = GameRoomParticipant(
                 game_room_id=room.id,
                 player_id=None,
@@ -72,7 +71,7 @@ class AIAgentService:
             ai_participants.append(participant)
 
         await self.db.commit()
-        
+
         logger.info(f"Added {len(ai_participants)} AI agents to room {room.code}")
         return ai_participants
 
@@ -138,13 +137,13 @@ class AIAgentService:
         """
         if not personality:
             personality = AI_PERSONALITIES[0]
-        
+
         # Map to LLM personality
         llm_personality = PERSONALITY_MAP.get(personality, "logical")
-        
+
         # Determine role based on game state
         player_role = self._get_player_role(game_state, agent_id)
-        
+
         # Generate decision using LLM
         try:
             decision = await self.llm_client.generate_decision(
@@ -153,10 +152,10 @@ class AIAgentService:
                 personality=llm_personality,
                 available_actions=available_actions
             )
-            
+
             logger.info(f"AI agent {agent_id} decided: {decision['action_type']}")
             return decision
-            
+
         except Exception as e:
             logger.error(f"AI decision failed for agent {agent_id}: {e}")
             # Fallback: select first available action
@@ -167,7 +166,7 @@ class AIAgentService:
                     "reasoning": "LLM service unavailable, using fallback action"
                 }
             raise
-    
+
     def _get_player_role(self, game_state: dict[str, Any], player_id: str) -> str:
         """Determine player's role based on game state.
         

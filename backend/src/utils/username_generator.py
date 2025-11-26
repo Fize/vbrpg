@@ -6,7 +6,6 @@ Example: Guest_快乐_熊猫, Guest_勇敢_狮子
 
 import random
 
-
 # 形容词列表 (Adjectives)
 ADJECTIVES = [
     "快乐", "勇敢", "聪明", "可爱", "活泼",
@@ -61,7 +60,7 @@ def generate_unique_guest_username(existing_usernames: set[str], max_attempts: i
         username = generate_guest_username()
         if username not in existing_usernames:
             return username
-    
+
     # Fallback: append random number
     return f"{generate_guest_username()}_{random.randint(1000, 9999)}"
 
