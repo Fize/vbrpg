@@ -1,11 +1,20 @@
-"""AI Agent service for managing AI players."""
-from typing import Any, Optional
+"""AI Service module for managing AI players and turn scheduling.
+
+This module consolidates all AI-related functionality:
+- AIAgentService: Managing AI players, filling slots, decision making
+- AIScheduler: Turn scheduling with timeout handling
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import TYPE_CHECKING, Any, Optional
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.integrations.llm_client import LLMClient
-from src.models.game_room import GameRoom
-from src.models.game_room_participant import GameRoomParticipant
+from src.models.game import GameRoom, GameRoomParticipant
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -30,6 +39,10 @@ PERSONALITY_MAP = {
     "empathetic_listener": "cooperative"
 }
 
+
+# =============================================================================
+# AIAgentService
+# =============================================================================
 
 class AIAgentService:
     """Service for AI agent operations."""
@@ -179,3 +192,138 @@ class AIAgentService:
         """
         # For Crime Scene, role is generic investigator
         return f"调查员 (Player {player_id})"
+
+
+# =============================================================================
+# AIScheduler
+# =============================================================================
+
+class AIScheduler:
+    """Scheduler for AI agent turns.
+    
+    Manages the execution of AI turns with timeout handling.
+    """
+
+    def __init__(
+        self,
+        ai_service: AIAgentService,
+        game_state_service: "GameStateService",
+        timeout_seconds: int = 10
+    ):
+        """Initialize scheduler.
+        
+        Args:
+            ai_service: AI agent service
+            game_state_service: Game state service
+            timeout_seconds: Max time for AI to decide (default 10s)
+        """
+        self.ai_service = ai_service
+        self.game_state_service = game_state_service
+        self.timeout_seconds = timeout_seconds
+        self._active_tasks: dict[str, asyncio.Task] = {}
+
+    async def schedule_ai_turn(
+        self,
+        game_room_id: UUID,
+        agent_id: str,
+        personality: str
+    ) -> Optional[dict[str, Any]]:
+        """Schedule AI turn with timeout.
+        
+        Args:
+            game_room_id: Game room
+            agent_id: AI agent identifier
+            personality: AI personality type
+            
+        Returns:
+            AI decision or None if timeout
+        """
+        task_id = f"{game_room_id}_{agent_id}"
+
+        # Cancel any existing task for this agent
+        if task_id in self._active_tasks:
+            self._active_tasks[task_id].cancel()
+
+        try:
+            # Create task with timeout
+            task = asyncio.create_task(
+                self._execute_ai_turn(game_room_id, agent_id, personality)
+            )
+            self._active_tasks[task_id] = task
+
+            # Wait with timeout
+            decision = await asyncio.wait_for(task, timeout=self.timeout_seconds)
+
+            logger.info(f"AI turn completed for {agent_id} in room {game_room_id}")
+            return decision
+
+        except asyncio.TimeoutError:
+            logger.warning(f"AI turn timeout for {agent_id} in room {game_room_id}")
+            # Handle timeout
+            await self.game_state_service.handle_timeout(game_room_id)
+            return None
+
+        except Exception as e:
+            logger.error(f"AI turn failed for {agent_id}: {e}")
+            return None
+
+        finally:
+            # Cleanup
+            if task_id in self._active_tasks:
+                del self._active_tasks[task_id]
+
+    async def _execute_ai_turn(
+        self,
+        game_room_id: UUID,
+        agent_id: str,
+        personality: str
+    ) -> dict[str, Any]:
+        """Execute AI turn.
+        
+        Args:
+            game_room_id: Game room
+            agent_id: AI agent identifier
+            personality: AI personality type
+            
+        Returns:
+            AI decision
+        """
+        import json
+
+        from src.services.games.crime_scene_engine import CrimeSceneEngine
+
+        # Get current game state
+        state = await self.game_state_service.get_current_state(game_room_id)
+        game_data = json.loads(state.game_data)
+
+        # Get available actions
+        engine = CrimeSceneEngine()
+        available_actions = engine.get_valid_actions(game_data, agent_id)
+
+        # Get AI decision
+        decision = await self.ai_service.decide_action(
+            agent_id=agent_id,
+            game_state=game_data,
+            available_actions=available_actions,
+            personality=personality
+        )
+
+        # Apply action
+        await self.game_state_service.update_state(
+            game_room_id=game_room_id,
+            player_id=agent_id,
+            action=decision
+        )
+
+        return decision
+
+    def cancel_all(self):
+        """Cancel all active AI tasks."""
+        for task in self._active_tasks.values():
+            task.cancel()
+        self._active_tasks.clear()
+        logger.info("All AI tasks cancelled")
+
+
+if TYPE_CHECKING:
+    from src.services.game_state_service import GameStateService

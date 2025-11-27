@@ -10,9 +10,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.game_room import GameRoom
-from src.models.game_room_participant import GameRoomParticipant
-from src.models.player import Player
+from src.models.game import GameRoom, GameRoomParticipant
+from src.models.user import Player
 
 
 @pytest_asyncio.fixture

@@ -4,13 +4,10 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.ai_agent import AIAgent
-from src.models.game_room import GameRoom
-from src.models.game_room_participant import GameRoomParticipant
-from src.models.game_state import GameState
-from src.models.game_type import GameType
+from src.models.game import GameRoom, GameRoomParticipant, GameState, GameType
+from src.models.user import AIAgent
 from src.utils.errors import GameAlreadyStartedError, RoomFullError, RoomNotFoundError
-from src.utils.room_codes import generate_room_code
+from src.utils.helpers import generate_room_code
 
 
 class GameRoomService:

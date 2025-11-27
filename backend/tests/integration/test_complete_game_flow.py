@@ -77,7 +77,7 @@ class TestCompleteGameFlow:
             assert ai_p["player"] is None  # AI don't have player records
         
         # Step 4: Verify GameState was created
-        from src.models.game_state import GameState
+        from src.models.game import GameState
         from sqlalchemy import select
         
         stmt = select(GameState).where(
@@ -153,7 +153,7 @@ class TestCompleteGameFlow:
         assert len(started_room["participants"]) == 4
         
         # Verify GameState
-        from src.models.game_state import GameState
+        from src.models.game import GameState
         from sqlalchemy import select
         
         stmt = select(GameState).where(
@@ -215,7 +215,7 @@ class TestCompleteGameFlow:
         assert start_response.status_code == 200
         
         # Query GameState independently
-        from src.models.game_state import GameState
+        from src.models.game import GameState
         from sqlalchemy import select
         
         stmt = select(GameState).where(GameState.game_room_id == room_id)

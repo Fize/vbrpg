@@ -1,7 +1,7 @@
 """Tests for guest username generator."""
 
 import pytest
-from src.utils.username_generator import (
+from src.utils.helpers import (
     generate_guest_username,
     generate_unique_guest_username,
     ADJECTIVES,

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.services.ai_scheduler import AIScheduler
+from src.services.ai_service import AIScheduler
 
 
 @pytest.fixture

@@ -9,12 +9,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.game_room import GameRoom
-from src.models.game_session import GameSession
-from src.models.game_state import GameState
-from src.models.game_type import GameType
-from src.models.player_profile import PlayerProfile
+from src.models.user import PlayerProfile
 from src.services.games.crime_scene_engine import CrimeSceneEngine
+from src.models.game import GameRoom, GameSession, GameState, GameType
 from src.utils.errors import BadRequestError, NotFoundError
 
 logger = logging.getLogger(__name__)

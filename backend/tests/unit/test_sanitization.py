@@ -4,7 +4,7 @@ Tests content sanitization and injection prevention.
 """
 import pytest
 
-from src.utils.sanitization import (
+from src.utils.input_processing import (
     sanitize_text,
     sanitize_username,
     sanitize_room_code,

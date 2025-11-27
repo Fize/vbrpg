@@ -18,9 +18,8 @@ import uuid
 import pytest
 from sqlalchemy import select
 from src.database import get_db
-from src.models.game_room import GameRoom
-from src.models.game_room_participant import GameRoomParticipant
-from src.models.player import Player
+from src.models.game import GameRoom, GameRoomParticipant
+from src.models.user import Player
 from src.services.game_room_service import GameRoomService
 from src.services.player_service import PlayerService
 

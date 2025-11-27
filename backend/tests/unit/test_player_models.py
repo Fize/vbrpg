@@ -1,9 +1,8 @@
 """Unit tests for Player and PlayerProfile models."""
 import pytest
 from datetime import datetime, timedelta
+from src.models.user import Player, PlayerProfile
 
-from src.models.player import Player
-from src.models.player_profile import PlayerProfile
 
 
 @pytest.mark.asyncio

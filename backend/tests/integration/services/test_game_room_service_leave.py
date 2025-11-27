@@ -3,10 +3,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.game_room import GameRoom
-from src.models.game_room_participant import GameRoomParticipant
-from src.models.player import Player
+from src.models.user import Player
 from src.services.game_room_service import GameRoomService
+from src.models.game import GameRoom, GameRoomParticipant
 from src.utils.errors import GameAlreadyStartedError, NotFoundError
 
 

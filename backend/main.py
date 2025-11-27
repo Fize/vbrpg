@@ -64,21 +64,12 @@ async def root():
 
 
 # Import and include merged API routers
-from src.api import sessions
+from src.api import game_routes, user_routes, monitoring
 
-# Include new single-user focused routers
-app.include_router(sessions.router)
-
-# Legacy routers for backward compatibility (will be removed later)
-try:
-    from src.api import rooms, games, players, monitoring
-    app.include_router(rooms.router)
-    app.include_router(games.router)
-    app.include_router(players.router)
-    app.include_router(monitoring.router)
-except ImportError:
-    # Ignore if legacy modules are removed
-    pass
+# Include merged routers
+app.include_router(game_routes.router)
+app.include_router(user_routes.router)
+app.include_router(monitoring.router)
 
 # Mount Socket.IO app
 socket_app = socketio.ASGIApp(sio, app)

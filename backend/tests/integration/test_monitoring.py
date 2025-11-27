@@ -11,8 +11,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select, func
 
 from main import app
-from src.models.game_room import GameRoom
-from src.models.player import Player
+from src.models.game import GameRoom
+from src.models.user import Player
 
 
 @pytest.fixture

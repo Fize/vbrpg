@@ -1,6 +1,6 @@
 """Unit tests for room code generation utilities."""
 import pytest
-from src.utils.room_codes import generate_room_code, is_valid_room_code
+from src.utils.helpers import generate_room_code, is_valid_room_code
 
 
 class TestRoomCodeGeneration:
