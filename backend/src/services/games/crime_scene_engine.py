@@ -8,9 +8,9 @@ Handles game logic for the Crime Scene (犯罪现场) tabletop game:
 """
 
 import logging
-from typing import Any, Optional
-from enum import Enum
 import random
+from enum import Enum
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -41,13 +41,13 @@ class CrimeSceneEngine:
     3. Deduce the murderer, weapon, and location
     4. Make accusations to win the game
     """
-    
+
     def __init__(self):
         """Initialize game engine."""
         self.min_players = 4
         self.max_players = 8
         self.cards_per_player = 5
-        
+
     def initialize_game(
         self,
         players: list[str],
@@ -64,19 +64,19 @@ class CrimeSceneEngine:
         """
         if len(players) < self.min_players or len(players) > self.max_players:
             raise ValueError(f"Crime Scene requires {self.min_players}-{self.max_players} players")
-        
+
         # Setup murder scenario
         suspects = ["厨师", "管家", "医生", "园丁", "秘书", "司机"]
         weapons = ["刀", "枪", "毒药", "绳子", "烛台", "扳手"]
         locations = ["书房", "厨房", "卧室", "餐厅", "花园", "车库"]
-        
+
         # Randomly select solution
         solution = {
             "murderer": random.choice(suspects),
             "weapon": random.choice(weapons),
             "location": random.choice(locations)
         }
-        
+
         # Create evidence deck (all cards except solution)
         evidence_deck = []
         for suspect in suspects:
@@ -88,17 +88,17 @@ class CrimeSceneEngine:
         for location in locations:
             if location != solution["location"]:
                 evidence_deck.append({"type": "location", "name": location})
-        
+
         # Shuffle deck
         random.shuffle(evidence_deck)
-        
+
         # Deal cards to players
         player_hands = {}
         for i, player_id in enumerate(players):
             start_idx = i * self.cards_per_player
             end_idx = start_idx + self.cards_per_player
             player_hands[player_id] = evidence_deck[start_idx:end_idx]
-        
+
         # Initialize game state
         game_state = {
             "phase": GamePhase.INVESTIGATION,
@@ -112,10 +112,10 @@ class CrimeSceneEngine:
             "locations": locations,
             "winner": None
         }
-        
+
         logger.info(f"Crime Scene game initialized with {len(players)} players")
         return game_state
-    
+
     def get_valid_actions(
         self,
         game_state: dict[str, Any],
@@ -132,7 +132,7 @@ class CrimeSceneEngine:
         """
         phase = game_state["phase"]
         actions = []
-        
+
         if phase == GamePhase.INVESTIGATION:
             # Can investigate locations not yet revealed
             for location in game_state["locations"]:
@@ -142,7 +142,7 @@ class CrimeSceneEngine:
                         "description": f"调查 {location}",
                         "parameters": {"location": location}
                     })
-            
+
             # Can reveal clue from hand
             player_hand = game_state["player_hands"].get(player_id, [])
             if player_hand:
@@ -151,14 +151,14 @@ class CrimeSceneEngine:
                     "description": "展示手牌中的线索",
                     "parameters": {"card_index": 0}  # Simplified: reveal first card
                 })
-            
+
             # Can make accusation
             actions.append({
                 "type": ActionType.MAKE_ACCUSATION,
                 "description": "指控凶手",
                 "parameters": {}
             })
-            
+
         elif phase == GamePhase.ACCUSATION:
             # Must make accusation or pass
             actions.append({
@@ -171,9 +171,9 @@ class CrimeSceneEngine:
                 "description": "跳过回合",
                 "parameters": {}
             })
-        
+
         return actions
-    
+
     def apply_action(
         self,
         game_state: dict[str, Any],
@@ -192,7 +192,7 @@ class CrimeSceneEngine:
         """
         action_type = action.get("action_type") or action.get("type")
         parameters = action.get("parameters", {})
-        
+
         if action_type == ActionType.INVESTIGATE_LOCATION:
             location = parameters.get("location")
             if location:
@@ -202,7 +202,7 @@ class CrimeSceneEngine:
                     "player_id": player_id
                 })
                 logger.info(f"Player {player_id} investigated {location}")
-        
+
         elif action_type == ActionType.REVEAL_CLUE:
             card_index = parameters.get("card_index", 0)
             player_hand = game_state["player_hands"].get(player_id, [])
@@ -214,7 +214,7 @@ class CrimeSceneEngine:
                     "player_id": player_id
                 })
                 logger.info(f"Player {player_id} revealed clue: {revealed_card}")
-        
+
         elif action_type == ActionType.MAKE_ACCUSATION:
             # Extract accusation from parameters or action
             accusation = parameters.get("accusation", {})
@@ -225,26 +225,26 @@ class CrimeSceneEngine:
                     "weapon": "未知",
                     "location": "未知"
                 }
-            
+
             game_state["accusations"].append({
                 "player_id": player_id,
                 "accusation": accusation
             })
             logger.info(f"Player {player_id} made accusation: {accusation}")
-            
+
             # Check if correct
             if self._check_accusation(game_state, accusation):
                 game_state["winner"] = player_id
                 game_state["phase"] = GamePhase.RESOLUTION
                 logger.info(f"Player {player_id} won with correct accusation!")
-        
+
         # Advance turn
         game_state["current_turn_index"] = (game_state["current_turn_index"] + 1) % len(game_state["players"])
         if game_state["current_turn_index"] == 0:
             game_state["turn_number"] += 1
-        
+
         return game_state
-    
+
     def check_win_condition(self, game_state: dict[str, Any]) -> Optional[str]:
         """Check if game has been won.
         
@@ -255,7 +255,7 @@ class CrimeSceneEngine:
             Winner player_id if game won, None otherwise
         """
         return game_state.get("winner")
-    
+
     def _check_accusation(self, game_state: dict[str, Any], accusation: dict[str, Any]) -> bool:
         """Check if accusation matches solution."""
         solution = game_state["solution"]
@@ -264,13 +264,13 @@ class CrimeSceneEngine:
             accusation.get("weapon") == solution["weapon"] and
             accusation.get("location") == solution["location"]
         )
-    
+
     def get_current_player(self, game_state: dict[str, Any]) -> str:
         """Get current turn player ID."""
         players = game_state["players"]
         index = game_state["current_turn_index"]
         return players[index]
-    
+
     def validate_game_state(self, game_state: dict[str, Any]) -> bool:
         """Validate game state structure.
         

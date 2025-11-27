@@ -1,20 +1,19 @@
 """Player service for managing player accounts and profiles."""
 
 from datetime import datetime
-from typing import Optional
-from sqlalchemy import select, func
+
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.player import Player
 from src.models.player_profile import PlayerProfile
-from src.models.game_session import GameSession
+from src.utils.errors import BadRequestError, NotFoundError
 from src.utils.username_generator import generate_unique_guest_username, is_guest_username
-from src.utils.errors import NotFoundError, BadRequestError
 
 
 class PlayerService:
     """Service for player account management."""
-    
+
     def __init__(self, db: AsyncSession):
         """Initialize player service.
         
@@ -22,7 +21,7 @@ class PlayerService:
             db: Database session
         """
         self.db = db
-    
+
     async def create_guest(self) -> Player:
         """Create a new guest player account.
         
@@ -34,28 +33,28 @@ class PlayerService:
             select(Player.username).where(Player.username.like("Guest_%"))
         )
         existing_usernames = {row[0] for row in result.all()}
-        
+
         # Generate unique username
         username = generate_unique_guest_username(existing_usernames)
-        
+
         # Create guest player
         player = Player(
             username=username,
             is_guest=True
         )
-        
+
         self.db.add(player)
         await self.db.flush()
-        
+
         # Create player profile
         profile = PlayerProfile(player_id=player.id)
         self.db.add(profile)
-        
+
         await self.db.commit()
         await self.db.refresh(player)
-        
+
         return player
-    
+
     async def upgrade_to_permanent(
         self,
         player_id: str,
@@ -78,21 +77,21 @@ class PlayerService:
         player = await self.db.get(Player, player_id)
         if not player:
             raise NotFoundError(f"Player {player_id} not found")
-        
+
         # Check if player is guest
         if not player.is_guest:
             raise BadRequestError("Player is already a permanent account")
-        
+
         # Validate new username
         if not new_username or len(new_username) < 3:
             raise BadRequestError("Username must be at least 3 characters")
-        
+
         if len(new_username) > 20:
             raise BadRequestError("Username must be at most 20 characters")
-        
+
         if is_guest_username(new_username):
             raise BadRequestError("Cannot use Guest_ prefix for permanent accounts")
-        
+
         # Check username availability
         result = await self.db.execute(
             select(Player).where(
@@ -102,17 +101,17 @@ class PlayerService:
         )
         if result.scalar_one_or_none():
             raise BadRequestError(f"Username '{new_username}' is already taken")
-        
+
         # Upgrade account
         player.username = new_username
         player.is_guest = False
         player.expires_at = None  # Remove expiration
-        
+
         await self.db.commit()
         await self.db.refresh(player)
-        
+
         return player
-    
+
     async def get_profile(self, player_id: str) -> tuple[Player, PlayerProfile]:
         """Get player profile information.
         
@@ -128,21 +127,21 @@ class PlayerService:
         player = await self.db.get(Player, player_id)
         if not player:
             raise NotFoundError(f"Player {player_id} not found")
-        
+
         # Get or create profile
         result = await self.db.execute(
             select(PlayerProfile).where(PlayerProfile.player_id == player_id)
         )
         profile = result.scalar_one_or_none()
-        
+
         if not profile:
             profile = PlayerProfile(player_id=player_id)
             self.db.add(profile)
             await self.db.commit()
             await self.db.refresh(profile)
-        
+
         return player, profile
-    
+
     async def get_stats(self, player_id: str) -> dict:
         """Get player game statistics.
         
@@ -156,16 +155,16 @@ class PlayerService:
             NotFoundError: If player not found
         """
         player, profile = await self.get_profile(player_id)
-        
+
         # Get wins (from profile)
         wins = profile.total_wins
-        
+
         # Get total games from profile
         total_games = profile.total_games
-        
+
         # Calculate win rate
         win_rate = (wins / total_games * 100) if total_games > 0 else 0
-        
+
         return {
             "player_id": player_id,
             "username": player.username,
@@ -180,7 +179,7 @@ class PlayerService:
             "last_active": player.last_active.isoformat() if player.last_active else None,
             "last_active_at": player.last_active.isoformat() if player.last_active else None
         }
-    
+
     async def update_last_active(self, player_id: str):
         """Update player's last active timestamp.
         
@@ -188,7 +187,7 @@ class PlayerService:
             player_id: Player ID
         """
         player = await self.db.get(Player, player_id)
-        
+
         if player:
             player.last_active = datetime.utcnow()
             await self.db.commit()

@@ -1,15 +1,14 @@
 """Players API endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.api.schemas import PlayerResponse
 from src.database import get_db
 from src.services.player_service import PlayerService
+from src.utils.errors import BadRequestError, NotFoundError
 from src.utils.sessions import SessionManager
-from src.utils.errors import NotFoundError, BadRequestError
-from src.api.schemas import PlayerResponse
-
 
 router = APIRouter(prefix="/api/v1/players", tags=["players"])
 
@@ -48,15 +47,15 @@ async def create_guest_account(
         The created guest player
     """
     service = PlayerService(db)
-    
+
     try:
         player = await service.create_guest()
-        
+
         # Create session
         SessionManager.create_session(response, player.id)
-        
+
         return PlayerResponse.from_orm(player)
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -75,13 +74,13 @@ async def get_current_player(
     """
     if not session_cookie:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
+
     service = PlayerService(db)
-    
+
     try:
         player, _ = await service.get_profile(session_cookie)
         return PlayerResponse.from_orm(player)
-    
+
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -105,16 +104,16 @@ async def upgrade_account(
     """
     if not session_cookie:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
+
     service = PlayerService(db)
-    
+
     try:
         player = await service.upgrade_to_permanent(
             session_cookie,
             request.username
         )
         return PlayerResponse.from_orm(player)
-    
+
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except BadRequestError as e:
@@ -135,12 +134,12 @@ async def get_player_stats(
     """
     if not session_cookie:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
+
     service = PlayerService(db)
-    
+
     try:
         stats = await service.get_stats(session_cookie)
         return PlayerStatsResponse(**stats)
-    
+
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

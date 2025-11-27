@@ -1,6 +1,5 @@
 """REST API endpoints for game rooms."""
 import logging
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,11 +11,11 @@ from src.api.schemas import (
     JoinRoomResponse,
     ParticipantResponse,
     PlayerResponse,
-    RoomListResponse
+    RoomListResponse,
 )
 from src.database import get_db
-from src.services.game_room_service import GameRoomService
 from src.services.ai_agent_service import AIAgentService
+from src.services.game_room_service import GameRoomService
 from src.utils.errors import APIError, NotFoundError
 from src.websocket import handlers as ws_handlers
 
@@ -144,10 +143,10 @@ async def join_room(
     try:
         service = GameRoomService(db)
         room = await service.join_room(room_code, user_id)
-        
+
         # Determine if current user is owner
         is_owner = room.owner_id == user_id
-        
+
         # Map participants
         participants = []
         for p in room.participants:
@@ -160,7 +159,7 @@ async def join_room(
                 left_at=p.left_at,
                 replaced_by_ai=p.replaced_by_ai
             ))
-        
+
         # Broadcast player joined event via WebSocket
         player_data = None
         for participant in room.participants:
@@ -172,10 +171,10 @@ async def join_room(
                     "joined_at": participant.joined_at.isoformat()
                 }
                 break
-        
+
         if player_data:
             await ws_handlers.broadcast_player_joined(room_code, player_data)
-        
+
         return JoinRoomResponse(
             room=map_room_to_detailed_response(room),
             participants=participants,
@@ -195,30 +194,30 @@ async def leave_room(
     """Remove a participant from a game room (RESTful leave endpoint)."""
     try:
         service = GameRoomService(db)
-        
+
         # Get room state before leaving
         room = await service.get_room(room_code)
         player_name = None
         is_owner_leaving = False
-        
+
         for participant in room.participants:
             if participant.player_id == player_id and participant.is_active():
                 player_name = participant.player.username if participant.player else "Unknown"
                 is_owner_leaving = participant.is_owner
                 break
-        
+
         # Perform leave operation
         await service.leave_room(room_code, player_id)
-        
+
         # Broadcast player left event via WebSocket
         await ws_handlers.broadcast_player_left(room_code, player_id, player_name)
-        
+
         # If owner left, check for ownership transfer or room dissolution
         if is_owner_leaving:
             # Reload room to check new state
             try:
                 updated_room = await service.get_room(room_code)
-                
+
                 if updated_room.status == "Dissolved":
                     # Room was dissolved (no human participants remain)
                     await ws_handlers.broadcast_room_dissolved(
@@ -244,7 +243,7 @@ async def leave_room(
                     room_code,
                     "Room has been dissolved"
                 )
-        
+
         return Response(status_code=204)
     except APIError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -259,27 +258,27 @@ async def add_ai_agent(
     """Add an AI agent to the room (owner only)."""
     try:
         service = GameRoomService(db)
-        
+
         # Get room and validate owner
         room = await service.get_room(room_code)
-        
+
         if room.owner_id != current_user_id:
             from src.utils.errors import ForbiddenError
             raise ForbiddenError("Only room owner can add AI agents")
-        
+
         # Validate room status
         if room.status != "Waiting":
             from src.utils.errors import GameAlreadyStartedError
             raise GameAlreadyStartedError("Cannot add AI agents after game starts")
-        
+
         # Validate capacity
         if room.current_participant_count >= room.max_players:
             from src.utils.errors import RoomFullError
             raise RoomFullError("Room is at maximum capacity")
-        
+
         # Create AI agent
         ai_agent = await service.create_ai_agent(room.id)
-        
+
         # Broadcast AI agent added event
         ai_data = {
             "id": ai_agent.id,
@@ -287,7 +286,7 @@ async def add_ai_agent(
             "is_ai": True
         }
         await ws_handlers.broadcast_ai_agent_added(room_code, ai_data)
-        
+
         # Return response
         return {
             "ai_agent": {
@@ -315,14 +314,14 @@ async def remove_ai_agent(
     """Remove an AI agent from the room (owner only)."""
     try:
         service = GameRoomService(db)
-        
+
         # Remove AI agent (service will validate)
         await service.remove_ai_agent(room_code, agent_id, current_user_id)
-        
+
         # Broadcast AI agent removed event
         # Note: We don't need AI name for this event as client has the ID
         await ws_handlers.broadcast_ai_agent_removed(room_code, agent_id, None)
-        
+
         return Response(status_code=204)
     except APIError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -338,19 +337,19 @@ async def start_game(
     try:
         room_service = GameRoomService(db)
         ai_service = AIAgentService(db)
-        
+
         # Get room
         room = await room_service.get_room(room_code)
-        
+
         # Fill empty slots with AI agents
         await ai_service.fill_empty_slots(room)
-        
+
         # Refresh room to get AI participants
         await db.refresh(room)
-        
+
         # Start game
         room = await room_service.start_game(room_code, user_id)
-        
+
         # Prepare game data for broadcast
         game_data = {
             "participants": [
@@ -369,10 +368,10 @@ async def start_game(
             "started_at": room.started_at.isoformat() if room.started_at else None,
             "initial_state": None  # Will be populated by GameStateService in Phase 4
         }
-        
+
         # Broadcast game started event via WebSocket
         await ws_handlers.broadcast_game_started(room_code, game_data)
-        
+
         return map_room_to_detailed_response(room)
     except APIError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
