@@ -89,6 +89,34 @@ class DuplicateJoinError(ConflictError):
         super().__init__(message, details)
 
 
+class SessionNotFoundError(NotFoundError):
+    """Session not found or expired."""
+
+    def __init__(self, message: str = "Session not found or expired", details: Dict[str, Any] | None = None):
+        super().__init__(message, details)
+
+
+class SessionExpiredError(UnauthorizedError):
+    """Session has expired."""
+
+    def __init__(self, message: str = "Session has expired", details: Dict[str, Any] | None = None):
+        super().__init__(message, details)
+
+
+class InvalidGameActionError(BadRequestError):
+    """Invalid game action."""
+
+    def __init__(self, message: str = "Invalid game action", details: Dict[str, Any] | None = None):
+        super().__init__(message, details)
+
+
+class AIAgentError(APIError):
+    """AI agent related errors."""
+
+    def __init__(self, message: str = "AI agent error", details: Dict[str, Any] | None = None):
+        super().__init__(message, 500, "AI_AGENT_ERROR", details)
+
+
 def format_error_response(error: APIError) -> Dict[str, Any]:
     """Format error response."""
     return {
