@@ -5,8 +5,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.services.player_service import PlayerService
-from src.models.player import Player
-from src.models.player_profile import PlayerProfile
+from src.models.user import Player, PlayerProfile
 from src.utils.errors import BadRequestError, NotFoundError
 
 

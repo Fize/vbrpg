@@ -8,11 +8,9 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.game_room import GameRoom
-from src.models.game_room_participant import GameRoomParticipant
-from src.models.game_type import GameType
-from src.models.player import Player
+from src.models.user import Player
 from src.services.game_room_service import GameRoomService
+from src.models.game import GameRoom, GameRoomParticipant, GameType
 from src.utils.errors import (
     RoomNotFoundError,
     RoomFullError,

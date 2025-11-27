@@ -1,10 +1,45 @@
-"""Guest username generator.
+"""Helper utilities for room codes and username generation.
 
-Generates usernames in the format: Guest_形容词_动物
-Example: Guest_快乐_熊猫, Guest_勇敢_狮子
+This module combines room code generation and guest username generation utilities.
 """
-
 import random
+import string
+
+
+# =============================================================================
+# Room Code Generation
+# =============================================================================
+
+def generate_room_code(length: int = 8) -> str:
+    """Generate a random room code.
+
+    Args:
+        length: Length of the code (default: 8)
+
+    Returns:
+        Uppercase alphanumeric room code
+    """
+    characters = string.ascii_uppercase + string.digits
+    return ''.join(random.choices(characters, k=length))
+
+
+def is_valid_room_code(code: str) -> bool:
+    """Validate a room code format.
+
+    Args:
+        code: Room code to validate
+
+    Returns:
+        True if code is valid format
+    """
+    if not code or len(code) != 8:
+        return False
+    return code.isalnum() and code.isupper()
+
+
+# =============================================================================
+# Username Generation
+# =============================================================================
 
 # 形容词列表 (Adjectives)
 ADJECTIVES = [
@@ -31,10 +66,10 @@ ANIMALS = [
 
 def generate_guest_username() -> str:
     """Generate a random guest username.
-    
+
     Format: Guest_形容词_动物
     Example: Guest_快乐_熊猫
-    
+
     Returns:
         A randomly generated guest username
     """
@@ -45,14 +80,14 @@ def generate_guest_username() -> str:
 
 def generate_unique_guest_username(existing_usernames: set[str], max_attempts: int = 100) -> str:
     """Generate a unique guest username that doesn't exist in the set.
-    
+
     Args:
         existing_usernames: Set of existing usernames to avoid
         max_attempts: Maximum number of generation attempts
-        
+
     Returns:
         A unique guest username
-        
+
     Raises:
         ValueError: If unable to generate unique username after max_attempts
     """
@@ -67,10 +102,10 @@ def generate_unique_guest_username(existing_usernames: set[str], max_attempts: i
 
 def is_guest_username(username: str) -> bool:
     """Check if a username is a guest username.
-    
+
     Args:
         username: Username to check
-        
+
     Returns:
         True if username follows guest format, False otherwise
     """

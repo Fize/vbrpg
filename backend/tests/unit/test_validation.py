@@ -4,7 +4,7 @@ Tests input validation for usernames, room codes, actions, etc.
 """
 import pytest
 
-from src.utils.validation import (
+from src.utils.input_processing import (
     validate_username,
     validate_room_code,
     validate_action,

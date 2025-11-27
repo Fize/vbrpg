@@ -19,9 +19,8 @@ if config.config_file_name is not None:
 # add your model's MetaData object here
 # for 'autogenerate' support
 from src.models.base import Base
-from src.models.player import Player
-from src.models.player_profile import PlayerProfile
-from src.models.game_type import GameType
+from src.models.user import Player, PlayerProfile
+from src.models.game import GameType
 
 target_metadata = Base.metadata
 

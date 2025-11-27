@@ -7,9 +7,8 @@ from sqlalchemy import select
 import asyncio
 
 from scripts.cleanup_guests import cleanup_expired_guests, main
-from src.models.player import Player
-from src.models.player_profile import PlayerProfile
-from src.models.game_room_participant import GameRoomParticipant
+from src.models.user import Player, PlayerProfile
+from src.models.game import GameRoomParticipant
 
 
 @pytest.fixture

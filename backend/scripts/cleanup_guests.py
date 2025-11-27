@@ -20,7 +20,7 @@ sys.path.insert(0, str(backend_dir))
 from sqlalchemy import select, delete
 
 from src.database import AsyncSessionLocal
-from src.models.player import Player
+from src.models.user import Player
 
 
 async def cleanup_expired_guests():

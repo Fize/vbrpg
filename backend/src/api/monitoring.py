@@ -11,8 +11,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
-from src.models.game_room import GameRoom
-from src.models.player import Player
+from src.models.game import GameRoom
+from src.models.user import Player
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 

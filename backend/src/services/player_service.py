@@ -5,10 +5,9 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.player import Player
-from src.models.player_profile import PlayerProfile
 from src.utils.errors import BadRequestError, NotFoundError
-from src.utils.username_generator import generate_unique_guest_username, is_guest_username
+from src.models.user import Player, PlayerProfile
+from src.utils.helpers import generate_unique_guest_username, is_guest_username
 
 
 class PlayerService:

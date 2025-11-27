@@ -14,7 +14,7 @@ sys.path.insert(0, str(backend_dir))
 from sqlalchemy import select
 
 from src.database import AsyncSessionLocal
-from src.models.game_type import GameType
+from src.models.game import GameType
 
 
 async def seed_game_types():

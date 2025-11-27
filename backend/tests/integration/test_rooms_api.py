@@ -181,7 +181,7 @@ class TestRoomsAPI:
     async def test_start_game_success(self, client, test_db, sample_game_room, sample_guest_player):
         """Test starting a game via API."""
         # Add another participant to help reach min_players
-        from src.models.game_room_participant import GameRoomParticipant
+        from src.models.game import GameRoomParticipant
         
         participant = GameRoomParticipant(
             game_room_id=sample_game_room.id,

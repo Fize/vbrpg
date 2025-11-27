@@ -18,9 +18,9 @@ import time
 import uuid
 import pytest
 from src.database import get_db
-from src.models.player import Player
+from src.models.user import Player
 from src.services.game_room_service import GameRoomService
-from src.services.ai_agent_service import AIAgentService
+from src.services.ai_service import AIAgentService
 
 
 @pytest.mark.asyncio

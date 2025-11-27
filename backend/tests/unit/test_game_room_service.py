@@ -3,8 +3,7 @@ import pytest
 from sqlalchemy import select
 
 from src.services.game_room_service import GameRoomService
-from src.models.game_room import GameRoom
-from src.models.game_room_participant import GameRoomParticipant
+from src.models.game import GameRoom, GameRoomParticipant
 from src.utils.errors import NotFoundError, BadRequestError, ConflictError, ForbiddenError
 
 
@@ -300,7 +299,7 @@ class TestGameRoomServiceStart:
         assert len(ai_agents) >= 2
         
         # Verify GameState was created by querying directly
-        from src.models.game_state import GameState
+        from src.models.game import GameState
         stmt_state = select(GameState).where(GameState.game_room_id == sample_game_room.id)
         result_state = await test_db.execute(stmt_state)
         game_state = result_state.scalar_one_or_none()

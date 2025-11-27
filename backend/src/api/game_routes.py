@@ -1,30 +1,44 @@
-"""REST API endpoints for game rooms."""
+"""Game-related API endpoints.
+
+This module consolidates all game-related REST API endpoints:
+- Game types listing and details
+- Room management (create, join, leave, start)
+- AI agent management
+"""
 import logging
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.schemas import (
     CreateRoomRequest,
     GameRoomDetailedResponse,
     GameRoomResponse,
+    GameTypeResponse,
     JoinRoomResponse,
     ParticipantResponse,
     PlayerResponse,
     RoomListResponse,
 )
 from src.database import get_db
-from src.services.ai_agent_service import AIAgentService
+from src.models.game import GameType
+from src.services.ai_service import AIAgentService
 from src.services.game_room_service import GameRoomService
 from src.utils.errors import APIError, NotFoundError
 from src.websocket import handlers as ws_handlers
 
 logger = logging.getLogger(__name__)
 
-# Create router
-router = APIRouter(prefix="/api/v1", tags=["rooms"])
+# Create router with combined game routes
+router = APIRouter(tags=["games"])
 
-# Temporary: Mock current user (will be replaced with real auth)
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
 async def get_current_user_id() -> str:
     """Get current authenticated user ID."""
     # TODO: Implement real authentication
@@ -76,7 +90,67 @@ def map_room_to_detailed_response(room) -> GameRoomDetailedResponse:
     )
 
 
-@router.post("/rooms", response_model=GameRoomDetailedResponse, status_code=201)
+# =============================================================================
+# Game Type Endpoints
+# =============================================================================
+
+@router.get("/api/v1/games", response_model=List[GameTypeResponse])
+async def list_games(
+    available_only: bool = False,
+    db: AsyncSession = Depends(get_db)
+):
+    """List all game types.
+    
+    Args:
+        available_only: If True, only return available games
+        db: Database session
+        
+    Returns:
+        List of game types with details
+    """
+    query = select(GameType)
+
+    if available_only:
+        query = query.where(GameType.is_available == True)
+
+    result = await db.execute(query)
+    games = result.scalars().all()
+
+    return [GameTypeResponse.from_orm(game) for game in games]
+
+
+@router.get("/api/v1/games/{slug}", response_model=GameTypeResponse)
+async def get_game_details(
+    slug: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get detailed information about a specific game.
+    
+    Args:
+        slug: Game slug identifier
+        db: Database session
+        
+    Returns:
+        Game type details
+        
+    Raises:
+        HTTPException: If game not found
+    """
+    query = select(GameType).where(GameType.slug == slug)
+    result = await db.execute(query)
+    game = result.scalar_one_or_none()
+
+    if not game:
+        raise HTTPException(status_code=404, detail=f"Game '{slug}' not found")
+
+    return GameTypeResponse.from_orm(game)
+
+
+# =============================================================================
+# Room Management Endpoints
+# =============================================================================
+
+@router.post("/api/v1/rooms", response_model=GameRoomDetailedResponse, status_code=201)
 async def create_room(
     request: CreateRoomRequest,
     db: AsyncSession = Depends(get_db),
@@ -96,7 +170,7 @@ async def create_room(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
-@router.get("/rooms", response_model=RoomListResponse)
+@router.get("/api/v1/rooms", response_model=RoomListResponse)
 async def list_rooms(
     status: str | None = Query(None),
     game_type: str | None = Query(None, alias="gameType"),
@@ -119,7 +193,7 @@ async def list_rooms(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
-@router.get("/rooms/{room_code}", response_model=GameRoomDetailedResponse)
+@router.get("/api/v1/rooms/{room_code}", response_model=GameRoomDetailedResponse)
 async def get_room(
     room_code: str,
     db: AsyncSession = Depends(get_db)
@@ -133,7 +207,7 @@ async def get_room(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
-@router.post("/rooms/{room_code}/join", response_model=JoinRoomResponse)
+@router.post("/api/v1/rooms/{room_code}/join", response_model=JoinRoomResponse)
 async def join_room(
     room_code: str,
     db: AsyncSession = Depends(get_db),
@@ -184,7 +258,7 @@ async def join_room(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
-@router.delete("/rooms/{room_code}/participants/{player_id}", status_code=204)
+@router.delete("/api/v1/rooms/{room_code}/participants/{player_id}", status_code=204)
 async def leave_room(
     room_code: str,
     player_id: str,
@@ -249,7 +323,11 @@ async def leave_room(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
-@router.post("/rooms/{room_code}/ai-agents", status_code=201)
+# =============================================================================
+# AI Agent Endpoints
+# =============================================================================
+
+@router.post("/api/v1/rooms/{room_code}/ai-agents", status_code=201)
 async def add_ai_agent(
     room_code: str,
     db: AsyncSession = Depends(get_db),
@@ -304,7 +382,7 @@ async def add_ai_agent(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
-@router.delete("/rooms/{room_code}/ai-agents/{agent_id}", status_code=204)
+@router.delete("/api/v1/rooms/{room_code}/ai-agents/{agent_id}", status_code=204)
 async def remove_ai_agent(
     room_code: str,
     agent_id: str,
@@ -327,7 +405,7 @@ async def remove_ai_agent(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
-@router.post("/rooms/{room_code}/start", response_model=GameRoomDetailedResponse)
+@router.post("/api/v1/rooms/{room_code}/start", response_model=GameRoomDetailedResponse)
 async def start_game(
     room_code: str,
     db: AsyncSession = Depends(get_db),
@@ -375,4 +453,3 @@ async def start_game(
         return map_room_to_detailed_response(room)
     except APIError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
-

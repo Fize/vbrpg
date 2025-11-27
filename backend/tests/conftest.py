@@ -7,12 +7,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 
 from src.models.base import Base
-from src.models.player import Player
-from src.models.player_profile import PlayerProfile
-from src.models.game_type import GameType
-from src.models.game_room import GameRoom
-from src.models.game_room_participant import GameRoomParticipant
-from src.models.game_state import GameState
+from src.models.user import Player, PlayerProfile
+from src.models.game import GameRoom, GameRoomParticipant, GameState, GameType
 
 
 # Set test API key for OpenAI
@@ -114,7 +110,7 @@ async def sample_guest_player(test_db: AsyncSession):
 @pytest.fixture
 async def sample_game_room(test_db: AsyncSession, sample_game_type: GameType, sample_player: Player):
     """Create a sample game room for testing."""
-    from src.models.game_room_participant import GameRoomParticipant
+    from src.models.game import GameRoomParticipant
     
     room = GameRoom(
         code="TEST1234",

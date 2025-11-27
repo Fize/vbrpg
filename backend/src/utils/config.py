@@ -10,7 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
-    from src.models.session import Session
+    from src.models.user import Session
 
 T = TypeVar("T")
 
@@ -124,7 +124,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
     async def _get_session(self, db: "AsyncSession", session_id: str) -> Optional["Session"]:
         """Get session from database and check if it's valid."""
         from sqlalchemy import select
-        from src.models.session import Session
+        from src.models.user import Session
         
         result = await db.execute(select(Session).where(Session.session_id == session_id))
         session = result.scalar_one_or_none()

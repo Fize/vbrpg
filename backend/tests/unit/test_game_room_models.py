@@ -3,10 +3,8 @@ import pytest
 from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from src.models.game import GameRoom, GameRoomParticipant, GameState
 
-from src.models.game_room import GameRoom
-from src.models.game_room_participant import GameRoomParticipant
-from src.models.game_state import GameState
 
 
 @pytest.mark.asyncio

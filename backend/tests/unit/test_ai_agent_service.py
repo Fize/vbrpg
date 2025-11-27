@@ -3,9 +3,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from src.models.game_room import GameRoom
-from src.models.game_room_participant import GameRoomParticipant
-from src.services.ai_agent_service import AIAgentService, AI_PERSONALITIES
+from src.services.ai_service import AIAgentService, AI_PERSONALITIES
+from src.models.game import GameRoom, GameRoomParticipant
 
 
 @pytest.mark.asyncio

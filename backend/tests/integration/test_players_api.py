@@ -6,9 +6,8 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from main import app
-from src.models.player import Player
-from src.models.player_profile import PlayerProfile
-from src.models.game_room_participant import GameRoomParticipant
+from src.models.game import GameRoomParticipant
+from src.models.user import Player, PlayerProfile
 from src.utils.sessions import SessionManager
 
 

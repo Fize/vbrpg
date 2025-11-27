@@ -4,9 +4,8 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock, call
 from datetime import datetime
 
-from src.models.game_room import GameRoom
-from src.models.game_room_participant import GameRoomParticipant
-from src.models.player import Player
+from src.models.game import GameRoom, GameRoomParticipant
+from src.models.user import Player
 
 
 @pytest.mark.asyncio
