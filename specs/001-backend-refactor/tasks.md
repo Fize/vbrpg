@@ -30,28 +30,28 @@
 
 **目标**: 设置项目环境和基本结构，使用uv管理的虚拟环境
 
-- [ ] T001 设置uv管理的Python 3.11虚拟环境
-- [ ] T002 [P] 安装核心依赖：FastAPI, SQLAlchemy, python-socketio, pytest
-- [ ] T003 [P] 创建基础项目目录结构（models, services, api, websocket, tests）
-- [ ] T004 配置pyproject.toml和uv依赖管理
-- [ ] T005 设置SQLite数据库配置
-- [ ] T006 [P] 配置开发环境：linting, formatting, pre-commit hooks
-- [ ] T007 [P] 设置基本日志系统
+ - [x] T001 设置uv管理的Python 3.11虚拟环境
+ - [x] T002 [P] 安装核心依赖：FastAPI, SQLAlchemy, python-socketio, pytest
+ - [x] T003 [P] 创建基础项目目录结构（models, services, api, websocket, tests）
+ - [x] T004 配置pyproject.toml和uv依赖管理
+ - [x] T005 设置SQLite数据库配置
+ - [x] T006 [P] 配置开发环境：linting, formatting, pre-commit hooks
+ - [x] T007 [P] 设置基本日志系统
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
 **目标**: 实现所有用户故事共享的基础组件
 
-- [ ] T008 创建数据库连接和会话管理
-- [ ] T009 实现基础异常处理类
-- [ ] T010 [P] 创建数据库模型基类和UUIDMixin
-- [ ] T011 实现Session模型（替代Player）
-- [ ] T012 [P] 实现GameType模型（保留现有）
-- [ ] T013 创建数据库迁移脚本
-- [ ] T014 [P] 设置FastAPI应用基础结构和CORS配置
-- [ ] T015 实现WebSocket服务器基础设置
-- [ ] T016 创建通用响应模型和错误响应格式
-- [ ] T017 实现会话中间件
+ - [x] T008 创建数据库连接和会话管理
+ - [x] T009 实现基础异常处理类
+ - [x] T010 [P] 创建数据库模型基类和UUIDMixin
+ - [x] T011 实现Session模型（替代Player）
+ - [x] T012 [P] 实现GameType模型（保留现有）
+ - [x] T013 创建数据库迁移脚本
+ - [x] T014 [P] 设置FastAPI应用基础结构和CORS配置
+ - [x] T015 实现WebSocket服务器基础设置
+ - [x] T016 创建通用响应模型和错误响应格式
+ - [x] T017 实现会话中间件
 
 ## Phase 3: User Story 1 - 单用户游戏体验 (Priority: P1)
 
@@ -59,17 +59,17 @@
 
 **独立测试标准**: 创建房间、添加AI对手、开始游戏并验证游戏流程
 
-- [ ] T018 [US1] 实现简化后的GameRoom模型
-- [ ] T019 [US1] [P] 实现GameRoomParticipant模型
-- [ ] T020 [US1] 实现AIAgent模型
-- [ ] T021 [US1] 实现GameState模型
-- [ ] T022 [US1] [P] 创建会话API端点：POST /api/v1/sessions
-- [ ] T023 [US1] 创建游戏房间API端点：POST /api/v1/rooms
-- [ ] T024 [US1] [P] 实现加入房间API端点：POST /api/v1/rooms/{roomCode}/join
-- [ ] T025 [US1] 创建AI代理API端点：POST /api/v1/rooms/{roomCode}/ai-agents
-- [ ] T026 [US1] [P] 实现开始游戏API端点：POST /api/v1/rooms/{roomCode}/start
-- [ ] T027 [US1] 实现WebSocket游戏事件：join-room, game-action, game-state-updated
-- [ ] T028 [US1] [P] 实现GameRoomService核心业务逻辑
+ - [x] T018 [US1] 实现简化后的GameRoom模型
+ - [x] T019 [US1] [P] 实现GameRoomParticipant模型
+ - [x] T020 [US1] 实现AIAgent模型
+ - [x] T021 [US1] 实现GameState模型
+ - [x] T022 [US1] [P] 创建会话API端点：POST /api/v1/sessions
+ - [x] T023 [US1] 创建游戏房间API端点：POST /api/v1/rooms
+ - [x] T024 [US1] [P] 实现加入房间API端点：POST /api/v1/rooms/{roomCode}/join
+ - [x] T025 [US1] 创建AI代理API端点：POST /api/v1/rooms/{roomCode}/ai-agents
+ - [x] T026 [US1] [P] 实现开始游戏API端点：POST /api/v1/rooms/{roomCode}/start
+ - [x] T027 [US1] 实现WebSocket游戏事件：join-room, game-action, game-state-updated
+ - [x] T028 [US1] [P] 实现GameRoomService核心业务逻辑
 
 ## Phase 4: User Story 2 - AI对弈旁观模式 (Priority: P2)
 
@@ -77,15 +77,15 @@
 
 **独立测试标准**: 创建AI对弈房间并设置为旁观模式
 
-- [ ] T029 [US2] [P] 实旁观模式API端点：POST /api/v1/rooms/{roomCode}/watch
-- [ ] T030 [US2] 实现GameSession模型（短期存储）
-- [ ] T031 [US2] [P] 实现游戏历史API端点：GET /api/v1/sessions/{sessionId}/history
-- [ ] T032 [US2] 创建旁观WebSocket事件：start-spectating, stop-spectating
-- [ ] T033 [US2] [P] 实现AI决策广播事件
-- [ ] T034 [US2] 实现SpectatingService业务逻辑
-- [ ] T035 [US2] 创建数据清理机制（30天自动清理）
-- [ ] T036 [US2] [P] 实旁观模式的UI逻辑（前端适配）
-- [ ] T037 [US2] 实现AI对战初始化逻辑
+ - [x] T029 [US2] [P] 实旁观模式API端点：POST /api/v1/rooms/{roomCode}/watch
+ - [x] T030 [US2] 实现GameSession模型（短期存储）
+ - [x] T031 [US2] [P] 实现游戏历史API端点：GET /api/v1/sessions/{sessionId}/history
+ - [x] T032 [US2] 创建旁观WebSocket事件：start-spectating, stop-spectating
+ - [x] T033 [US2] [P] 实现AI决策广播事件
+ - [x] T034 [US2] 实现SpectatingService业务逻辑
+ - [x] T035 [US2] 创建数据清理机制（30天自动清理）
+ - [x] T036 [US2] [P] 实旁观模式的UI逻辑（前端适配）
+ - [x] T037 [US2] 实现AI对战初始化逻辑
 
 ## Phase 5: User Story 3 - 简化房间管理 (Priority: P2)
 
@@ -93,22 +93,22 @@
 
 **独立测试标准**: 测试房间创建流程和简化的管理选项
 
-- [ ] T038 [US3] [P] 实现获取房间列表API端点：GET /api/v1/rooms
-- [ ] T039 [US3] 实现获取房间详情API端点：GET /api/v1/rooms/{roomCode}
-- [ ] T040 [US3] [P] 实现离开房间API端点：POST /api/v1/rooms/{roomCode}/leave
-- [ ] T041 [US3] 实现删除房间API端点：DELETE /api/v1/rooms/{roomCode}
-- [ ] T042 [US3] [P] 实现移除AI代理API端点：DELETE /api/v1/rooms/{roomCode}/ai-agents/{agentId}
-- [ ] T043 [US3] 实现房间状态管理服务
+ - [x] T038 [US3] [P] 实现获取房间列表API端点：GET /api/v1/rooms
+ - [x] T039 [US3] 实现获取房间详情API端点：GET /api/v1/rooms/{roomCode}
+ - [x] T040 [US3] [P] 实现离开房间API端点：POST /api/v1/rooms/{roomCode}/leave
+ - [x] T041 [US3] 实现删除房间API端点：DELETE /api/v1/rooms/{roomCode}
+ - [x] T042 [US3] [P] 实现移除AI代理API端点：DELETE /api/v1/rooms/{roomCode}/ai-agents/{agentId}
+ - [x] T043 [US3] 实现房间状态管理服务
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
 **目标**: 完善系统性能、可观测性和文档
 
-- [ ] T044 [P] 实现API性能优化：响应缓存和查询优化
-- [ ] T045 [P] 添加结构化日志和监控指标
-- [ ] T046 [P] 实现健康检查端点：GET /api/v1/health
-- [ ] T047 [P] 完善API文档（Swagger UI集成）
-- [ ] T048 实现全面测试套件（单元、集成和契约测试）
+ - [x] T044 [P] 实现API性能优化：响应缓存和查询优化
+ - [x] T045 [P] 添加结构化日志和监控指标
+ - [x] T046 [P] 实现健康检查端点：GET /api/v1/health
+ - [x] T047 [P] 完善API文档（Swagger UI集成）
+ - [x] T048 实现全面测试套件（单元、集成和契约测试）
 
 ## Dependencies
 
