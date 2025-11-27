@@ -56,13 +56,14 @@ PRAGMA 配置                     →  移除
 
 | 模型 | 字段 | SQLite 类型 | MySQL 类型 |
 |------|------|-------------|------------|
-| GameState | game_data | Text | Text (LONGTEXT) |
-| GameSession | final_state | Text | Text (LONGTEXT) |
-| PlayerProfile | ui_preferences | Text | Text |
+| GameState | game_data | Text | JSON |
+| GameSession | final_state | Text | JSON |
+| PlayerProfile | ui_preferences | Text | JSON |
 
 **JSON 存储说明**：
-- SQLite 中 JSON 存储为 TEXT
-- MySQL 中继续使用 TEXT（LONGTEXT），不使用 MySQL 的 JSON 类型以保持兼容性
+- 使用 MySQL 原生 JSON 类型存储结构化数据
+- 可利用 MySQL JSON 函数进行查询和索引优化
+- SQLAlchemy 中使用 `sqlalchemy.dialects.mysql.JSON` 类型
 
 ### 3.3 移除的功能模块
 
@@ -306,5 +307,4 @@ backend:
 | 风险 | 影响 | 缓解措施 |
 |------|------|----------|
 | MySQL 连接池配置不当 | 性能问题 | 监控连接池使用情况，调整参数 |
-| JSON 数据兼容性 | 数据解析错误 | 使用 TEXT 类型，保持 JSON 序列化方式不变 |
 | 认证移除后的安全性 | 滥用风险 | 保留速率限制，监控异常请求 |
