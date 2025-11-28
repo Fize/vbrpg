@@ -8,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.models.game import GameRoom, GameRoomParticipant, GameState, GameType
+from src.constants import get_game_type_by_slug
+from src.models.game import GameRoom, GameRoomParticipant, GameState
 from src.models.user import AIAgent, Player
 from src.utils.errors import (
     BadRequestError,
@@ -56,23 +57,20 @@ class GameRoomService:
         Returns:
             Created game room
         """
-        # Get game type
-        result = await self.db.execute(
-            select(GameType).where(GameType.slug == game_type_slug)
-        )
-        game_type = result.scalar_one_or_none()
+        # Get game type from constants
+        game_type = get_game_type_by_slug(game_type_slug)
 
         if not game_type:
             raise NotFoundError(f"Game type '{game_type_slug}' not found")
 
         # Validate player counts
-        if min_players < game_type.min_players:
+        if min_players < game_type["min_players"]:
             raise BadRequestError(
-                f"Minimum players cannot be less than {game_type.min_players}"
+                f"Minimum players cannot be less than {game_type['min_players']}"
             )
-        if max_players > game_type.max_players:
+        if max_players > game_type["max_players"]:
             raise BadRequestError(
-                f"Maximum players cannot exceed {game_type.max_players}"
+                f"Maximum players cannot exceed {game_type['max_players']}"
             )
         if min_players > max_players:
             raise BadRequestError(
@@ -82,7 +80,7 @@ class GameRoomService:
         # Create room (no owner in single-player mode)
         room = GameRoom(
             code=generate_room_code(),
-            game_type_id=game_type.id,
+            game_type_id=game_type_slug,  # Store slug instead of id
             status="Waiting",
             max_players=max_players,
             min_players=min_players,
@@ -94,7 +92,7 @@ class GameRoomService:
         await self.db.refresh(room)
 
         # Load relationships
-        await self.db.refresh(room, ["game_type", "participants"])
+        await self.db.refresh(room, ["participants"])
 
         return room
 
@@ -113,7 +111,6 @@ class GameRoomService:
         result = await self.db.execute(
             select(GameRoom)
             .options(
-                selectinload(GameRoom.game_type),
                 selectinload(GameRoom.participants).selectinload(
                     GameRoomParticipant.player
                 )
@@ -144,7 +141,6 @@ class GameRoomService:
             List of game rooms
         """
         query = select(GameRoom).options(
-            selectinload(GameRoom.game_type),
             selectinload(GameRoom.participants)
         )
 
@@ -152,7 +148,7 @@ class GameRoomService:
             query = query.where(GameRoom.status == status)
 
         if game_type_slug:
-            query = query.join(GameType).where(GameType.slug == game_type_slug)
+            query = query.where(GameRoom.game_type_id == game_type_slug)
 
         query = query.limit(limit).order_by(GameRoom.created_at.desc())
 

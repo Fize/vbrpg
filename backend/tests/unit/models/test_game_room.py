@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.game import GameRoom, GameType
+from src.models.game import GameRoom
 from src.models.user import Player
 
 
@@ -19,7 +19,7 @@ class TestGameRoomModelExtensions:
     async def test_owner_id_relationship_resolves_to_player(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that owner_id relationship correctly resolves to Player entity."""
@@ -27,7 +27,7 @@ class TestGameRoomModelExtensions:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="TEST1234",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -48,14 +48,14 @@ class TestGameRoomModelExtensions:
     async def test_has_capacity_returns_true_when_space_available(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test has_capacity() returns True when room has space."""
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="CAP001",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -74,14 +74,14 @@ class TestGameRoomModelExtensions:
     async def test_has_capacity_returns_false_when_full(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test has_capacity() returns False when room is at max capacity."""
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="FULL01",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -100,14 +100,14 @@ class TestGameRoomModelExtensions:
     async def test_increment_ai_counter_returns_sequential_name(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test increment_ai_counter() returns sequential AI player names."""
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="AISEQ01",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,

@@ -74,7 +74,7 @@ class TestAIAgentService:
         # Create a room with high min_players to test personality cycling
         room = GameRoom(
             code="CYCLE123",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=10,
             min_players=9,  # Need 8 AI agents

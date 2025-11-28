@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.user import Player
 from src.services.game_room_service import GameRoomService
-from src.models.game import GameRoom, GameRoomParticipant, GameType
+from src.models.game import GameRoom, GameRoomParticipant
 from src.utils.errors import (
     RoomNotFoundError,
     RoomFullError,
@@ -39,7 +39,7 @@ class TestGameRoomServiceValidation:
     async def test_validate_join_rejects_full_room(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that validate_join_request rejects full rooms (SC-006)."""
@@ -47,7 +47,7 @@ class TestGameRoomServiceValidation:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="FULL01",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=3,
             min_players=2,
@@ -75,7 +75,7 @@ class TestGameRoomServiceValidation:
     async def test_validate_join_rejects_in_progress_game(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that validate_join_request rejects games already in progress (FR-004)."""
@@ -83,7 +83,7 @@ class TestGameRoomServiceValidation:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="PROG01",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="In Progress",  # Game started
             max_players=6,
             min_players=3,
@@ -112,7 +112,7 @@ class TestGameRoomServiceValidation:
     async def test_validate_join_rejects_duplicate_join(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that validate_join_request rejects duplicate joins (FR-012)."""
@@ -120,7 +120,7 @@ class TestGameRoomServiceValidation:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="DUP001",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -157,7 +157,7 @@ class TestGameRoomServiceValidation:
     async def test_validate_join_accepts_valid_request(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that validate_join_request accepts valid join requests."""
@@ -169,7 +169,7 @@ class TestGameRoomServiceValidation:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="VALID1",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,

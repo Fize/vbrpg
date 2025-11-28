@@ -5,7 +5,6 @@ from src.models.game import (
     GameRoomParticipant,
     GameSession,
     GameState,
-    GameType,
 )
 from src.models.user import AIAgent, Player, PlayerProfile, Session
 
@@ -13,7 +12,6 @@ __all__ = [
     "Base",
     "Session",
     "AIAgent",
-    "GameType",
     "GameRoom",
     "GameRoomParticipant",
     "GameState",

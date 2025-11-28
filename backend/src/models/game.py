@@ -1,11 +1,12 @@
 """Game-related models for single-user gaming.
 
 This module consolidates all game-related database models:
-- GameType: Game catalog with AI opponent support information
 - GameRoom: Simplified game room for single-user gaming experience
 - GameRoomParticipant: Join table linking sessions and AI agents to game rooms
 - GameState: Current state of a single-user game
 - GameSession: Historical record of a single-user game session
+
+Note: GameType and GameRole have been moved to src/constants/ as static data.
 """
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
@@ -21,43 +22,8 @@ if TYPE_CHECKING:
 
 
 # =============================================================================
-# GameType
-# =============================================================================
-
-class GameType(Base, UUIDMixin):
-    """Game catalog with AI opponent support information."""
-
-    __tablename__ = "game_types"
-
-    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    slug: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-    rules_summary: Mapped[str] = mapped_column(Text, nullable=False)
-    min_players: Mapped[int] = mapped_column(Integer, nullable=False)
-    max_players: Mapped[int] = mapped_column(Integer, nullable=False)
-    avg_duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
-    is_available: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-
-    # AI-related fields for single-user experience
-    min_ai_opponents: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    max_ai_opponents: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
-    supports_spectating: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-    def __repr__(self):
-        return f"<GameType(id={self.id}, name={self.name}, available={self.is_available})>"
-
-    # Relationship to roles (game-specific playable roles)
-    roles: Mapped[List["GameRole"]] = relationship(
-        "GameRole",
-        back_populates="game_type",
-        cascade="all, delete-orphan"
-    )
-
-
-# =============================================================================
 # GameRoom
 # =============================================================================
-
 class GameRoom(Base, UUIDMixin):
     """Simplified game room for single-user gaming experience."""
 
@@ -66,9 +32,8 @@ class GameRoom(Base, UUIDMixin):
     code: Mapped[str] = mapped_column(String(8), unique=True, nullable=False)
     game_type_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("game_types.id"),
         nullable=False
-    )
+    )  # Stores game_type slug, no longer a foreign key
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # Waiting, In Progress, Completed
     max_players: Mapped[int] = mapped_column(Integer, nullable=False)
     min_players: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -85,7 +50,6 @@ class GameRoom(Base, UUIDMixin):
     ai_agent_counter: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Relationships
-    game_type: Mapped["GameType"] = relationship("GameType")
     participants: Mapped[List["GameRoomParticipant"]] = relationship(
         "GameRoomParticipant",
         back_populates="game_room",
@@ -192,40 +156,6 @@ class GameRoomParticipant(Base, UUIDMixin):
 
 
 # =============================================================================
-# GameRole
-# =============================================================================
-
-
-class GameRole(Base, UUIDMixin):
-    """Roles available for a specific GameType.
-
-    Stored per-game so AI/services and frontends can present playable roles and
-    AI-assignment instructions (task) for each role.
-    """
-
-    __tablename__ = "game_roles"
-
-    game_type_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("game_types.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    slug: Mapped[str] = mapped_column(String(50), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-    task: Mapped[str] = mapped_column(Text, nullable=False)
-    is_playable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-
-    # Relationship
-    game_type: Mapped["GameType"] = relationship("GameType", back_populates="roles")
-
-    def __repr__(self):
-        return f"<GameRole(id={self.id}, name={self.name}, game_type={self.game_type_id})>"
-
-
-# =============================================================================
 # GameState
 # =============================================================================
 
@@ -299,10 +229,9 @@ class GameSession(Base, UUIDMixin):
     )
     game_type_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("game_types.id", ondelete="RESTRICT"),
         nullable=False,
         index=True
-    )
+    )  # Stores game_type slug, no longer a foreign key
 
     # Timestamps
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
@@ -322,7 +251,6 @@ class GameSession(Base, UUIDMixin):
 
     # Relationships
     game_room: Mapped["GameRoom"] = relationship("GameRoom", back_populates="sessions")
-    game_type: Mapped["GameType"] = relationship("GameType")
 
     def __repr__(self):
         return (

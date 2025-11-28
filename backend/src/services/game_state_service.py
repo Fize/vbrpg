@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.user import PlayerProfile
 from src.services.games.crime_scene_engine import CrimeSceneEngine
-from src.models.game import GameRoom, GameSession, GameState, GameType
+from src.models.game import GameRoom, GameSession, GameState
+from src.constants import get_game_type_by_slug
 from src.utils.errors import BadRequestError, NotFoundError
 
 logger = logging.getLogger(__name__)
@@ -312,11 +313,8 @@ class GameStateService:
         # Get game state
         state = await self.get_current_state(game_room_id)
 
-        # Get game type
-        result = await self.db.execute(
-            select(GameType).where(GameType.slug == "crime-scene")
-        )
-        game_type = result.scalar_one_or_none()
+        # Get game type from constants
+        game_type = get_game_type_by_slug("crime-scene")
 
         if not game_type:
             raise NotFoundError("Game type 'crime-scene' not found")
@@ -336,8 +334,8 @@ class GameStateService:
         # Create game session
         game_session = GameSession(
             game_room_id=str(game_room_id),
-            game_type_id=game_type.id,
-            winner_id=winner_id,
+            game_type_id=game_type["slug"],
+            user_won=winner_id is not None,
             started_at=room.started_at or datetime.utcnow(),
             completed_at=datetime.utcnow(),
             duration_minutes=duration_minutes,
@@ -353,7 +351,7 @@ class GameStateService:
             if participant.player_id:
                 await self._update_player_stats(
                     participant.player_id,
-                    game_type.id,
+                    game_type["slug"],
                     winner_id == participant.player_id,
                     duration_minutes
                 )

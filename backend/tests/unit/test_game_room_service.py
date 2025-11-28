@@ -22,7 +22,7 @@ class TestGameRoomServiceCreate:
         service = GameRoomService(test_db)
         
         room = await service.create_room(
-            game_type_slug=sample_game_type.slug,
+            game_type_slug=sample_game_type["slug"],
             max_players=6,
             min_players=4
         )
@@ -30,7 +30,7 @@ class TestGameRoomServiceCreate:
         assert room is not None
         assert room.code is not None
         assert len(room.code) == 8
-        assert room.game_type_id == sample_game_type.id
+        assert room.game_type_id == sample_game_type["slug"]
         assert room.status == "Waiting"
         assert room.max_players == 6
         assert room.min_players == 4
@@ -43,7 +43,7 @@ class TestGameRoomServiceCreate:
         service = GameRoomService(test_db)
         
         room = await service.create_room(
-            game_type_slug=sample_game_type.slug,
+            game_type_slug=sample_game_type["slug"],
             max_players=6,
             min_players=4,
             user_role="detective",
@@ -71,7 +71,7 @@ class TestGameRoomServiceCreate:
         # min_players greater than max_players
         with pytest.raises(BadRequestError, match="cannot exceed maximum"):
             await service.create_room(
-                game_type_slug=sample_game_type.slug,
+                game_type_slug=sample_game_type["slug"],
                 max_players=3,
                 min_players=5
             )
@@ -108,8 +108,8 @@ class TestGameRoomServiceList:
         service = GameRoomService(test_db)
         
         # Create multiple rooms
-        await service.create_room(sample_game_type.slug, 6, 4)
-        await service.create_room(sample_game_type.slug, 8, 4)
+        await service.create_room(sample_game_type["slug"], 6, 4)
+        await service.create_room(sample_game_type["slug"], 8, 4)
         
         rooms = await service.list_rooms()
         
@@ -119,8 +119,8 @@ class TestGameRoomServiceList:
         """Test listing rooms filtered by status."""
         service = GameRoomService(test_db)
         
-        room1 = await service.create_room(sample_game_type.slug, 6, 4)
-        room2 = await service.create_room(sample_game_type.slug, 6, 4)
+        room1 = await service.create_room(sample_game_type["slug"], 6, 4)
+        room2 = await service.create_room(sample_game_type["slug"], 6, 4)
         
         # Change room2 to In Progress
         room2.status = "In Progress"
@@ -135,12 +135,12 @@ class TestGameRoomServiceList:
         """Test listing rooms filtered by game type."""
         service = GameRoomService(test_db)
         
-        room = await service.create_room(sample_game_type.slug, 6, 4)
+        room = await service.create_room(sample_game_type["slug"], 6, 4)
         
-        rooms = await service.list_rooms(game_type_slug=sample_game_type.slug)
+        rooms = await service.list_rooms(game_type_slug=sample_game_type["slug"])
         
         assert any(r.code == room.code for r in rooms)
-        assert all(r.game_type_id == sample_game_type.id for r in rooms)
+        assert all(r.game_type_id == sample_game_type["slug"] for r in rooms)
     
     async def test_list_rooms_with_limit(self, test_db, sample_game_type):
         """Test listing rooms with limit."""
@@ -148,7 +148,7 @@ class TestGameRoomServiceList:
         
         # Create multiple rooms
         for _ in range(5):
-            await service.create_room(sample_game_type.slug, 6, 4)
+            await service.create_room(sample_game_type["slug"], 6, 4)
         
         rooms = await service.list_rooms(limit=3)
         

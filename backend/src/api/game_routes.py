@@ -27,8 +27,8 @@ from src.api.schemas import (
     RoomListResponse,
     SelectRoleRequest,
 )
+from src.constants import GAME_TYPES, get_game_type_by_slug, ROLES_BY_GAME, get_roles_by_game_slug
 from src.database import get_db
-from src.models.game import GameType, GameRole
 from src.services.ai_service import AIAgentService
 from src.services.game_room_service import GameRoomService
 from src.utils.errors import APIError, NotFoundError
@@ -47,6 +47,7 @@ router = APIRouter(tags=["games"])
 
 def map_room_to_response(room) -> GameRoomResponse:
     """Map GameRoom model to response schema."""
+    game_type = get_game_type_by_slug(room.game_type_id)
     return GameRoomResponse(
         id=room.id,
         code=room.code,
@@ -56,13 +57,14 @@ def map_room_to_response(room) -> GameRoomResponse:
         created_at=room.created_at,
         started_at=room.started_at,
         completed_at=room.completed_at,
-        game_type=room.game_type,
+        game_type=game_type,
         current_player_count=room.get_active_participants_count()
     )
 
 
 def map_room_to_detailed_response(room) -> GameRoomDetailedResponse:
     """Map GameRoom model to detailed response schema."""
+    game_type = get_game_type_by_slug(room.game_type_id)
     participants = []
     for p in room.participants:
         participants.append(ParticipantResponse(
@@ -84,7 +86,7 @@ def map_room_to_detailed_response(room) -> GameRoomDetailedResponse:
         created_at=room.created_at,
         started_at=room.started_at,
         completed_at=room.completed_at,
-        game_type=room.game_type,
+        game_type=game_type,
         current_player_count=room.get_active_participants_count(),
         participants=participants
     )
@@ -97,38 +99,30 @@ def map_room_to_detailed_response(room) -> GameRoomDetailedResponse:
 @router.get("/api/v1/games", response_model=List[GameTypeResponse])
 async def list_games(
     available_only: bool = False,
-    db: AsyncSession = Depends(get_db)
 ):
     """List all game types.
     
     Args:
         available_only: If True, only return available games
-        db: Database session
         
     Returns:
         List of game types with details
     """
-    query = select(GameType)
-
+    games = GAME_TYPES
     if available_only:
-        query = query.where(GameType.is_available == True)
+        games = [g for g in games if g["is_available"]]
 
-    result = await db.execute(query)
-    games = result.scalars().all()
-
-    return [GameTypeResponse.from_orm(game) for game in games]
+    return [GameTypeResponse(**game) for game in games]
 
 
 @router.get("/api/v1/games/{slug}", response_model=GameTypeResponse)
 async def get_game_details(
     slug: str,
-    db: AsyncSession = Depends(get_db)
 ):
     """Get detailed information about a specific game.
     
     Args:
         slug: Game slug identifier
-        db: Database session
         
     Returns:
         Game type details
@@ -136,14 +130,12 @@ async def get_game_details(
     Raises:
         HTTPException: If game not found
     """
-    query = select(GameType).where(GameType.slug == slug)
-    result = await db.execute(query)
-    game = result.scalar_one_or_none()
+    game = get_game_type_by_slug(slug)
 
     if not game:
         raise HTTPException(status_code=404, detail=f"Game '{slug}' not found")
 
-    return GameTypeResponse.from_orm(game)
+    return GameTypeResponse(**game)
 
 
 # =============================================================================
@@ -321,6 +313,9 @@ async def start_game(
         # Start game (no owner validation in single-player mode)
         room = await room_service.start_game(room_code)
 
+        # Get game type from constants
+        game_type = get_game_type_by_slug(room.game_type_id)
+
         # Prepare game data for broadcast
         game_data = {
             "participants": [
@@ -333,8 +328,8 @@ async def start_game(
                 for p in room.participants if p.is_active()
             ],
             "game_type": {
-                "name": room.game_type.name,
-                "slug": room.game_type.slug
+                "name": game_type["name"] if game_type else "Unknown",
+                "slug": game_type["slug"] if game_type else room.game_type_id
             },
             "started_at": room.started_at.isoformat() if room.started_at else None,
             "initial_state": None  # Will be populated by GameStateService in Phase 4
@@ -355,30 +350,23 @@ async def start_game(
 @router.get("/api/v1/games/{game_type_slug}/roles", response_model=RoleListResponse)
 async def get_roles(
     game_type_slug: str,
-    db: AsyncSession = Depends(get_db)
 ):
-    """Get available roles for a game type (from database).
+    """Get available roles for a game type (from constants).
 
     单人模式下，用户可以选择扮演特定角色或作为旁观者。
     """
-    # Get game type
-    result = await db.execute(
-        select(GameType).where(GameType.slug == game_type_slug)
-    )
-    game_type = result.scalar_one_or_none()
+    # Get game type from constants
+    game_type = get_game_type_by_slug(game_type_slug)
 
     if not game_type:
         raise HTTPException(status_code=404, detail=f"Game type '{game_type_slug}' not found")
 
-    # Load roles from DB
-    roles_query = await db.execute(
-        select(GameRole).where(GameRole.game_type_id == game_type.id)
-    )
-    roles = roles_query.scalars().all()
+    # Load roles from constants
+    roles = get_roles_by_game_slug(game_type_slug) or []
 
     return RoleListResponse(
-        roles=[RoleResponse.from_orm(r) for r in roles],
-        supports_spectating=game_type.supports_spectating
+        roles=[RoleResponse(**r) for r in roles],
+        supports_spectating=game_type["supports_spectating"]
     )
 
 

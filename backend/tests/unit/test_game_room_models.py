@@ -15,7 +15,7 @@ class TestGameRoomModel:
         """Test creating a game room."""
         room = GameRoom(
             code="ABCD1234",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=4,
