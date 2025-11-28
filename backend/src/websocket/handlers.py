@@ -1079,3 +1079,78 @@ async def broadcast_game_terminated(
     except Exception as e:
         logger.error(f"Error broadcasting game_terminated: {e}")
 
+
+# =============================================================================
+# Single-Player Mode Game Control Events
+# =============================================================================
+
+async def broadcast_game_paused(room_code: str):
+    """
+    Broadcast that the game has been paused.
+    
+    单人模式下用户暂停游戏时触发。
+    
+    Args:
+        room_code: Room code to broadcast to
+    """
+    try:
+        await sio.emit(
+            "game_paused",
+            {
+                "room_code": room_code,
+                "paused_at": datetime.utcnow().isoformat()
+            },
+            room=room_code
+        )
+        logger.info(f"Game paused in room {room_code}")
+
+    except Exception as e:
+        logger.error(f"Error broadcasting game_paused: {e}")
+
+
+async def broadcast_game_resumed(room_code: str):
+    """
+    Broadcast that the game has been resumed.
+    
+    单人模式下用户恢复暂停的游戏时触发。
+    
+    Args:
+        room_code: Room code to broadcast to
+    """
+    try:
+        await sio.emit(
+            "game_resumed",
+            {
+                "room_code": room_code,
+                "resumed_at": datetime.utcnow().isoformat()
+            },
+            room=room_code
+        )
+        logger.info(f"Game resumed in room {room_code}")
+
+    except Exception as e:
+        logger.error(f"Error broadcasting game_resumed: {e}")
+
+
+async def broadcast_game_stopped(room_code: str):
+    """
+    Broadcast that the game has been stopped by user.
+    
+    单人模式下用户主动停止游戏时触发。
+    
+    Args:
+        room_code: Room code to broadcast to
+    """
+    try:
+        await sio.emit(
+            "game_stopped",
+            {
+                "room_code": room_code,
+                "stopped_at": datetime.utcnow().isoformat()
+            },
+            room=room_code
+        )
+        logger.info(f"Game stopped in room {room_code}")
+
+    except Exception as e:
+        logger.error(f"Error broadcasting game_stopped: {e}")
