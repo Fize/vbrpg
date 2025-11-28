@@ -46,6 +46,13 @@ class GameType(Base, UUIDMixin):
     def __repr__(self):
         return f"<GameType(id={self.id}, name={self.name}, available={self.is_available})>"
 
+    # Relationship to roles (game-specific playable roles)
+    roles: Mapped[List["GameRole"]] = relationship(
+        "GameRole",
+        back_populates="game_type",
+        cascade="all, delete-orphan"
+    )
+
 
 # =============================================================================
 # GameRoom
@@ -182,6 +189,40 @@ class GameRoomParticipant(Base, UUIDMixin):
     def __repr__(self):
         participant_type = "AI" if self.is_ai_agent else "Human"
         return f"<GameRoomParticipant(id={self.id}, type={participant_type}, active={self.is_active()})>"
+
+
+# =============================================================================
+# GameRole
+# =============================================================================
+
+
+class GameRole(Base, UUIDMixin):
+    """Roles available for a specific GameType.
+
+    Stored per-game so AI/services and frontends can present playable roles and
+    AI-assignment instructions (task) for each role.
+    """
+
+    __tablename__ = "game_roles"
+
+    game_type_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("game_types.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    slug: Mapped[str] = mapped_column(String(50), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    task: Mapped[str] = mapped_column(Text, nullable=False)
+    is_playable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationship
+    game_type: Mapped["GameType"] = relationship("GameType", back_populates="roles")
+
+    def __repr__(self):
+        return f"<GameRole(id={self.id}, name={self.name}, game_type={self.game_type_id})>"
 
 
 # =============================================================================

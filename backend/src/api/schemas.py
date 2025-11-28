@@ -113,6 +113,7 @@ class RoleResponse(BaseModel):
     name: str
     description: str
     is_playable: bool = True  # 是否可由用户扮演
+    task: str | None = None  # 角色给 AI 或玩家的任务/指令描述
 
     class Config:
         from_attributes = True
