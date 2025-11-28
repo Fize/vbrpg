@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db, engine
-from src.models.game import GameRoom, GameState, GameType
+from src.models.game import GameRoom, GameState
 from src.models.user import PlayerProfile
 
 

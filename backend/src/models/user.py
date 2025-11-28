@@ -15,9 +15,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base, UUIDMixin
 
-if TYPE_CHECKING:
-    from src.models.game import GameType
-
 
 # =============================================================================
 # Player
@@ -87,9 +84,8 @@ class PlayerProfile(Base):
     total_wins: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     favorite_game_id: Mapped[Optional[str]] = mapped_column(
         String(36),
-        ForeignKey("game_types.id", ondelete="SET NULL"),
         nullable=True
-    )
+    )  # Stores game_type slug, no longer a foreign key
     ui_preferences: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # MySQL native JSON
     updated_at: Mapped[datetime] = mapped_column(
         default=datetime.utcnow,
@@ -99,7 +95,6 @@ class PlayerProfile(Base):
 
     # Relationships
     player: Mapped["Player"] = relationship("Player", back_populates="profile")
-    favorite_game: Mapped[Optional["GameType"]] = relationship("GameType")
 
     @property
     def win_rate(self) -> float:

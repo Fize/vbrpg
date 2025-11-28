@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.game import GameRoom, GameRoomParticipant, GameType
+from src.models.game import GameRoom, GameRoomParticipant
 from src.models.user import Player
 from src.services.game_room_service import GameRoomService
 
@@ -20,7 +20,7 @@ class TestGameRoomServiceOwnership:
     async def test_transfer_ownership_selects_earliest_human(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType
+        sample_game_type: dict
     ):
         """Test that transfer_ownership selects earliest-joined human player (FR-014)."""
         # Create players
@@ -34,7 +34,7 @@ class TestGameRoomServiceOwnership:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="TRANS1",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -109,7 +109,7 @@ class TestGameRoomServiceOwnership:
     async def test_transfer_ownership_dissolves_room_if_only_ai_remain(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType
+        sample_game_type: dict
     ):
         """Test that transfer_ownership dissolves room if only AI agents remain (FR-014)."""
         # Create owner
@@ -121,7 +121,7 @@ class TestGameRoomServiceOwnership:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="DISSOLV",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -190,7 +190,7 @@ class TestGameRoomServiceOwnership:
     async def test_transfer_ownership_updates_is_owner_flags(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType
+        sample_game_type: dict
     ):
         """Test that transfer_ownership correctly updates is_owner flags."""
         # Create players
@@ -203,7 +203,7 @@ class TestGameRoomServiceOwnership:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="FLAGS1",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -260,7 +260,7 @@ class TestGameRoomServiceOwnership:
     async def test_transfer_ownership_returns_new_owner(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType
+        sample_game_type: dict
     ):
         """Test that transfer_ownership returns the new owner Player object."""
         # Create players
@@ -273,7 +273,7 @@ class TestGameRoomServiceOwnership:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="RETURN",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,

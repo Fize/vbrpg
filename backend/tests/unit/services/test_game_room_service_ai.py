@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.game import GameRoom, GameType
+from src.models.game import GameRoom
 from src.models.user import Player
 from src.services.game_room_service import GameRoomService
 
@@ -20,7 +20,7 @@ class TestGameRoomServiceAI:
     async def test_create_ai_agent_generates_sequential_names(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that create_ai_agent generates sequential AI names (FR-007)."""
@@ -28,7 +28,7 @@ class TestGameRoomServiceAI:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="AISEQ1",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -68,7 +68,7 @@ class TestGameRoomServiceAI:
     async def test_create_ai_agent_creates_player_with_ai_type(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that create_ai_agent creates Player with is_guest=True (AI marker)."""
@@ -76,7 +76,7 @@ class TestGameRoomServiceAI:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="AITYPE",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -102,7 +102,7 @@ class TestGameRoomServiceAI:
     async def test_create_ai_agent_adds_participant_with_ai_flag(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that create_ai_agent adds GameRoomParticipant with is_ai_agent=True."""
@@ -110,7 +110,7 @@ class TestGameRoomServiceAI:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="AIPART",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -153,7 +153,7 @@ class TestGameRoomServiceAI:
     async def test_create_ai_agent_increments_counter(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that create_ai_agent increments room.ai_agent_counter."""
@@ -161,7 +161,7 @@ class TestGameRoomServiceAI:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="AICNT",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -195,7 +195,7 @@ class TestGameRoomServiceAI:
     async def test_create_ai_agent_returns_player_object(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that create_ai_agent returns a properly created Player object."""
@@ -203,7 +203,7 @@ class TestGameRoomServiceAI:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="AIRET",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,

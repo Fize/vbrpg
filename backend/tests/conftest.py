@@ -8,7 +8,8 @@ from sqlalchemy import text
 
 from src.models.base import Base
 from src.models.user import Player, PlayerProfile
-from src.models.game import GameRoom, GameRoomParticipant, GameState, GameType
+from src.models.game import GameRoom, GameRoomParticipant, GameState
+from src.constants import GAME_TYPES, get_game_type_by_slug
 
 
 # Set test API key for OpenAI
@@ -63,21 +64,9 @@ async def test_db(test_engine):
 
 
 @pytest.fixture
-async def sample_game_type(test_db: AsyncSession):
-    """Create a sample game type for testing."""
-    game_type = GameType(
-        name="犯罪现场",
-        slug="crime-scene",
-        description="推理解谜游戏",
-        rules_summary="收集线索，找出凶手",
-        min_players=4,
-        max_players=8,
-        avg_duration_minutes=60,
-        is_available=True
-    )
-    test_db.add(game_type)
-    await test_db.commit()
-    await test_db.refresh(game_type)
+async def sample_game_type():
+    """Return a sample game type from constants for testing."""
+    game_type = get_game_type_by_slug("crime-scene")
     return game_type
 
 
@@ -108,17 +97,16 @@ async def sample_guest_player(test_db: AsyncSession):
 
 
 @pytest.fixture
-async def sample_game_room(test_db: AsyncSession, sample_game_type: GameType, sample_player: Player):
+async def sample_game_room(test_db: AsyncSession, sample_game_type: dict, sample_player: Player):
     """Create a sample game room for testing."""
     from src.models.game import GameRoomParticipant
     
     room = GameRoom(
         code="TEST1234",
-        game_type_id=sample_game_type.id,
+        game_type_id=sample_game_type["slug"],
         status="Waiting",
         max_players=6,
         min_players=4,
-        created_by=sample_player.id
     )
     test_db.add(room)
     await test_db.flush()  # Generate room.id

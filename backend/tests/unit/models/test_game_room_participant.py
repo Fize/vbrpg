@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
-from src.models.game import GameRoom, GameRoomParticipant, GameType
+from src.models.game import GameRoom, GameRoomParticipant
 from src.models.user import Player
 
 
@@ -21,7 +21,7 @@ class TestGameRoomParticipantModelExtensions:
     async def test_is_owner_flag_identifies_owner(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that is_owner flag correctly identifies the room owner."""
@@ -29,7 +29,7 @@ class TestGameRoomParticipantModelExtensions:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="OWN001",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -84,7 +84,7 @@ class TestGameRoomParticipantModelExtensions:
     async def test_join_timestamp_set_on_creation(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that join_timestamp is set to current time on participant creation."""
@@ -92,7 +92,7 @@ class TestGameRoomParticipantModelExtensions:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="TIME01",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -129,7 +129,7 @@ class TestGameRoomParticipantModelExtensions:
     async def test_unique_constraint_prevents_duplicate_joins(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that unique constraint prevents duplicate (room_id, player_id) combinations."""
@@ -137,7 +137,7 @@ class TestGameRoomParticipantModelExtensions:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="DUP001",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
@@ -183,7 +183,7 @@ class TestGameRoomParticipantModelExtensions:
     async def test_query_ordering_by_join_timestamp(
         self,
         test_db: AsyncSession,
-        sample_game_type: GameType,
+        sample_game_type: dict,
         sample_player: Player
     ):
         """Test that querying participants ordered by join_timestamp returns correct order."""
@@ -191,7 +191,7 @@ class TestGameRoomParticipantModelExtensions:
         room = GameRoom(
             id=str(uuid.uuid4()),
             code="ORD001",
-            game_type_id=sample_game_type.id,
+            game_type_id=sample_game_type["slug"],
             status="Waiting",
             max_players=6,
             min_players=3,
