@@ -8,7 +8,8 @@
 - **Python 3.11+** - 核心语言
 - **FastAPI 0.109+** - 异步 Web 框架，RESTful API
 - **SQLAlchemy 2.0+** - 异步 ORM，数据库访问
-- **aiosqlite 0.19+** - SQLite 异步驱动
+- **MySQL 8.0** - 关系型数据库
+- **aiomysql 0.2+** - MySQL 异步驱动
 - **python-socketio 5.11+** - WebSocket 实时通信
 - **Pydantic 2.5+** - 数据验证和序列化
 - **LangChain 0.1+** - AI 决策框架

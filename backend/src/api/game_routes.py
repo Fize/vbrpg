@@ -28,7 +28,7 @@ from src.api.schemas import (
     SelectRoleRequest,
 )
 from src.database import get_db
-from src.models.game import GameType
+from src.models.game import GameType, GameRole
 from src.services.ai_service import AIAgentService
 from src.services.game_room_service import GameRoomService
 from src.utils.errors import APIError, NotFoundError
@@ -357,8 +357,8 @@ async def get_roles(
     game_type_slug: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get available roles for a game type.
-    
+    """Get available roles for a game type (from database).
+
     单人模式下，用户可以选择扮演特定角色或作为旁观者。
     """
     # Get game type
@@ -370,31 +370,14 @@ async def get_roles(
     if not game_type:
         raise HTTPException(status_code=404, detail=f"Game type '{game_type_slug}' not found")
 
-    # Return predefined roles based on game type
-    # TODO: Move role definitions to database or game-specific config
-    roles = [
-        RoleResponse(
-            id="detective",
-            name="侦探",
-            description="负责调查案件、询问嫌疑人、收集证据",
-            is_playable=True
-        ),
-        RoleResponse(
-            id="witness",
-            name="目击者",
-            description="拥有部分案件信息，可能被询问",
-            is_playable=True
-        ),
-        RoleResponse(
-            id="suspect",
-            name="嫌疑人",
-            description="可能是凶手，需要应对调查",
-            is_playable=True
-        ),
-    ]
+    # Load roles from DB
+    roles_query = await db.execute(
+        select(GameRole).where(GameRole.game_type_id == game_type.id)
+    )
+    roles = roles_query.scalars().all()
 
     return RoleListResponse(
-        roles=roles,
+        roles=[RoleResponse.from_orm(r) for r in roles],
         supports_spectating=game_type.supports_spectating
     )
 

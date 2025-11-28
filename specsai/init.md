@@ -42,6 +42,7 @@
 ### 核心业务包
 - `backend/src/services/` - 业务服务层（游戏房间、游戏状态、AI 代理、玩家服务）
 - `backend/src/models/` - SQLAlchemy 数据模型（game.py, user.py）
+    - 新增 `GameRole` 模型存储每个游戏的角色（`game_roles` 表），字段包含 name/slug/description/task/is_playable，用于 AI/前端展示与自动分配。
 - `backend/src/api/` - RESTful API 路由端点
 
 ### 基础设施包
@@ -170,7 +171,8 @@ frontend/
 ### 主要依赖
 - **Python 3.11+** - 后端主要语言
 - **FastAPI 0.109+** - 异步 Web 框架，提供 RESTful API
-- **SQLAlchemy 2.0+** - 异步 ORM，配合 aiosqlite 使用 SQLite
+- **SQLAlchemy 2.0+** - 异步 ORM，配合 aiomysql 使用 MySQL
+- **MySQL 8.0** - 关系型数据库
 - **python-socketio 5.11+** - WebSocket 实时通信
 - **LangChain + OpenAI** - AI 决策生成
 - **Vue 3.4+** - 前端响应式框架
@@ -208,7 +210,7 @@ pnpm install
 # 环境变量配置 (创建 .env 文件)
 OPENAI_API_KEY=your-api-key
 SECRET_KEY=your-secret-key
-DATABASE_URL=sqlite+aiosqlite:///./data/vbrpg.db
+DATABASE_URL=mysql+aiomysql://vbrpg:vbrpgpassword@localhost:3306/vbrpg
 CORS_ORIGINS=http://localhost:5173
 ```
 
@@ -284,7 +286,7 @@ pnpm test:coverage             # 带覆盖率报告
 ## 扩展性设计
 - **游戏引擎插件**: 可添加新游戏引擎到 services/games/
 - **AI 性格扩展**: 新增 AI 性格类型和决策策略
-- **多数据库支持**: 可切换到 PostgreSQL/MySQL（通过 SQLAlchemy）
+- **多数据库支持**: 当前使用 MySQL，可通过 SQLAlchemy 切换到 PostgreSQL 等
 
 ## 部署和运维
 - **容器化**: Docker + Docker Compose 部署

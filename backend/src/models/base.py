@@ -27,7 +27,7 @@ class TimestampMixin:
 
 
 class UUIDMixin:
-    """Mixin for UUID primary key (stored as String for SQLite)."""
+    """Mixin for UUID primary key (stored as String(36) for compatibility)."""
 
     id: Mapped[str] = mapped_column(
         String(36),
