@@ -1,6 +1,24 @@
 version: '3.8'
 
 services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: vbrpg
+      MYSQL_USER: vbrpg
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-vbrpgpassword}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - vbrpg
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       context: ./backend
@@ -8,17 +26,19 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///./data/vbrpg.db
+      - DATABASE_URL=mysql+aiomysql://vbrpg:${MYSQL_PASSWORD:-vbrpgpassword}@mysql:3306/vbrpg
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - SECRET_KEY=${SECRET_KEY:-default-secret-key-change-in-production}
       - ENVIRONMENT=development
       - LOG_LEVEL=DEBUG
     volumes:
       - ./backend:/app
-      - backend_data:/app/data
     command: uvicorn main:app --reload --host 0.0.0.0 --port 8000
     networks:
       - vbrpg
+    depends_on:
+      mysql:
+        condition: service_healthy
 
   frontend:
     build:
@@ -40,7 +60,7 @@ services:
       - backend
 
 volumes:
-  backend_data:
+  mysql_data:
 
 networks:
   vbrpg:

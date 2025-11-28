@@ -2,8 +2,10 @@
 
 This module consolidates all game-related REST API endpoints:
 - Game types listing and details
-- Room management (create, join, leave, start)
+- Room management (create, start)
 - AI agent management
+- Role selection (单人模式)
+- Game control (pause/resume/stop)
 """
 import logging
 from typing import List
@@ -14,13 +16,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.schemas import (
     CreateRoomRequest,
+    GameControlResponse,
     GameRoomDetailedResponse,
     GameRoomResponse,
     GameTypeResponse,
-    JoinRoomResponse,
     ParticipantResponse,
     PlayerResponse,
+    RoleListResponse,
+    RoleResponse,
     RoomListResponse,
+    SelectRoleRequest,
 )
 from src.database import get_db
 from src.models.game import GameType
@@ -38,11 +43,6 @@ router = APIRouter(tags=["games"])
 # =============================================================================
 # Helper Functions
 # =============================================================================
-
-async def get_current_user_id() -> str:
-    """Get current authenticated user ID."""
-    # TODO: Implement real authentication
-    return "temp-user-id-123"
 
 
 def map_room_to_response(room) -> GameRoomResponse:
@@ -153,17 +153,18 @@ async def get_game_details(
 @router.post("/api/v1/rooms", response_model=GameRoomDetailedResponse, status_code=201)
 async def create_room(
     request: CreateRoomRequest,
-    db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
+    db: AsyncSession = Depends(get_db)
 ):
-    """Create a new game room."""
+    """Create a new game room for single-player mode.
+    
+    All players are AI agents. User can be spectator or participant.
+    """
     try:
         service = GameRoomService(db)
         room = await service.create_room(
             game_type_slug=request.game_type_slug,
             max_players=request.max_players,
-            min_players=request.min_players,
-            creator_id=user_id
+            min_players=request.min_players
         )
         return map_room_to_detailed_response(room)
     except APIError as e:
@@ -207,120 +208,10 @@ async def get_room(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
-@router.post("/api/v1/rooms/{room_code}/join", response_model=JoinRoomResponse)
-async def join_room(
-    room_code: str,
-    db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
-):
-    """Join a game room."""
-    try:
-        service = GameRoomService(db)
-        room = await service.join_room(room_code, user_id)
-
-        # Determine if current user is owner
-        is_owner = room.owner_id == user_id
-
-        # Map participants
-        participants = []
-        for p in room.participants:
-            participants.append(ParticipantResponse(
-                id=p.id,
-                player=PlayerResponse.from_orm(p.player) if p.player else None,
-                is_ai_agent=p.is_ai_agent,
-                ai_personality=p.ai_personality,
-                joined_at=p.joined_at,
-                left_at=p.left_at,
-                replaced_by_ai=p.replaced_by_ai
-            ))
-
-        # Broadcast player joined event via WebSocket
-        player_data = None
-        for participant in room.participants:
-            if participant.player_id == user_id and participant.is_active():
-                player_data = {
-                    "id": participant.player_id,
-                    "name": participant.player.display_name if participant.player else "Unknown",
-                    "is_ai": participant.is_ai_agent,
-                    "joined_at": participant.joined_at.isoformat()
-                }
-                break
-
-        if player_data:
-            await ws_handlers.broadcast_player_joined(room_code, player_data)
-
-        return JoinRoomResponse(
-            room=map_room_to_detailed_response(room),
-            participants=participants,
-            is_owner=is_owner
-        )
-    except APIError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
-
-
-@router.delete("/api/v1/rooms/{room_code}/participants/{player_id}", status_code=204)
-async def leave_room(
-    room_code: str,
-    player_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user_id: str = Depends(get_current_user_id)
-):
-    """Remove a participant from a game room (RESTful leave endpoint)."""
-    try:
-        service = GameRoomService(db)
-
-        # Get room state before leaving
-        room = await service.get_room(room_code)
-        player_name = None
-        is_owner_leaving = False
-
-        for participant in room.participants:
-            if participant.player_id == player_id and participant.is_active():
-                player_name = participant.player.username if participant.player else "Unknown"
-                is_owner_leaving = participant.is_owner
-                break
-
-        # Perform leave operation
-        await service.leave_room(room_code, player_id)
-
-        # Broadcast player left event via WebSocket
-        await ws_handlers.broadcast_player_left(room_code, player_id, player_name)
-
-        # If owner left, check for ownership transfer or room dissolution
-        if is_owner_leaving:
-            # Reload room to check new state
-            try:
-                updated_room = await service.get_room(room_code)
-
-                if updated_room.status == "Dissolved":
-                    # Room was dissolved (no human participants remain)
-                    await ws_handlers.broadcast_room_dissolved(
-                        room_code,
-                        "No human participants remain"
-                    )
-                else:
-                    # Ownership was transferred
-                    new_owner_name = None
-                    for participant in updated_room.participants:
-                        if participant.is_owner and participant.is_active():
-                            new_owner_name = participant.player.username if participant.player else "Unknown"
-                            await ws_handlers.broadcast_ownership_transferred(
-                                room_code,
-                                player_id,
-                                participant.player_id,
-                                new_owner_name
-                            )
-                            break
-            except NotFoundError:
-                # Room was deleted/dissolved
-                await ws_handlers.broadcast_room_dissolved(
-                    room_code,
-                    "Room has been dissolved"
-                )
-
-        return Response(status_code=204)
-    except APIError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+# 单人模式下移除了以下端点：
+# - POST /api/v1/rooms/{room_code}/join (加入房间)
+# - DELETE /api/v1/rooms/{room_code}/participants/{player_id} (离开房间)
+# 所有玩家都是 AI，用户只能观战或参与
 
 
 # =============================================================================
@@ -330,19 +221,17 @@ async def leave_room(
 @router.post("/api/v1/rooms/{room_code}/ai-agents", status_code=201)
 async def add_ai_agent(
     room_code: str,
-    db: AsyncSession = Depends(get_db),
-    current_user_id: str = Depends(get_current_user_id)
+    db: AsyncSession = Depends(get_db)
 ):
-    """Add an AI agent to the room (owner only)."""
+    """Add an AI agent to the room.
+    
+    单人模式下，用户可以随时添加 AI 代理。
+    """
     try:
         service = GameRoomService(db)
 
-        # Get room and validate owner
+        # Get room
         room = await service.get_room(room_code)
-
-        if room.owner_id != current_user_id:
-            from src.utils.errors import ForbiddenError
-            raise ForbiddenError("Only room owner can add AI agents")
 
         # Validate room status
         if room.status != "Waiting":
@@ -386,15 +275,17 @@ async def add_ai_agent(
 async def remove_ai_agent(
     room_code: str,
     agent_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user_id: str = Depends(get_current_user_id)
+    db: AsyncSession = Depends(get_db)
 ):
-    """Remove an AI agent from the room (owner only)."""
+    """Remove an AI agent from the room.
+    
+    单人模式下，用户可以随时移除 AI 代理。
+    """
     try:
         service = GameRoomService(db)
 
         # Remove AI agent (service will validate)
-        await service.remove_ai_agent(room_code, agent_id, current_user_id)
+        await service.remove_ai_agent(room_code, agent_id)
 
         # Broadcast AI agent removed event
         # Note: We don't need AI name for this event as client has the ID
@@ -408,10 +299,12 @@ async def remove_ai_agent(
 @router.post("/api/v1/rooms/{room_code}/start", response_model=GameRoomDetailedResponse)
 async def start_game(
     room_code: str,
-    db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
+    db: AsyncSession = Depends(get_db)
 ):
-    """Start a game (creator only). Auto-fills empty slots with AI agents."""
+    """Start a game. Auto-fills empty slots with AI agents.
+    
+    单人模式下，所有玩家都是 AI 代理。
+    """
     try:
         room_service = GameRoomService(db)
         ai_service = AIAgentService(db)
@@ -425,8 +318,8 @@ async def start_game(
         # Refresh room to get AI participants
         await db.refresh(room)
 
-        # Start game
-        room = await room_service.start_game(room_code, user_id)
+        # Start game (no owner validation in single-player mode)
+        room = await room_service.start_game(room_code)
 
         # Prepare game data for broadcast
         game_data = {
@@ -451,5 +344,189 @@ async def start_game(
         await ws_handlers.broadcast_game_started(room_code, game_data)
 
         return map_room_to_detailed_response(room)
+    except APIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+# =============================================================================
+# Role Selection Endpoints (单人模式)
+# =============================================================================
+
+@router.get("/api/v1/games/{game_type_slug}/roles", response_model=RoleListResponse)
+async def get_roles(
+    game_type_slug: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get available roles for a game type.
+    
+    单人模式下，用户可以选择扮演特定角色或作为旁观者。
+    """
+    # Get game type
+    result = await db.execute(
+        select(GameType).where(GameType.slug == game_type_slug)
+    )
+    game_type = result.scalar_one_or_none()
+
+    if not game_type:
+        raise HTTPException(status_code=404, detail=f"Game type '{game_type_slug}' not found")
+
+    # Return predefined roles based on game type
+    # TODO: Move role definitions to database or game-specific config
+    roles = [
+        RoleResponse(
+            id="detective",
+            name="侦探",
+            description="负责调查案件、询问嫌疑人、收集证据",
+            is_playable=True
+        ),
+        RoleResponse(
+            id="witness",
+            name="目击者",
+            description="拥有部分案件信息，可能被询问",
+            is_playable=True
+        ),
+        RoleResponse(
+            id="suspect",
+            name="嫌疑人",
+            description="可能是凶手，需要应对调查",
+            is_playable=True
+        ),
+    ]
+
+    return RoleListResponse(
+        roles=roles,
+        supports_spectating=game_type.supports_spectating
+    )
+
+
+@router.post("/api/v1/rooms/{room_code}/select-role", response_model=GameRoomDetailedResponse)
+async def select_role(
+    room_code: str,
+    request: SelectRoleRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Select a role for the current game.
+    
+    单人模式下，用户选择角色后将锁定，游戏自动开始。
+    """
+    try:
+        service = GameRoomService(db)
+        room = await service.get_room(room_code)
+
+        if room.status != "Waiting":
+            raise HTTPException(status_code=400, detail="Cannot select role after game starts")
+
+        # Update room with user's role selection
+        if request.is_spectator:
+            room.user_role = "spectator"
+            room.is_spectator_mode = True
+        else:
+            room.user_role = request.role_id
+            room.is_spectator_mode = False
+
+        await db.commit()
+        await db.refresh(room)
+
+        return map_room_to_detailed_response(room)
+    except APIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+# =============================================================================
+# Game Control Endpoints (暂停/恢复/停止)
+# =============================================================================
+
+@router.post("/api/v1/rooms/{room_code}/pause", response_model=GameControlResponse)
+async def pause_game(
+    room_code: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Pause the current game.
+    
+    单人模式下，用户可以随时暂停游戏。
+    """
+    try:
+        service = GameRoomService(db)
+        room = await service.get_room(room_code)
+
+        if room.status != "In Progress":
+            raise HTTPException(status_code=400, detail="Game is not in progress")
+
+        # Update status to Paused
+        room.status = "Paused"
+        await db.commit()
+
+        # Broadcast pause event
+        await ws_handlers.broadcast_game_paused(room_code)
+
+        return GameControlResponse(
+            room_code=room_code,
+            status="Paused",
+            message="游戏已暂停"
+        )
+    except APIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+@router.post("/api/v1/rooms/{room_code}/resume", response_model=GameControlResponse)
+async def resume_game(
+    room_code: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Resume a paused game.
+    
+    恢复已暂停的游戏。
+    """
+    try:
+        service = GameRoomService(db)
+        room = await service.get_room(room_code)
+
+        if room.status != "Paused":
+            raise HTTPException(status_code=400, detail="Game is not paused")
+
+        # Update status back to In Progress
+        room.status = "In Progress"
+        await db.commit()
+
+        # Broadcast resume event
+        await ws_handlers.broadcast_game_resumed(room_code)
+
+        return GameControlResponse(
+            room_code=room_code,
+            status="In Progress",
+            message="游戏已恢复"
+        )
+    except APIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+@router.post("/api/v1/rooms/{room_code}/stop", response_model=GameControlResponse)
+async def stop_game(
+    room_code: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Stop the current game.
+    
+    停止并结束当前游戏。
+    """
+    try:
+        service = GameRoomService(db)
+        room = await service.get_room(room_code)
+
+        if room.status not in ["In Progress", "Paused"]:
+            raise HTTPException(status_code=400, detail="Game is not running")
+
+        # Complete the game
+        room.complete()
+        await db.commit()
+
+        # Broadcast stop event
+        await ws_handlers.broadcast_game_stopped(room_code)
+
+        return GameControlResponse(
+            room_code=room_code,
+            status="Completed",
+            message="游戏已停止"
+        )
     except APIError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)

@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.mysql import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base, UUIDMixin
@@ -68,17 +69,9 @@ class GameRoom(Base, UUIDMixin):
     started_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
 
-    # Owner and creator tracking
-    owner_id: Mapped[Optional[str]] = mapped_column(
-        String(36),
-        ForeignKey("players.id", ondelete="SET NULL"),
-        nullable=True
-    )
-    created_by: Mapped[Optional[str]] = mapped_column(
-        String(36),
-        ForeignKey("players.id", ondelete="SET NULL"),
-        nullable=True
-    )
+    # Single-player mode fields
+    user_role: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # 'spectator' or role ID
+    is_spectator_mode: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Counters for tracking
     current_participant_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -86,11 +79,6 @@ class GameRoom(Base, UUIDMixin):
 
     # Relationships
     game_type: Mapped["GameType"] = relationship("GameType")
-    owner: Mapped[Optional["Player"]] = relationship(
-        "Player",
-        foreign_keys=[owner_id],
-        lazy="joined"
-    )
     participants: Mapped[List["GameRoomParticipant"]] = relationship(
         "GameRoomParticipant",
         back_populates="game_room",
@@ -219,7 +207,7 @@ class GameState(Base, UUIDMixin):
         nullable=True
     )
     turn_number: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    game_data: Mapped[str] = mapped_column(Text, nullable=False)  # JSON stored as TEXT in SQLite
+    game_data: Mapped[dict] = mapped_column(JSON, nullable=False)  # MySQL native JSON
     is_paused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_updated: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)
 
@@ -288,8 +276,8 @@ class GameSession(Base, UUIDMixin):
     user_won: Mapped[bool] = mapped_column(Boolean, nullable=False)  # User vs AI result
     final_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # User's final score
 
-    # Final game state snapshot (JSON stored as TEXT in SQLite)
-    final_state: Mapped[str] = mapped_column(Text, nullable=False)
+    # Final game state snapshot (MySQL native JSON)
+    final_state: Mapped[dict] = mapped_column(JSON, nullable=False)
 
     # Relationships
     game_room: Mapped["GameRoom"] = relationship("GameRoom", back_populates="sessions")
