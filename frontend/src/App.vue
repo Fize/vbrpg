@@ -6,7 +6,7 @@
 import { onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { playersApi } from '@/services/api'
-import AppLayout from '@/components/AppLayout.vue'
+import AppLayout from '@/components/common/AppLayout.vue'
 
 const authStore = useAuthStore()
 

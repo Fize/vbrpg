@@ -23,8 +23,6 @@
           
           <!-- User Section -->
           <div class="user-section">
-            <ThemeToggle class="hidden-mobile" />
-            
             <span v-if="isAuthenticated" class="username">
               {{ username }}
               <el-tag v-if="isGuest" type="warning" size="small">访客</el-tag>
@@ -111,7 +109,6 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Menu, User } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
-import ThemeToggle from './ThemeToggle.vue'
 
 const router = useRouter()
 const route = useRoute()

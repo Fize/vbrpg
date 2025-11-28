@@ -131,6 +131,51 @@ export const roomsApi = {
    */
   async removeAIAgent(roomCode, agentId) {
     await apiClient.delete(`/rooms/${roomCode}/ai-agents/${agentId}`)
+  },
+
+  /**
+   * Select a role in the room
+   * @param {string} roomCode - Room code
+   * @param {string|null} roleId - Role ID to select, null for random
+   * @param {boolean} isSpectator - Whether to join as spectator
+   * @returns {Promise<Object>} Updated room data
+   */
+  async selectRole(roomCode, roleId, isSpectator = false) {
+    const response = await apiClient.post(`/rooms/${roomCode}/select-role`, {
+      role_id: roleId,
+      is_spectator: isSpectator
+    })
+    return response.data
+  },
+
+  /**
+   * Pause a game
+   * @param {string} roomCode - Room code
+   * @returns {Promise<Object>} Game control response
+   */
+  async pauseGame(roomCode) {
+    const response = await apiClient.post(`/rooms/${roomCode}/pause`)
+    return response.data
+  },
+
+  /**
+   * Resume a paused game
+   * @param {string} roomCode - Room code
+   * @returns {Promise<Object>} Game control response
+   */
+  async resumeGame(roomCode) {
+    const response = await apiClient.post(`/rooms/${roomCode}/resume`)
+    return response.data
+  },
+
+  /**
+   * Stop a game
+   * @param {string} roomCode - Room code
+   * @returns {Promise<Object>} Game control response
+   */
+  async stopGame(roomCode) {
+    const response = await apiClient.post(`/rooms/${roomCode}/stop`)
+    return response.data
   }
 }
 
@@ -154,6 +199,19 @@ export const gamesApi = {
    */
   async getGameDetails(slug) {
     const response = await apiClient.get(`/games/${slug}`)
+    return response.data
+  }
+}
+
+// Roles API methods
+export const rolesApi = {
+  /**
+   * Get roles for a specific game type
+   * @param {string} gameTypeSlug - Game type slug (e.g., 'werewolf')
+   * @returns {Promise<Object>} Roles list response
+   */
+  async getRoles(gameTypeSlug) {
+    const response = await apiClient.get(`/games/${gameTypeSlug}/roles`)
     return response.data
   }
 }

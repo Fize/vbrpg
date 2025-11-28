@@ -1,7 +1,7 @@
 """Single user refactor: Add Session model and update GameType.
 
 Revision ID: 20251126_single_user
-Revises: 
+Revises: 005_add_participant_metadata
 Create Date: 2025-11-26 10:00:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "20251126_single_user"
-down_revision = None
+down_revision = "005_add_participant_metadata"
 branch_labels = None
 depends_on = None
 
@@ -46,31 +46,35 @@ def upgrade() -> None:
     # Add AI-related columns to game_types
     op.add_column("game_types", sa.Column("min_ai_opponents", sa.Integer(), nullable=False, server_default="1"))
     op.add_column("game_types", sa.Column("max_ai_opponents", sa.Integer(), nullable=False, server_default="3"))
-    op.add_column("game_types", sa.Column("supports_spectating", sa.Boolean(), nullable=False, server_default="true"))
+    op.add_column("game_types", sa.Column("supports_spectating", sa.Boolean(), nullable=False, server_default=sa.text("1")))
     
-    # Update game_rooms table
+    # Update game_rooms table - drop foreign keys first
+    op.drop_constraint("game_rooms_ibfk_1", "game_rooms", type_="foreignkey")
+    op.drop_constraint("fk_game_rooms_owner_id", "game_rooms", type_="foreignkey")
     op.drop_column("game_rooms", "created_by")  # Remove player references
     op.drop_column("game_rooms", "owner_id")     # Remove player references
     op.drop_column("game_rooms", "current_participant_count")  # Simplify tracking
     
-    # Update game_room_participants table
-    op.alter_column("game_room_participants", "player_id", new_column_name="session_id")
+    # Update game_room_participants table - drop foreign key first
+    op.drop_constraint("game_room_participants_ibfk_2", "game_room_participants", type_="foreignkey")
+    op.alter_column("game_room_participants", "player_id", new_column_name="session_id", existing_type=sa.String(36))
     op.drop_column("game_room_participants", "is_owner")
     op.drop_column("game_room_participants", "join_timestamp")
     op.drop_column("game_room_participants", "replaced_by_ai")
-    op.create_foreign_key("game_room_participants", "session_id", "sessions", "id")
+    op.create_foreign_key("fk_participants_session", "game_room_participants", "sessions", ["session_id"], ["id"])
     
-    # Update game_states table
-    op.drop_column("game_states", "current_phase")
-    op.alter_column("game_states", "current_turn_player_id", new_column_name="current_turn")
-    op.add_column("game_states", sa.Column("is_paused", sa.Boolean(), nullable=False, server_default="false"))
-    op.drop_column("game_states", "updated_at")
-    op.add_column("game_states", sa.Column("last_updated", sa.DateTime(), nullable=False))
+    # Update game_states table - drop foreign key first
     op.drop_constraint("fk_game_states_current_turn_player_id_players", "game_states", type_="foreignkey")
+    op.drop_column("game_states", "current_phase")
+    op.alter_column("game_states", "current_turn_player_id", new_column_name="current_turn", existing_type=sa.String(36))
+    op.add_column("game_states", sa.Column("is_paused", sa.Boolean(), nullable=False, server_default=sa.text("0")))
+    op.drop_column("game_states", "updated_at")
+    op.add_column("game_states", sa.Column("last_updated", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")))
     
-    # Update game_sessions table
+    # Update game_sessions table - drop foreign key first
+    op.drop_constraint("game_sessions_ibfk_2", "game_sessions", type_="foreignkey")
     op.drop_column("game_sessions", "winner_id")  # Remove player references
-    op.add_column("game_sessions", sa.Column("user_won", sa.Boolean(), nullable=False))
+    op.add_column("game_sessions", sa.Column("user_won", sa.Boolean(), nullable=False, server_default=sa.text("0")))
     op.add_column("game_sessions", sa.Column("final_score", sa.Integer(), nullable=True))
 
 

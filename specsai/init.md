@@ -80,7 +80,7 @@ backend/
     │   └── user.py                  # 用户相关模型 (Player, Session, AIAgent, etc.)
     ├── services/
     │   ├── __init__.py
-    │   ├── ai_service.py            # AI 代理服务和调度器
+    │   ├── ai_service.py            # AI 代理服务与调度器（合并模块）
     │   ├── game_room_service.py     # 游戏房间管理服务
     │   ├── game_state_service.py    # 游戏状态管理服务
     │   ├── player_service.py        # 玩家管理服务
@@ -130,6 +130,7 @@ frontend/
     │   ├── GameRoomConfigView.vue   # 房间配置视图
     │   ├── GameBoard.vue            # 游戏主面板
     │   ├── GameDetails.vue          # 游戏详情视图
+    │   ├── IconExamples.vue         # 图标示例视图
     │   └── Profile.vue              # 玩家资料视图
     ├── components/
     │   ├── AppLayout.vue            # 应用布局组件
@@ -142,8 +143,16 @@ frontend/
     │   ├── ReconnectionFeedback.vue # 重连反馈组件
     │   ├── ConnectionStatus.vue     # 连接状态组件
     │   ├── GameCard.vue             # 游戏卡片组件
+    │   ├── GameRoomConfig.vue       # 房间配置组件
     │   ├── ErrorDialog.vue          # 错误对话框
+    │   ├── ErrorMessage.vue         # 错误信息组件
+    │   ├── EmptyState.vue           # 空状态组件
     │   ├── LoadingIndicator.vue     # 加载指示器
+    │   ├── AccountUpgrade.vue       # 账户升级组件
+    │   ├── StatsDisplay.vue         # 统计显示组件
+    │   ├── ThemeToggle.vue          # 主题切换组件
+    │   ├── TimeoutWarning.vue       # 超时警告组件
+    │   ├── icons/                   # 图标组件目录
     │   └── lobby/
     │       ├── JoinRoomForm.vue     # 加入房间表单
     │       └── AIAgentControls.vue  # AI 代理控制组件
