@@ -1,20 +1,20 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import GameLibrary from '@/views/GameLibrary.vue'
+import LobbyView from '@/views/LobbyView.vue'
 import GameDetails from '@/views/GameDetails.vue'
-import GameRoomConfigView from '@/views/GameRoomConfigView.vue'
-import GameRoomLobby from '@/views/GameRoomLobby.vue'
-import GameBoard from '@/views/GameBoard.vue'
+import CreateRoomView from '@/views/CreateRoomView.vue'
+import RoomLobbyView from '@/views/RoomLobbyView.vue'
+import WerewolfGameView from '@/views/WerewolfGameView.vue'
 
 const routes = [
   {
     path: '/',
     name: 'Home',
-    redirect: '/games'
+    redirect: '/lobby'
   },
   {
-    path: '/games',
-    name: 'GameLibrary',
-    component: GameLibrary,
+    path: '/lobby',
+    name: 'Lobby',
+    component: LobbyView,
     meta: {
       title: '游戏大厅'
     }
@@ -28,35 +28,27 @@ const routes = [
     }
   },
   {
-    path: '/room-config',
-    name: 'GameRoomConfig',
-    component: GameRoomConfigView,
+    path: '/room/create',
+    name: 'CreateRoom',
+    component: CreateRoomView,
     meta: {
       title: '创建房间'
     }
   },
   {
-    path: '/rooms/:code',
-    name: 'GameRoomLobby',
-    component: GameRoomLobby,
+    path: '/room/:code',
+    name: 'RoomLobby',
+    component: RoomLobbyView,
     meta: {
-      title: '游戏房间'
+      title: '房间等待'
     }
   },
   {
     path: '/game/:code',
     name: 'GameBoard',
-    component: GameBoard,
+    component: WerewolfGameView,
     meta: {
       title: '游戏中'
-    }
-  },
-  {
-    path: '/profile',
-    name: 'Profile',
-    component: () => import('@/views/Profile.vue'),
-    meta: {
-      title: '个人资料'
     }
   }
 ]

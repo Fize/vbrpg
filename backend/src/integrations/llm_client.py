@@ -4,7 +4,7 @@ import logging
 import os
 from typing import Any
 
-from langchain.schema import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 logger = logging.getLogger(__name__)

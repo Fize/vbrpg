@@ -134,7 +134,7 @@ import {
   Star
 } from '@element-plus/icons-vue'
 import { gamesApi } from '@/services/api'
-import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingIndicator from '@/components/common/LoadingIndicator.vue'
 
 const router = useRouter()
 const route = useRoute()
