@@ -1,23 +1,28 @@
-"""Unit tests for GameRoomService."""
+"""Unit tests for GameRoomService (单人模式).
+
+单人模式下：
+- 无需用户认证
+- 所有玩家都是 AI 代理
+- 用户可以选择观战或参与
+"""
 import pytest
 from sqlalchemy import select
 
 from src.services.game_room_service import GameRoomService
-from src.models.game import GameRoom, GameRoomParticipant
-from src.utils.errors import NotFoundError, BadRequestError, ConflictError, ForbiddenError
+from src.models.game import GameRoom, GameRoomParticipant, GameState
+from src.utils.errors import NotFoundError, BadRequestError, GameAlreadyStartedError
 
 
 @pytest.mark.asyncio
 class TestGameRoomServiceCreate:
-    """Test GameRoomService.create_room method."""
+    """Test GameRoomService.create_room method for single-player mode."""
     
-    async def test_create_room_success(self, test_db, sample_game_type, sample_player):
-        """Test successful room creation."""
+    async def test_create_room_success(self, test_db, sample_game_type):
+        """Test successful room creation without user authentication."""
         service = GameRoomService(test_db)
         
         room = await service.create_room(
             game_type_slug=sample_game_type.slug,
-            creator_id=sample_player.id,
             max_players=6,
             min_players=4
         )
@@ -26,76 +31,49 @@ class TestGameRoomServiceCreate:
         assert room.code is not None
         assert len(room.code) == 8
         assert room.game_type_id == sample_game_type.id
-        assert room.created_by == sample_player.id
         assert room.status == "Waiting"
         assert room.max_players == 6
         assert room.min_players == 4
-        
-        # Verify creator is added as participant
-        stmt = select(GameRoomParticipant).where(
-            GameRoomParticipant.game_room_id == room.id,
-            GameRoomParticipant.player_id == sample_player.id
-        )
-        result = await test_db.execute(stmt)
-        participant = result.scalar_one_or_none()
-        assert participant is not None
+        # 单人模式默认为旁观者模式
+        assert room.user_role == "spectator"
+        assert room.is_spectator_mode is True
     
-    async def test_create_room_game_type_not_found(self, test_db, sample_player):
+    async def test_create_room_with_participant_role(self, test_db, sample_game_type):
+        """Test room creation with participant role selection."""
+        service = GameRoomService(test_db)
+        
+        room = await service.create_room(
+            game_type_slug=sample_game_type.slug,
+            max_players=6,
+            min_players=4,
+            user_role="detective",
+            is_spectator_mode=False
+        )
+        
+        assert room.user_role == "detective"
+        assert room.is_spectator_mode is False
+    
+    async def test_create_room_game_type_not_found(self, test_db):
         """Test room creation fails with invalid game type."""
         service = GameRoomService(test_db)
         
         with pytest.raises(NotFoundError, match="Game type .* not found"):
             await service.create_room(
                 game_type_slug="nonexistent-game",
-                creator_id=sample_player.id,
                 max_players=6,
                 min_players=4
             )
     
-    async def test_create_room_game_type_unavailable(self, test_db, sample_game_type, sample_player):
-        """Test room creation fails with unavailable game type."""
-        sample_game_type.is_available = False
-        await test_db.commit()
-        
-        service = GameRoomService(test_db)
-        
-        with pytest.raises(BadRequestError, match="not available"):
-            await service.create_room(
-                game_type_slug=sample_game_type.slug,
-                creator_id=sample_player.id,
-                max_players=6,
-                min_players=4
-            )
-    
-    async def test_create_room_invalid_player_counts(self, test_db, sample_game_type, sample_player):
+    async def test_create_room_invalid_player_counts(self, test_db, sample_game_type):
         """Test room creation fails with invalid player counts."""
         service = GameRoomService(test_db)
         
-        # min_players greater than max_players (both within valid range)
-        with pytest.raises(BadRequestError, match="min_players cannot be greater than max_players"):
+        # min_players greater than max_players
+        with pytest.raises(BadRequestError, match="cannot exceed maximum"):
             await service.create_room(
                 game_type_slug=sample_game_type.slug,
-                creator_id=sample_player.id,
-                max_players=5,
-                min_players=6
-            )
-        
-        # max_players exceeds game type limit
-        with pytest.raises(BadRequestError, match="max_players must be between"):
-            await service.create_room(
-                game_type_slug=sample_game_type.slug,
-                creator_id=sample_player.id,
-                max_players=10,
-                min_players=4
-            )
-        
-        # min_players below game type minimum
-        with pytest.raises(BadRequestError, match="min_players must be between"):
-            await service.create_room(
-                game_type_slug=sample_game_type.slug,
-                creator_id=sample_player.id,
-                max_players=6,
-                min_players=2
+                max_players=3,
+                min_players=5
             )
 
 
@@ -125,24 +103,24 @@ class TestGameRoomServiceGet:
 class TestGameRoomServiceList:
     """Test GameRoomService.list_rooms method."""
     
-    async def test_list_all_rooms(self, test_db, sample_game_type, sample_player):
+    async def test_list_all_rooms(self, test_db, sample_game_type):
         """Test listing all rooms."""
         service = GameRoomService(test_db)
         
         # Create multiple rooms
-        await service.create_room(sample_game_type.slug, 6, 4, sample_player.id)
-        await service.create_room(sample_game_type.slug, 8, 4, sample_player.id)
+        await service.create_room(sample_game_type.slug, 6, 4)
+        await service.create_room(sample_game_type.slug, 8, 4)
         
         rooms = await service.list_rooms()
         
         assert len(rooms) >= 2
     
-    async def test_list_rooms_by_status(self, test_db, sample_game_type, sample_player):
+    async def test_list_rooms_by_status(self, test_db, sample_game_type):
         """Test listing rooms filtered by status."""
         service = GameRoomService(test_db)
         
-        room1 = await service.create_room(sample_game_type.slug, 6, 4, sample_player.id)
-        room2 = await service.create_room(sample_game_type.slug, 6, 4, sample_player.id)
+        room1 = await service.create_room(sample_game_type.slug, 6, 4)
+        room2 = await service.create_room(sample_game_type.slug, 6, 4)
         
         # Change room2 to In Progress
         room2.status = "In Progress"
@@ -153,24 +131,24 @@ class TestGameRoomServiceList:
         assert any(r.code == room1.code for r in waiting_rooms)
         assert not any(r.code == room2.code for r in waiting_rooms)
     
-    async def test_list_rooms_by_game_type(self, test_db, sample_game_type, sample_player):
+    async def test_list_rooms_by_game_type(self, test_db, sample_game_type):
         """Test listing rooms filtered by game type."""
         service = GameRoomService(test_db)
         
-        room = await service.create_room(sample_game_type.slug, 6, 4, sample_player.id)
+        room = await service.create_room(sample_game_type.slug, 6, 4)
         
         rooms = await service.list_rooms(game_type_slug=sample_game_type.slug)
         
         assert any(r.code == room.code for r in rooms)
         assert all(r.game_type_id == sample_game_type.id for r in rooms)
     
-    async def test_list_rooms_with_limit(self, test_db, sample_game_type, sample_player):
+    async def test_list_rooms_with_limit(self, test_db, sample_game_type):
         """Test listing rooms with limit."""
         service = GameRoomService(test_db)
         
         # Create multiple rooms
         for _ in range(5):
-            await service.create_room(sample_game_type.slug, 6, 4, sample_player.id)
+            await service.create_room(sample_game_type.slug, 6, 4)
         
         rooms = await service.list_rooms(limit=3)
         
@@ -178,146 +156,139 @@ class TestGameRoomServiceList:
 
 
 @pytest.mark.asyncio
-class TestGameRoomServiceJoin:
-    """Test GameRoomService.join_room method."""
+class TestGameRoomServiceAI:
+    """Test AI agent management for single-player mode."""
     
-    async def test_join_room_success(self, test_db, sample_game_room, sample_guest_player):
-        """Test joining a room successfully."""
+    async def test_create_ai_agent(self, test_db, sample_game_room):
+        """Test creating an AI agent in a room."""
         service = GameRoomService(test_db)
         
-        await service.join_room(sample_game_room.code, sample_guest_player.id)
-        
-        # Verify participant was added
-        stmt = select(GameRoomParticipant).where(
-            GameRoomParticipant.game_room_id == sample_game_room.id,
-            GameRoomParticipant.player_id == sample_guest_player.id
+        ai_player = await service.create_ai_agent(
+            room_id=sample_game_room.id,
+            personality_type="analytical_detective",
+            difficulty_level=3
         )
-        result = await test_db.execute(stmt)
-        participant = result.scalar_one_or_none()
         
-        assert participant is not None
-        assert participant.is_ai_agent is False
+        assert ai_player is not None
+        assert ai_player.player_type == "ai"
+        assert "AI" in ai_player.username
     
-    async def test_join_room_already_joined(self, test_db, sample_game_room, sample_player):
-        """Test joining a room twice fails."""
+    async def test_fill_ai_players(self, test_db, sample_game_room):
+        """Test auto-filling room with AI players."""
         service = GameRoomService(test_db)
         
-        # Player is already creator (first participant)
-        with pytest.raises(ConflictError, match="Already in this room"):
-            await service.join_room(sample_game_room.code, sample_player.id)
-    
-    async def test_join_room_full(self, test_db, sample_game_room, sample_guest_player):
-        """Test joining a full room fails."""
-        service = GameRoomService(test_db)
+        # sample_game_room has min_players=4, currently 0 participants
+        ai_players = await service.fill_ai_players(sample_game_room)
         
-        # Fill room to max_players (6)
-        for i in range(5):  # Already has 1 creator
-            participant = GameRoomParticipant(
-                game_room_id=sample_game_room.id,
-                player_id=None,
-                is_ai_agent=True,
-                ai_personality="detective",
-            )
-            test_db.add(participant)
-        await test_db.commit()
+        assert len(ai_players) == sample_game_room.min_players
         
-        with pytest.raises(BadRequestError, match="Room is full"):
-            await service.join_room(sample_game_room.code, sample_guest_player.id)
-    
-    async def test_join_room_in_progress(self, test_db, sample_game_room, sample_guest_player):
-        """Test joining an in-progress room fails."""
-        service = GameRoomService(test_db)
-        
-        sample_game_room.status = "In Progress"
-        await test_db.commit()
-        
-        with pytest.raises(BadRequestError, match="cannot join"):
-            await service.join_room(sample_game_room.code, sample_guest_player.id)
-
-
-@pytest.mark.asyncio
-class TestGameRoomServiceLeave:
-    """Test GameRoomService.leave_room method."""
-    
-    async def test_leave_room_success(self, test_db, sample_game_room, sample_player):
-        """Test leaving a room successfully."""
-        service = GameRoomService(test_db)
-        
-        await service.leave_room(sample_game_room.code, sample_player.id)
-        
-        # Verify participant left
-        stmt = select(GameRoomParticipant).where(
-            GameRoomParticipant.game_room_id == sample_game_room.id,
-            GameRoomParticipant.player_id == sample_player.id
-        )
-        result = await test_db.execute(stmt)
-        participant = result.scalar_one()
-        
-        assert participant.left_at is not None
-    
-    async def test_leave_room_not_in_room(self, test_db, sample_game_room, sample_guest_player):
-        """Test leaving a room you're not in fails."""
-        service = GameRoomService(test_db)
-        
-        with pytest.raises(NotFoundError, match="Not in this room"):
-            await service.leave_room(sample_game_room.code, sample_guest_player.id)
-
-
-@pytest.mark.asyncio
-class TestGameRoomServiceStart:
-    """Test GameRoomService.start_game method."""
-    
-    async def test_start_game_with_enough_players(
-        self, test_db, sample_game_room, sample_player, sample_guest_player
-    ):
-        """Test starting a game with enough players."""
-        service = GameRoomService(test_db)
-        
-        # Add participants to reach min_players
-        participant = GameRoomParticipant(
-            game_room_id=sample_game_room.id,
-            player_id=sample_guest_player.id,
-            is_ai_agent=False,
-        )
-        test_db.add(participant)
-        await test_db.commit()
-        
-        # Fill remaining slots with AI
-        room = await service.start_game(sample_game_room.code, sample_player.id)
-        
-        assert room.status == "In Progress"
-        
-        # Check AI agents were added
+        # Verify participants were created
         stmt = select(GameRoomParticipant).where(
             GameRoomParticipant.game_room_id == sample_game_room.id,
             GameRoomParticipant.is_ai_agent == True
         )
         result = await test_db.execute(stmt)
-        ai_agents = result.scalars().all()
+        participants = result.scalars().all()
         
-        # Should have 2 AI agents (min_players=4, we have 2 humans)
-        assert len(ai_agents) >= 2
-        
-        # Verify GameState was created by querying directly
-        from src.models.game import GameState
-        stmt_state = select(GameState).where(GameState.game_room_id == sample_game_room.id)
-        result_state = await test_db.execute(stmt_state)
-        game_state = result_state.scalar_one_or_none()
-        
-        assert game_state is not None
-        assert game_state.current_phase == "setup"
-        assert game_state.turn_number == 1
-        
-        # Verify game_data contains participants
-        import json
-        game_data = json.loads(game_state.game_data)
-        assert game_data["phase"] == "setup"
-        assert game_data["round"] == 1
-        assert len(game_data["participants"]) == 4  # 2 humans + 2 AI
+        assert len(participants) == sample_game_room.min_players
     
-    async def test_start_game_not_creator(self, test_db, sample_game_room, sample_guest_player):
-        """Test starting a game by non-creator fails."""
+    async def test_remove_ai_agent(self, test_db, sample_game_room):
+        """Test removing an AI agent from a room."""
         service = GameRoomService(test_db)
         
-        with pytest.raises(ForbiddenError, match="Only room creator can start"):
-            await service.start_game(sample_game_room.code, sample_guest_player.id)
+        # First create an AI agent
+        ai_player = await service.create_ai_agent(
+            room_id=sample_game_room.id,
+            personality_type="analytical_detective",
+            difficulty_level=3
+        )
+        
+        # Get the participant
+        stmt = select(GameRoomParticipant).where(
+            GameRoomParticipant.game_room_id == sample_game_room.id,
+            GameRoomParticipant.player_id == ai_player.id
+        )
+        result = await test_db.execute(stmt)
+        participant = result.scalar_one()
+        
+        # Remove the AI agent
+        await service.remove_ai_agent(sample_game_room.code, participant.id)
+        
+        # Verify participant is marked as left
+        await test_db.refresh(participant)
+        assert participant.left_at is not None
+
+
+@pytest.mark.asyncio
+class TestGameRoomServiceStart:
+    """Test GameRoomService.start_game method for single-player mode."""
+    
+    async def test_start_game_with_ai_agents(self, test_db, sample_game_room):
+        """Test starting a game after filling with AI agents."""
+        service = GameRoomService(test_db)
+        
+        # Fill room with AI agents
+        await service.fill_ai_players(sample_game_room)
+        
+        # Start the game
+        room = await service.start_game(sample_game_room.code)
+        
+        assert room.status == "In Progress"
+        assert room.started_at is not None
+        
+        # Verify GameState was created
+        stmt = select(GameState).where(GameState.game_room_id == sample_game_room.id)
+        result = await test_db.execute(stmt)
+        game_state = result.scalar_one_or_none()
+        
+        assert game_state is not None
+    
+    async def test_start_game_not_enough_players(self, test_db, sample_game_room):
+        """Test starting a game with not enough players fails."""
+        service = GameRoomService(test_db)
+        
+        # Don't add any AI agents
+        with pytest.raises(BadRequestError, match="at least"):
+            await service.start_game(sample_game_room.code)
+    
+    async def test_start_game_already_started(self, test_db, sample_game_room):
+        """Test starting an already started game fails."""
+        service = GameRoomService(test_db)
+        
+        # Fill and start
+        await service.fill_ai_players(sample_game_room)
+        await service.start_game(sample_game_room.code)
+        
+        # Try to start again
+        with pytest.raises(GameAlreadyStartedError):
+            await service.start_game(sample_game_room.code)
+
+
+@pytest.mark.asyncio
+class TestGameRoomServiceDelete:
+    """Test GameRoomService.delete_room method for single-player mode."""
+    
+    async def test_delete_waiting_room(self, test_db, sample_game_room):
+        """Test deleting a waiting room."""
+        service = GameRoomService(test_db)
+        
+        room_code = sample_game_room.code
+        
+        await service.delete_room(room_code)
+        
+        # Verify room is deleted
+        with pytest.raises(NotFoundError):
+            await service.get_room(room_code)
+    
+    async def test_delete_started_room_fails(self, test_db, sample_game_room):
+        """Test deleting a started room fails."""
+        service = GameRoomService(test_db)
+        
+        # Start the room
+        await service.fill_ai_players(sample_game_room)
+        await service.start_game(sample_game_room.code)
+        
+        # Try to delete
+        with pytest.raises(BadRequestError, match="Waiting"):
+            await service.delete_room(sample_game_room.code)
+

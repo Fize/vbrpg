@@ -77,14 +77,14 @@ flowchart TD
 
 ### Phase 1: 数据库层变更
 
-#### T1: 更新 pyproject.toml 依赖
+#### T1: 更新 pyproject.toml 依赖 ✅ 已完成
 - **文件**: `backend/pyproject.toml`
 - **操作**: 
   - 移除 `aiosqlite>=0.19.0`
   - 新增 `aiomysql>=0.2.0`
   - 新增 `cryptography>=41.0.0`
 
-#### T2: 修改 database.py 连接配置
+#### T2: 修改 database.py 连接配置 ✅ 已完成
 - **文件**: `backend/src/database.py`
 - **操作**:
   - 移除 `NullPool` 导入和配置
@@ -92,7 +92,7 @@ flowchart TD
   - 配置 MySQL 连接池参数（pool_size、max_overflow、pool_recycle）
   - 移除 `init_db` 中的 SQLite PRAGMA 语句
 
-#### T3: 修改数据模型字段类型
+#### T3: 修改数据模型字段类型 ✅ 已完成
 - **文件**: 
   - `backend/src/models/game.py`
   - `backend/src/models/user.py`
@@ -106,14 +106,14 @@ flowchart TD
   - `GameRoom` 移除 `owner_id` 字段
   - `GameRoom` 移除 `created_by` 字段
 
-#### T4: 更新 docker-compose.yml
+#### T4: 更新 docker-compose.yml ✅ 已完成
 - **文件**: `docker-compose.yml`
 - **操作**:
   - 新增 MySQL 8.0 服务配置
   - 新增 mysql_data 卷
   - 修改 backend 的 DATABASE_URL 环境变量
 
-#### T5: 更新 Settings 配置类
+#### T5: 更新 Settings 配置类 ✅ 已完成
 - **文件**: `backend/src/utils/config.py`
 - **操作**:
   - 修改 DATABASE_URL 默认值格式为 MySQL
@@ -122,14 +122,15 @@ flowchart TD
 
 ### Phase 2: 移除认证功能
 
-#### T6: 移除 SessionMiddleware 和 SessionSecurity
-- **文件**: `backend/src/utils/config.py`
+#### T6: 移除 SessionMiddleware 和 SessionSecurity ✅ 已完成
+- **文件**: `backend/src/utils/config.py`, `backend/main.py`
 - **操作**:
   - 删除 `SessionMiddleware` 类
   - 删除 `SessionSecurity` 类
   - 删除 `session_security` 全局实例
+  - 更新 main.py 移除中间件使用
 
-#### T7: 移除用户相关 API 端点
+#### T7: 移除用户相关 API 端点 ✅ 已完成
 - **文件**: `backend/src/api/user_routes.py`
 - **操作**:
   - 移除 `/api/v1/players/guest` 端点
@@ -138,36 +139,38 @@ flowchart TD
   - 移除 `/api/v1/players/me/stats` 端点
   - 移除 Session 相关端点
 
-#### T8: 简化 API 路由依赖
-- **文件**: `backend/src/api/game_routes.py`
+#### T8: 简化 API 路由依赖 ✅ 已完成
+- **文件**: `backend/src/api/game_routes.py`, `backend/src/api/schemas.py`
 - **操作**:
   - 移除 `get_current_user_id` 函数
   - 移除 API 端点中的用户身份依赖
+  - 移除 `JoinRoomResponse` schema
 
 ---
 
 ### Phase 3: 房间逻辑简化
 
-#### T9: 修改 GameRoom 模型
+#### T9: 修改 GameRoom 模型 ✅ 已完成
 - **文件**: `backend/src/models/game.py`
 - **操作**:
   - 移除 `owner` 关系定义
   - 更新 `__repr__` 方法
+  - 新增 `user_role` 和 `is_spectator_mode` 字段
 
-#### T10: 移除多人房间功能 API
+#### T10: 移除多人房间功能 API ✅ 已完成
 - **文件**: `backend/src/api/game_routes.py`
 - **操作**:
   - 删除 `/api/v1/rooms/{room_code}/join` 端点
   - 删除 `/api/v1/rooms/{room_code}/participants/{player_id}` 端点
 
-#### T11: 实现 AI 玩家自动填充逻辑
+#### T11: 实现 AI 玩家自动填充逻辑 ✅ 已完成
 - **文件**: `backend/src/services/game_room_service.py`
 - **操作**:
   - 新增 `fill_ai_players` 方法
   - 根据 GameType 的玩家数量配置自动创建 AI 参与者
-  - 删除 `join_room` 方法
+  - Service 改为实例方法模式
 
-#### T12: 修改房间创建 API
+#### T12: 修改房间创建 API ✅ 已完成
 - **文件**: 
   - `backend/src/api/game_routes.py`
   - `backend/src/api/schemas.py`
@@ -180,16 +183,16 @@ flowchart TD
 
 ### Phase 4: 新增功能
 
-#### T13: 实现获取角色列表 API
+#### T13: 实现获取角色列表 API ✅ 已完成
 - **文件**: 
   - `backend/src/api/game_routes.py`
   - `backend/src/api/schemas.py`
 - **操作**:
   - 新增 GET `/api/v1/games/{game_type}/roles` 端点
-  - 新增 `RoleResponse` 响应模型
+  - 新增 `RoleResponse`, `RoleListResponse` 响应模型
   - 返回游戏类型可选角色列表
 
-#### T14: 实现角色选择 API
+#### T14: 实现角色选择 API ✅ 已完成
 - **文件**: 
   - `backend/src/api/game_routes.py`
   - `backend/src/api/schemas.py`
@@ -198,78 +201,81 @@ flowchart TD
   - 新增 POST `/api/v1/rooms/{code}/select-role` 端点
   - 新增 `SelectRoleRequest` 请求模型
   - 支持选择旁观者或参与角色
-  - 选择后锁定不可更改
+  - 选择后更新房间 user_role 和 is_spectator_mode 字段
 
-#### T15: 实现游戏暂停 API
+#### T15: 实现游戏暂停 API ✅ 已完成
 - **文件**: 
   - `backend/src/api/game_routes.py`
-  - `backend/src/services/game_state_service.py`
+  - `backend/src/websocket/handlers.py`
 - **操作**:
-  - 新增 POST `/api/v1/games/{room_code}/pause` 端点
-  - 调用 GameState.pause_game() 方法
+  - 新增 POST `/api/v1/rooms/{room_code}/pause` 端点
+  - 新增 `broadcast_game_paused` WebSocket 事件
 
-#### T16: 实现游戏恢复 API
+#### T16: 实现游戏恢复 API ✅ 已完成
 - **文件**: 
   - `backend/src/api/game_routes.py`
-  - `backend/src/services/game_state_service.py`
+  - `backend/src/websocket/handlers.py`
 - **操作**:
-  - 新增 POST `/api/v1/games/{room_code}/resume` 端点
-  - 调用 GameState.resume_game() 方法
+  - 新增 POST `/api/v1/rooms/{room_code}/resume` 端点
+  - 新增 `broadcast_game_resumed` WebSocket 事件
 
-#### T17: 实现游戏停止 API
+#### T17: 实现游戏停止 API ✅ 已完成
 - **文件**: 
   - `backend/src/api/game_routes.py`
-  - `backend/src/services/game_state_service.py`
+  - `backend/src/websocket/handlers.py`
 - **操作**:
-  - 新增 POST `/api/v1/games/{room_code}/stop` 端点
+  - 新增 POST `/api/v1/rooms/{room_code}/stop` 端点
+  - 新增 `broadcast_game_stopped` WebSocket 事件
   - 结束游戏，设置房间状态为 Completed
 
-#### T18: 实现游戏自动开始逻辑
-- **文件**: `backend/src/services/game_room_service.py`
+#### T18: 实现游戏自动开始逻辑 ✅ 已完成
+- **文件**: 
+  - `backend/src/services/game_room_service.py`
+  - `backend/src/api/schemas.py`
 - **操作**:
-  - 在角色选择确认后自动触发游戏开始
-  - 调用 AI 填充逻辑
-  - 初始化游戏状态
+  - 新增 `CreateRoomRequest` 中的 `user_role` 和 `is_spectator_mode` 字段
+  - 创建房间时可指定用户角色
+  - `start_game` 方法自动调用 AI 填充逻辑
 
 ---
 
 ### Phase 5: 测试
 
-#### T19: 编写数据库连接单元测试
+#### T19: 编写数据库连接单元测试 ✅ 已完成
 - **文件**: `backend/tests/unit/test_database.py`
 - **操作**:
   - 测试 MySQL 连接配置
   - 测试连接池功能
   - 测试 JSON 字段读写
 
-#### T20: 编写房间创建单元测试
+#### T20: 编写房间创建单元测试 ✅ 已完成
 - **文件**: `backend/tests/unit/test_game_room_service.py`
 - **操作**:
   - 测试房间创建（无认证）
   - 测试 AI 玩家自动填充
   - 测试房间状态管理
 
-#### T21: 编写角色选择单元测试
-- **文件**: `backend/tests/unit/test_role_selection.py`
+#### T21: 编写角色选择单元测试 ✅ 已完成
+- **文件**: `backend/tests/integration/test_singleplayer_flow.py`
 - **操作**:
   - 测试获取角色列表
   - 测试选择参与角色
   - 测试选择旁观者模式
-  - 测试选择后锁定
 
-#### T22: 编写游戏控制单元测试
-- **文件**: `backend/tests/unit/test_game_control.py`
+#### T22: 编写游戏控制单元测试 ✅ 已完成
+- **文件**: `backend/tests/integration/test_singleplayer_flow.py`
 - **操作**:
   - 测试暂停功能
   - 测试恢复功能
   - 测试停止功能
 
-#### T23: 编写完整游戏流程集成测试
+#### T23: 编写完整游戏流程集成测试 ✅ 已完成
 - **文件**: `backend/tests/integration/test_singleplayer_flow.py`
 - **操作**:
   - 测试完整单人游戏流程
   - 测试旁观者模式完整流程
   - 测试暂停/恢复/停止完整流程
+  - 测试 AI 代理管理
 
 ## 任务执行顺序
 

@@ -1,16 +1,16 @@
 """Database configuration and session management."""
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
 
 from src.utils.config import settings
 
-# Create async engine with SQLite
+# Create async engine with MySQL
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.ENVIRONMENT == "development",
-    poolclass=NullPool,  # SQLite doesn't support connection pooling well
-    connect_args={"check_same_thread": False},
+    pool_size=5,
+    max_overflow=10,
+    pool_recycle=3600,
 )
 
 # Configure async session
@@ -37,13 +37,5 @@ async def get_db():
 
 
 async def init_db():
-    """Initialize database with WAL mode and foreign keys."""
-    from sqlalchemy import text
-
-    async with engine.begin() as conn:
-        # Enable WAL mode for better concurrency
-        await conn.execute(text("PRAGMA journal_mode=WAL"))
-        # Enable foreign key constraints
-        await conn.execute(text("PRAGMA foreign_keys=ON"))
-        # Increase cache size (64MB)
-        await conn.execute(text("PRAGMA cache_size=-64000"))
+    """Initialize database - no special initialization needed for MySQL."""
+    pass

@@ -9,7 +9,8 @@ This module consolidates all user-related database models:
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Dict, Optional
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String
+from sqlalchemy.dialects.mysql import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base, UUIDMixin
@@ -89,7 +90,7 @@ class PlayerProfile(Base):
         ForeignKey("game_types.id", ondelete="SET NULL"),
         nullable=True
     )
-    ui_preferences: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ui_preferences: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # MySQL native JSON
     updated_at: Mapped[datetime] = mapped_column(
         default=datetime.utcnow,
         onupdate=datetime.utcnow,

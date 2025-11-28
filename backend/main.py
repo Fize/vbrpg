@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import socketio
 
 from src.database import init_db
-from src.utils.config import settings, SessionMiddleware, session_security, HealthResponse
+from src.utils.config import settings, HealthResponse
 from src.utils.logging_config import setup_logging
 from src.websocket.server import sio
 
@@ -42,9 +42,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Add session middleware
-app.add_middleware(SessionMiddleware)
 
 
 @app.get("/api/v1/health", response_model=HealthResponse, tags=["System"])

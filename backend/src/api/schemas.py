@@ -56,8 +56,10 @@ class ParticipantResponse(BaseModel):
 # Room schemas
 class CreateRoomRequest(BaseModel):
     game_type_slug: str
-    max_players: int = Field(ge=4, le=8)
-    min_players: int = Field(ge=4, le=8)
+    max_players: int = Field(ge=2, le=8)
+    min_players: int = Field(ge=2, le=8)
+    user_role: str = Field(default="spectator")  # 'spectator' or role ID
+    is_spectator_mode: bool = Field(default=True)
 
 
 class GameRoomBase(BaseModel):
@@ -92,14 +94,7 @@ class RoomListResponse(BaseModel):
     total: int
 
 
-# Join room response
-class JoinRoomResponse(BaseModel):
-    room: GameRoomDetailedResponse
-    participants: list[ParticipantResponse]
-    is_owner: bool
-
-    class Config:
-        from_attributes = True
+# 单人模式下移除了 JoinRoomResponse（无需加入房间功能）
 
 
 # AI Agent response
@@ -109,3 +104,34 @@ class AIAgentResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Role schemas (单人模式角色选择)
+class RoleResponse(BaseModel):
+    """角色信息响应模型"""
+    id: str
+    name: str
+    description: str
+    is_playable: bool = True  # 是否可由用户扮演
+
+    class Config:
+        from_attributes = True
+
+
+class RoleListResponse(BaseModel):
+    """角色列表响应"""
+    roles: list[RoleResponse]
+    supports_spectating: bool = True  # 是否支持旁观模式
+
+
+class SelectRoleRequest(BaseModel):
+    """角色选择请求"""
+    role_id: str | None = None  # None 表示旁观者
+    is_spectator: bool = True
+
+
+class GameControlResponse(BaseModel):
+    """游戏控制响应"""
+    room_code: str
+    status: str
+    message: str
