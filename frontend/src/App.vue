@@ -3,40 +3,10 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
-import { useAuthStore } from '@/stores/auth'
-import { playersApi } from '@/services/api'
 import AppLayout from '@/components/common/AppLayout.vue'
 
-const authStore = useAuthStore()
-
-// 初始化玩家账户（访客或已有账户）
-const initializePlayer = async () => {
-  authStore.setLoading(true)
-  try {
-    // 先尝试获取当前玩家（通过 session cookie）
-    const player = await playersApi.getCurrentPlayer()
-    authStore.setPlayer(player)
-  } catch (error) {
-    // 如果没有 session 或 session 过期，创建新的访客账户
-    if (error.response?.status === 401) {
-      try {
-        const newGuest = await playersApi.createGuest()
-        authStore.setPlayer(newGuest)
-      } catch (createError) {
-        console.error('Failed to create guest account:', createError)
-      }
-    } else {
-      console.error('Failed to get current player:', error)
-    }
-  } finally {
-    authStore.setLoading(false)
-  }
-}
-
-onMounted(() => {
-  initializePlayer()
-})
+// 单人模式下无需初始化玩家账户
+// 所有玩家都是 AI，用户只是观战
 </script>
 
 <style>

@@ -1,38 +1,49 @@
-/* Global Styles for AI Tabletop Game Platform */
+/* Global Styles for AI Tabletop Game Platform - Cyberpunk Tech Theme */
 
 /* ==================== CSS Variables ==================== */
 :root {
-  /* Primary Colors */
-  --color-primary: #667eea;
-  --color-primary-light: #7c8ff4;
-  --color-primary-dark: #5568d3;
-  --color-primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  /* Primary Colors - Neon Cyan */
+  --color-primary: #00f0ff;
+  --color-primary-light: #4dfaff;
+  --color-primary-dark: #00c4d4;
+  --color-primary-gradient: linear-gradient(135deg, #00f0ff 0%, #0080ff 100%);
   
-  /* Secondary Colors */
-  --color-secondary: #764ba2;
-  --color-accent: #f093fb;
+  /* Secondary Colors - Neon Purple */
+  --color-secondary: #bf00ff;
+  --color-secondary-light: #d44fff;
+  --color-accent: #ff00aa;
+  
+  /* Neon Glow Effects */
+  --glow-primary: 0 0 20px rgba(0, 240, 255, 0.5), 0 0 40px rgba(0, 240, 255, 0.3);
+  --glow-secondary: 0 0 20px rgba(191, 0, 255, 0.5), 0 0 40px rgba(191, 0, 255, 0.3);
+  --glow-accent: 0 0 20px rgba(255, 0, 170, 0.5);
   
   /* Semantic Colors */
-  --color-success: #67c23a;
-  --color-warning: #e6a23c;
-  --color-danger: #f56c6c;
-  --color-info: #409eff;
+  --color-success: #00ff88;
+  --color-warning: #ffaa00;
+  --color-danger: #ff3366;
+  --color-info: #00aaff;
   
-  /* Neutral Colors */
-  --color-text-primary: #303133;
-  --color-text-regular: #606266;
-  --color-text-secondary: #909399;
-  --color-text-placeholder: #c0c4cc;
+  /* Text Colors - Light on Dark */
+  --color-text-primary: #ffffff;
+  --color-text-regular: #e0e0e0;
+  --color-text-secondary: #a0a0a0;
+  --color-text-placeholder: #606060;
   
-  /* Background Colors */
-  --color-bg-primary: #ffffff;
-  --color-bg-secondary: #f5f7fa;
-  --color-bg-tertiary: #ebeef5;
+  /* Dark Background Colors */
+  --color-bg-primary: #0a0a12;
+  --color-bg-secondary: #12121f;
+  --color-bg-tertiary: #1a1a2e;
+  --color-bg-card: rgba(20, 20, 40, 0.8);
+  --color-bg-glass: rgba(255, 255, 255, 0.05);
   
   /* Border Colors */
-  --color-border-base: #dcdfe6;
-  --color-border-light: #e4e7ed;
-  --color-border-lighter: #ebeef5;
+  --color-border-base: rgba(0, 240, 255, 0.2);
+  --color-border-light: rgba(0, 240, 255, 0.1);
+  --color-border-glow: rgba(0, 240, 255, 0.4);
+  
+  /* Grid Pattern */
+  --grid-color: rgba(0, 240, 255, 0.03);
   
   /* Spacing Scale */
   --space-xs: 4px;
@@ -50,11 +61,12 @@
   --radius-xl: 16px;
   --radius-full: 9999px;
   
-  /* Shadows */
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
-  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.12);
-  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.15);
-  --shadow-xl: 0 12px 24px rgba(0, 0, 0, 0.18);
+  /* Shadows - Neon Glow Style */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+  --shadow-xl: 0 12px 48px rgba(0, 0, 0, 0.7);
+  --shadow-neon: 0 0 30px rgba(0, 240, 255, 0.3);
   
   /* Transitions */
   --transition-fast: 150ms ease-in-out;
@@ -76,22 +88,6 @@
   --container-lg: 1024px;
   --container-xl: 1280px;
   --container-2xl: 1536px;
-}
-
-/* Dark Mode Variables */
-[data-theme="dark"] {
-  --color-text-primary: #e4e7ed;
-  --color-text-regular: #c0c4cc;
-  --color-text-secondary: #909399;
-  --color-text-placeholder: #606266;
-  
-  --color-bg-primary: #1a1a1a;
-  --color-bg-secondary: #242424;
-  --color-bg-tertiary: #2e2e2e;
-  
-  --color-border-base: #3a3a3a;
-  --color-border-light: #4a4a4a;
-  --color-border-lighter: #5a5a5a;
 }
 
 /* ==================== Responsive Breakpoints ==================== */

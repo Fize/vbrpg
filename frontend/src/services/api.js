@@ -83,25 +83,8 @@ export const roomsApi = {
     return response.data
   },
 
-  /**
-   * Join a game room
-   * @param {string} roomCode - Room code to join
-   * @returns {Promise<Object>} Updated room data
-   */
-  async joinRoom(roomCode) {
-    const response = await apiClient.post(`/rooms/${roomCode}/join`)
-    return response.data
-  },
-
-  /**
-   * Leave a game room
-   * @param {string} roomCode - Room code to leave
-   * @returns {Promise<Object>} Success message
-   */
-  async leaveRoom(roomCode) {
-    const response = await apiClient.post(`/rooms/${roomCode}/leave`)
-    return response.data
-  },
+  // 单人模式移除了 joinRoom 和 leaveRoom 接口
+  // 用户通过 WebSocket 连接房间，不需要 REST API 加入/离开
 
   /**
    * Start a game (host only)
@@ -216,45 +199,10 @@ export const rolesApi = {
   }
 }
 
-// Players API methods
-export const playersApi = {
-  /**
-   * Create a new guest account
-   * @returns {Promise<Object>} Created guest player
-   */
-  async createGuest() {
-    const response = await apiClient.post('/players/guest')
-    return response.data
-  },
-
-  /**
-   * Get current player profile
-   * @returns {Promise<Object>} Current player information
-   */
-  async getCurrentPlayer() {
-    const response = await apiClient.get('/players/me')
-    return response.data
-  },
-
-  /**
-   * Upgrade guest account to permanent
-   * @param {string} username - Desired permanent username
-   * @returns {Promise<Object>} Updated player information
-   */
-  async upgradeAccount(username) {
-    const response = await apiClient.post('/players/me/upgrade', { username })
-    return response.data
-  },
-
-  /**
-   * Get player statistics
-   * @returns {Promise<Object>} Player statistics
-   */
-  async getStats() {
-    const response = await apiClient.get('/players/me/stats')
-    return response.data
-  }
-}
+// 单人模式下移除了 playersApi
+// - 无需 /api/v1/players/guest (游客创建)
+// - 无需 /api/v1/players/me (获取当前玩家)
+// 所有玩家都是 AI，用户只是观战
 
 export default apiClient
 

@@ -72,9 +72,7 @@
           
           <!-- 操作按钮 -->
           <div class="action-buttons">
-            <el-button v-if="!isHost" size="large" @click="handleLeaveRoom">
-              离开房间
-            </el-button>
+            <!-- 单人模式：移除“离开房间”按钮，用户可以直接返回大厅 -->
             
             <el-button
               v-if="isHost"
@@ -289,20 +287,7 @@ async function handleStartGame() {
   }
 }
 
-async function handleLeaveRoom() {
-  try {
-    await ElMessageBox.confirm('确定要离开房间吗？', '提示', {
-      type: 'warning'
-    })
-    await roomsApi.leaveRoom(roomCode.value)
-    ElMessage.success('已离开房间')
-    router.push('/lobby')
-  } catch (err) {
-    if (err !== 'cancel') {
-      ElMessage.error(err.response?.data?.detail || '离开房间失败')
-    }
-  }
-}
+// 单人模式：移除 handleLeaveRoom，用户可直接使用“返回大厅”按钮
 
 async function handleDisbandRoom() {
   try {
