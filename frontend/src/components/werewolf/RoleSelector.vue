@@ -82,12 +82,25 @@ const roleTypeConfig = {
   god: { label: '神职阵营', order: 3 }
 }
 
+// 中文名称到阵营的映射
+const roleTeamMap = {
+  '狼人': 'werewolf',
+  '村民': 'villager',
+  '预言家': 'god',
+  '女巫': 'god',
+  '猎人': 'god'
+}
+
 // 按类型分组角色
 const roleGroups = computed(() => {
   const groups = {}
   
-  roles.value.forEach(role => {
-    const type = role.team || role.type || 'villager'
+  // 确保 roles.value 是数组
+  const roleList = Array.isArray(roles.value) ? roles.value : []
+  
+  roleList.forEach(role => {
+    // 根据角色名称或team字段确定阵营
+    const type = role.team || roleTeamMap[role.name] || 'villager'
     if (!groups[type]) {
       const config = roleTypeConfig[type] || { label: type, order: 99 }
       groups[type] = {
@@ -110,10 +123,21 @@ async function loadRoles() {
   
   try {
     const response = await rolesApi.getRoles(props.gameType)
-    roles.value = response.data || response
+    // 处理不同的响应格式
+    if (Array.isArray(response)) {
+      roles.value = response
+    } else if (response && Array.isArray(response.data)) {
+      roles.value = response.data
+    } else if (response && typeof response === 'object') {
+      // 如果是对象，尝试获取数组
+      roles.value = response.roles || response.items || []
+    } else {
+      roles.value = []
+    }
   } catch (err) {
     console.error('加载角色失败:', err)
     error.value = err.message || '加载失败'
+    roles.value = []
   } finally {
     loading.value = false
   }
@@ -167,25 +191,13 @@ defineExpose({
 
 <style scoped>
 .role-selector {
-  padding: 16px;
+  padding: 0;
 }
 
 .selector-header {
   text-align: center;
   margin-bottom: 24px;
-}
-
-.selector-title {
-  font-size: 20px;
-  font-weight: 600;
-  color: #303133;
-  margin: 0 0 8px;
-}
-
-.selector-desc {
-  font-size: 14px;
-  color: #909399;
-  margin: 0;
+  display: none; /* 隐藏，因为父组件已有标题 */
 }
 
 .loading-container,
@@ -196,22 +208,25 @@ defineExpose({
 .roles-container {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
 .role-group {
-  background: #fafafa;
-  border-radius: 12px;
-  padding: 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(0, 240, 255, 0.1);
+  border-radius: var(--radius-md);
+  padding: 20px;
 }
 
 .group-title {
-  font-size: 14px;
+  font-size: 0.9rem;
   font-weight: 600;
-  color: #606266;
-  margin: 0 0 12px;
-  padding-left: 8px;
-  border-left: 3px solid var(--el-color-primary);
+  color: var(--color-text-secondary);
+  margin: 0 0 16px;
+  padding-left: 12px;
+  border-left: 3px solid var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .role-list {
@@ -222,8 +237,10 @@ defineExpose({
 
 .selector-footer {
   margin-top: 24px;
-  padding-top: 16px;
-  border-top: 1px solid #ebeef5;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(0, 240, 255, 0.1);
+  border-radius: var(--radius-md);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -232,25 +249,26 @@ defineExpose({
 .selected-info {
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--el-color-success);
-  font-size: 14px;
+  gap: 8px;
+  color: var(--color-success);
+  font-size: 0.9rem;
 }
 
 .random-option {
-  color: #909399;
+  color: var(--color-text-secondary);
+}
+
+.random-option :deep(.el-checkbox__label) {
+  color: var(--color-text-secondary);
+}
+
+.random-option :deep(.el-checkbox__input.is-checked .el-checkbox__inner) {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 /* 响应式适配 */
 @media (max-width: 768px) {
-  .role-selector {
-    padding: 12px;
-  }
-  
-  .selector-title {
-    font-size: 18px;
-  }
-  
   .role-list {
     grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
     gap: 8px;

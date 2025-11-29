@@ -74,8 +74,8 @@ const handleSubmit = async () => {
   errorMessage.value = ''
 
   try {
-    // Call API to join room
-    const response = await roomsApi.joinRoom(roomCode.value)
+    // 单人模式：检查房间是否存在（使用 getRoom 而不是 joinRoom）
+    const response = await roomsApi.getRoom(roomCode.value)
     
     // Emit success event with room data
     emit('join-success', response)
@@ -89,22 +89,11 @@ const handleSubmit = async () => {
     // Handle different error types
     if (error.response) {
       const status = error.response.status
-      const detail = error.response.data?.detail || ''
 
       if (status === 404) {
         errorMessage.value = '房间不存在，请检查房间代码'
-      } else if (status === 409) {
-        if (detail.toLowerCase().includes('full')) {
-          errorMessage.value = '房间已满，无法加入'
-        } else if (detail.toLowerCase().includes('started') || detail.toLowerCase().includes('progress')) {
-          errorMessage.value = '游戏已开始，无法加入'
-        } else if (detail.toLowerCase().includes('duplicate') || detail.toLowerCase().includes('already')) {
-          errorMessage.value = '您已在该房间中'
-        } else {
-          errorMessage.value = '无法加入房间：' + detail
-        }
       } else {
-        errorMessage.value = '加入房间失败，请稍后重试'
+        errorMessage.value = '查询房间失败，请稍后重试'
       }
     } else {
       errorMessage.value = '网络错误，请检查您的连接'
