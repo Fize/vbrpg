@@ -15,4 +15,5 @@ sio = socketio.AsyncServer(
 # Import Socket.IO event handlers to register them
 # This must be done after sio is created but before the app uses it
 from src.websocket import handlers  # noqa: F401, E402
+from src.websocket import werewolf_handlers  # noqa: F401, E402
 

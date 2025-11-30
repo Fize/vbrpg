@@ -1,7 +1,7 @@
 """Pydantic schemas for API request/response models."""
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # Game Type schemas
@@ -19,8 +19,7 @@ class GameTypeBase(BaseModel):
 class GameTypeResponse(GameTypeBase):
     id: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Player schemas
@@ -35,8 +34,7 @@ class PlayerResponse(PlayerBase):
     last_active: datetime
     expires_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Participant schemas
@@ -49,8 +47,7 @@ class ParticipantResponse(BaseModel):
     left_at: datetime | None = None
     replaced_by_ai: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Room schemas
@@ -77,15 +74,13 @@ class GameRoomResponse(GameRoomBase):
     game_type: GameTypeResponse
     current_player_count: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class GameRoomDetailedResponse(GameRoomResponse):
     participants: list[ParticipantResponse] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Room list response
@@ -102,8 +97,7 @@ class AIAgentResponse(BaseModel):
     ai_agent: PlayerResponse
     room_code: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Role schemas (单人模式角色选择)
@@ -115,8 +109,7 @@ class RoleResponse(BaseModel):
     is_playable: bool = True  # 是否可由用户扮演
     task: str | None = None  # 角色给 AI 或玩家的任务/指令描述
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RoleListResponse(BaseModel):
@@ -136,3 +129,50 @@ class GameControlResponse(BaseModel):
     room_code: str
     status: str
     message: str
+
+
+# =============================================================================
+# Werewolf Game Schemas (狼人杀专用)
+# =============================================================================
+
+class WerewolfQuickStartRequest(BaseModel):
+    """狼人杀快速开始请求"""
+    player_id: str  # 用户的玩家ID
+    preferred_role: str | None = None  # 可选的首选角色
+
+
+class WerewolfPlayerInfo(BaseModel):
+    """狼人杀玩家信息"""
+    seat_number: int
+    display_name: str
+    is_alive: bool
+    role: str | None = None  # 仅对自己或游戏结束后可见
+    team: str | None = None
+    death_reason: str | None = None
+    death_day: int | None = None
+
+
+class WerewolfGameStateResponse(BaseModel):
+    """狼人杀游戏状态响应"""
+    room_code: str
+    phase: str
+    day_number: int
+    players: list[WerewolfPlayerInfo]
+    winner: str | None = None
+    your_seat: int | None = None
+    your_role: str | None = None
+
+
+class WerewolfActionRequest(BaseModel):
+    """狼人杀玩家行动请求"""
+    player_id: str
+    action_type: str  # kill, check, save, poison, shoot, vote
+    target_seat: int | None = None  # None 表示跳过/弃票
+
+
+class WerewolfActionResponse(BaseModel):
+    """狼人杀行动响应"""
+    success: bool
+    message: str
+    result: dict | None = None  # 如预言家查验结果
+

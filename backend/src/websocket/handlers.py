@@ -11,11 +11,9 @@ from src.services.game_room_service import GameRoomService
 from src.models.game import GameRoom, GameRoomParticipant
 from src.utils.errors import BadRequestError
 from src.websocket.server import sio
+from src.websocket.sessions import user_sessions
 
 logger = logging.getLogger(__name__)
-
-# Store session connections: {sid: player_id}
-user_sessions: dict[str, str] = {}
 
 # Store disconnection timestamps: {player_id: {"room_code": str, "disconnect_time": datetime, "task": asyncio.Task}}
 disconnected_players: dict[str, dict[str, Any]] = {}

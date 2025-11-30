@@ -3,7 +3,7 @@
 ## 核心功能模块
 
 ### 1. AI 代理系统
-- 提供 AI 对手功能，支持多种 AI 性格类型（分析型侦探、直觉型调查员、谨慎观察者等）
+- 提供 AI 对手功能，支持多种 AI 性格类型（分析型侦探、直觉型调查员、谨慎观察者、冒险家、策略思考者、共情倾听者）
 - 基于 LangChain + OpenAI 实现智能决策，可根据游戏状态生成合理行动
 - 支持断线重连时自动 AI 替补，断线超过 5 分钟后由 AI 接管玩家位置
 - 与游戏引擎集成，参与回合制游戏流程
@@ -14,22 +14,26 @@
 - 断线重连机制：5 分钟宽限期，自动恢复游戏状态
 - 玩家连接状态追踪与通知（断线/重连事件广播）
 
-### 3. 游戏引擎（犯罪现场）
-- 实现《犯罪现场》桌游完整逻辑：Setup → Investigation → Accusation → Resolution 四阶段
-- 支持证据卡牌系统、嫌疑人/武器/地点推理
-- 回合制行动管理：抽卡、调查地点、揭示线索、提出指控
+### 3. 游戏引擎（多游戏支持）
+- **犯罪现场**：推理解谜游戏，Setup → Investigation → Accusation → Resolution 四阶段
+  - 支持证据卡牌系统、嫌疑人/武器/地点推理
+  - 回合制行动管理：抽卡、调查地点、揭示线索、提出指控
+- **狼人杀**：社交推理游戏，村民与狼人的智慧较量
+  - 角色系统：村民、狼人、预言家、女巫、猎人
+  - 昼夜轮换机制：白天投票、夜晚行动
 - 胜负条件判定与游戏结算
 
 ### 4. 房间与会话管理
 - 房间创建/加入/离开，支持房间码机制（8 位字母数字）
 - 参与者管理：人类玩家 + AI 代理混合
 - 房间状态机：Waiting → In Progress → Completed
-- 房间所有权系统，支持所有权转移
+- 单人模式支持：观众模式和角色选择
 
 ### 5. 前端用户界面
 - Vue 3 + Element Plus 响应式界面
-- Pinia 状态管理：游戏状态、认证状态、大厅状态
+- Pinia 状态管理：游戏状态、认证状态、大厅状态、Socket 状态
 - 游戏大厅、房间配置、游戏面板等完整视图
+- 狼人杀专用组件：座位圈、角色卡、投票面板、夜间行动面板
 - 断线重连反馈组件、AI 思考状态指示器
 
 ## 项目结构分析
@@ -42,11 +46,11 @@
 ### 核心业务包
 - `backend/src/services/` - 业务服务层（游戏房间、游戏状态、AI 代理、玩家服务）
 - `backend/src/models/` - SQLAlchemy 数据模型（game.py, user.py）
-    - 新增 `GameRole` 模型存储每个游戏的角色（`game_roles` 表），字段包含 name/slug/description/task/is_playable，用于 AI/前端展示与自动分配。
+- `backend/src/constants/` - 静态配置数据（game_types.py 游戏类型定义, roles.py 角色定义）
 - `backend/src/api/` - RESTful API 路由端点
 
 ### 基础设施包
-- `backend/src/utils/` - 工具函数（配置、错误处理、输入处理、速率限制）
+- `backend/src/utils/` - 工具函数（配置、错误处理、输入处理、速率限制、日志配置）
 - `backend/src/websocket/` - WebSocket 服务器和事件处理器
 - `backend/src/integrations/` - 外部服务集成（LLM 客户端）
 
@@ -60,10 +64,6 @@ backend/
 ├── alembic/
 │   ├── env.py                       # Alembic 环境配置
 │   └── versions/                    # 数据库迁移脚本
-├── scripts/
-│   ├── seed_data.py                 # 初始数据填充脚本
-│   ├── cleanup_guests.py            # 访客清理脚本
-│   └── backup_database.sh           # 数据库备份脚本
 └── src/
     ├── __init__.py
     ├── database.py                  # 数据库连接和会话管理
@@ -73,11 +73,15 @@ backend/
     │   ├── user_routes.py           # 玩家和会话 API 路由
     │   ├── monitoring.py            # 监控和健康检查 API
     │   └── schemas.py               # Pydantic 请求/响应模型
+    ├── constants/
+    │   ├── __init__.py
+    │   ├── game_types.py            # 游戏类型静态定义（犯罪现场、狼人杀等）
+    │   └── roles.py                 # 角色静态定义（狼人杀角色等）
     ├── models/
     │   ├── __init__.py              # 模型导出
     │   ├── base.py                  # SQLAlchemy 基类和 Mixin
-    │   ├── game.py                  # 游戏相关模型 (GameType, GameRoom, GameState, etc.)
-    │   └── user.py                  # 用户相关模型 (Player, Session, AIAgent, etc.)
+    │   ├── game.py                  # 游戏相关模型 (GameRoom, GameState, GameSession, etc.)
+    │   └── user.py                  # 用户相关模型 (Player, Session, etc.)
     ├── services/
     │   ├── __init__.py
     │   ├── ai_service.py            # AI 代理服务与调度器（合并模块）
@@ -119,43 +123,44 @@ frontend/
     │   ├── index.js                 # Pinia 存储入口
     │   ├── game.js                  # 游戏状态存储
     │   ├── auth.js                  # 认证状态存储
-    │   └── lobby.js                 # 大厅状态存储
+    │   ├── lobby.js                 # 大厅状态存储
+    │   └── socket.js                # Socket 连接状态存储
     ├── services/
     │   ├── api.js                   # Axios API 客户端
-    │   └── websocket.js             # Socket.IO 客户端封装
+    │   ├── websocket.js             # Socket.IO 客户端封装
+    │   └── analytics.ts             # 分析服务
     ├── views/
     │   ├── LobbyView.vue            # 游戏大厅视图
-    │   ├── GameLibrary.vue          # 游戏库视图
-    │   ├── GameRoomLobby.vue        # 房间等待大厅
-    │   ├── GameRoomConfigView.vue   # 房间配置视图
-    │   ├── GameBoard.vue            # 游戏主面板
+    │   ├── CreateRoomView.vue       # 创建房间视图
+    │   ├── RoomLobbyView.vue        # 房间等待大厅
     │   ├── GameDetails.vue          # 游戏详情视图
-    │   ├── IconExamples.vue         # 图标示例视图
-    │   └── Profile.vue              # 玩家资料视图
+    │   └── WerewolfGameView.vue     # 狼人杀游戏视图
     ├── components/
-    │   ├── AppLayout.vue            # 应用布局组件
-    │   ├── PlayerList.vue           # 玩家列表组件
-    │   ├── CrimeSceneBoard.vue      # 犯罪现场游戏面板
-    │   ├── ActionPanel.vue          # 行动操作面板
-    │   ├── TurnIndicator.vue        # 回合指示器
-    │   ├── AIThinkingIndicator.vue  # AI 思考状态指示
-    │   ├── ReconnectionDialog.vue   # 重连对话框
-    │   ├── ReconnectionFeedback.vue # 重连反馈组件
-    │   ├── ConnectionStatus.vue     # 连接状态组件
-    │   ├── GameCard.vue             # 游戏卡片组件
-    │   ├── GameRoomConfig.vue       # 房间配置组件
-    │   ├── ErrorDialog.vue          # 错误对话框
-    │   ├── ErrorMessage.vue         # 错误信息组件
-    │   ├── EmptyState.vue           # 空状态组件
-    │   ├── LoadingIndicator.vue     # 加载指示器
-    │   ├── AccountUpgrade.vue       # 账户升级组件
-    │   ├── StatsDisplay.vue         # 统计显示组件
-    │   ├── ThemeToggle.vue          # 主题切换组件
-    │   ├── TimeoutWarning.vue       # 超时警告组件
-    │   ├── icons/                   # 图标组件目录
-    │   └── lobby/
-    │       ├── JoinRoomForm.vue     # 加入房间表单
-    │       └── AIAgentControls.vue  # AI 代理控制组件
+    │   ├── common/                  # 通用组件
+    │   │   ├── AppLayout.vue        # 应用布局组件
+    │   │   ├── AIThinkingIndicator.vue  # AI 思考状态指示
+    │   │   ├── ReconnectionDialog.vue   # 重连对话框
+    │   │   ├── ReconnectionFeedback.vue # 重连反馈组件
+    │   │   ├── ConnectionStatus.vue     # 连接状态组件
+    │   │   ├── ErrorDialog.vue      # 错误对话框
+    │   │   ├── ErrorMessage.vue     # 错误信息组件
+    │   │   ├── EmptyState.vue       # 空状态组件
+    │   │   └── LoadingIndicator.vue # 加载指示器
+    │   ├── werewolf/                # 狼人杀专用组件
+    │   │   ├── SeatCircle.vue       # 座位圈组件
+    │   │   ├── PlayerSeat.vue       # 玩家座位组件
+    │   │   ├── RoleCard.vue         # 角色卡组件
+    │   │   ├── RoleSelector.vue     # 角色选择器
+    │   │   ├── VotePanel.vue        # 投票面板
+    │   │   ├── NightActionPanel.vue # 夜间行动面板
+    │   │   ├── GameLog.vue          # 游戏日志
+    │   │   ├── GamePhaseIndicator.vue # 游戏阶段指示器
+    │   │   ├── ParticipantList.vue  # 参与者列表
+    │   │   └── WerewolfGameCard.vue # 狼人杀游戏卡片
+    │   ├── lobby/                   # 大厅相关组件
+    │   │   ├── JoinRoomForm.vue     # 加入房间表单
+    │   │   └── AIAgentControls.vue  # AI 代理控制组件
+    │   └── icons/                   # 图标组件目录
     ├── types/
     │   ├── websocket.js             # WebSocket 类型定义
     │   ├── game.js                  # 游戏相关类型
@@ -184,6 +189,7 @@ frontend/
 - **MySQL 8.0** - 关系型数据库
 - **python-socketio 5.11+** - WebSocket 实时通信
 - **LangChain + OpenAI** - AI 决策生成
+- **Pydantic 2.5+** - 数据验证和序列化
 - **Vue 3.4+** - 前端响应式框架
 - **Element Plus 2.5+** - Vue 3 UI 组件库
 - **Pinia 2.1+** - Vue 状态管理
@@ -196,6 +202,7 @@ frontend/
 - **Vite 5.0+** - 前端构建工具
 - **pytest 7.4+** - Python 测试框架
 - **pytest-asyncio** - 异步测试支持
+- **pytest-cov** - 测试覆盖率
 - **Vitest 1.2+** - 前端单元测试
 - **Playwright 1.41+** - E2E 测试
 - **Ruff 0.1+** - Python 代码检查和格式化
@@ -239,9 +246,6 @@ docker-compose up -d
 # 数据库迁移
 cd backend
 alembic upgrade head
-
-# 初始数据填充
-python scripts/seed_data.py
 ```
 
 ### 测试命令
@@ -265,8 +269,9 @@ pnpm test:coverage             # 带覆盖率报告
 ### 设计模式
 - **分层架构**: API 层 → 服务层 → 数据访问层
 - **服务模式**: 业务逻辑封装在 Service 类中，保持 API 路由简洁
-- **策略模式**: 游戏引擎可扩展支持多种桌游（当前实现犯罪现场）
+- **策略模式**: 游戏引擎可扩展支持多种桌游（犯罪现场、狼人杀等）
 - **观察者模式**: WebSocket 事件驱动的实时通信
+- **单例模式**: Socket.IO 服务器和 LLM 客户端实例
 
 ### 数据流设计
 - **请求流**: HTTP/WebSocket → 路由 → 服务 → 数据库
@@ -282,7 +287,7 @@ pnpm test:coverage             # 带覆盖率报告
 
 ## 安全考虑
 - **会话管理**: 基于 Session Middleware 的会话认证
-- **输入验证**: 输入清理（sanitization.py）防止注入攻击
+- **输入验证**: 输入清理（input_processing.py）防止注入攻击
 - **CORS 配置**: 限制跨域请求来源
 - **速率限制**: API 调用频率控制
 
@@ -294,6 +299,7 @@ pnpm test:coverage             # 带覆盖率报告
 
 ## 扩展性设计
 - **游戏引擎插件**: 可添加新游戏引擎到 services/games/
+- **静态数据配置**: 游戏类型和角色定义在 constants/ 目录，易于扩展
 - **AI 性格扩展**: 新增 AI 性格类型和决策策略
 - **多数据库支持**: 当前使用 MySQL，可通过 SQLAlchemy 切换到 PostgreSQL 等
 

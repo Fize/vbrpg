@@ -196,6 +196,151 @@ export const useSocketStore = defineStore('socket', () => {
     eventListeners.value.clear()
   }
 
+  /**
+   * 设置主持人相关的 WebSocket 事件监听
+   * @param {Object} gameStore - 游戏 store 实例
+   */
+  function setupHostHandlers(gameStore) {
+    // 主持人发言（完整）
+    on('werewolf:host_announcement', (data) => {
+      gameStore.addGameLog({
+        type: 'host_announcement',
+        player_id: 'host',
+        player_name: '主持人',
+        content: data.content,
+        announcement_type: data.type
+      })
+    })
+    
+    // 主持人发言开始
+    on('werewolf:host_announcement_start', (data) => {
+      gameStore.addStreamingLog({
+        type: 'host_announcement',
+        player_id: 'host',
+        player_name: '主持人',
+        content: '',
+        announcement_type: data.type
+      })
+    })
+    
+    // 主持人发言片段
+    on('werewolf:host_announcement_chunk', (data) => {
+      gameStore.updateStreamingLog('host', data.chunk)
+    })
+    
+    // 主持人发言结束
+    on('werewolf:host_announcement_end', (data) => {
+      gameStore.finalizeStreamingLog('host', data.content)
+    })
+  }
+
+  /**
+   * 设置狼人杀游戏相关的 WebSocket 事件监听
+   * @param {Object} gameStore - 游戏 store 实例
+   */
+  function setupWerewolfHandlers(gameStore) {
+    // 游戏状态更新
+    on('werewolf:game_state', (data) => {
+      gameStore.updateGameState(data)
+    })
+    
+    // 游戏阶段变化
+    on('werewolf:phase_change', (data) => {
+      gameStore.setPhase(data.to_phase)
+      if (data.day_number !== undefined) {
+        gameStore.updateGameState({ dayNumber: data.day_number })
+      }
+    })
+    
+    // 玩家发言开始
+    on('werewolf:speech_start', (data) => {
+      gameStore.setSpeakingPlayer(data.speaker_seat)
+      gameStore.addStreamingLog({
+        type: 'speech',
+        player_id: `seat_${data.speaker_seat}`,
+        player_name: data.speaker_name,
+        content: ''
+      })
+    })
+    
+    // 玩家发言片段
+    on('werewolf:speech_chunk', (data) => {
+      gameStore.updateStreamingLog(`seat_${data.speaker_seat}`, data.chunk)
+    })
+    
+    // 玩家发言结束
+    on('werewolf:speech_end', (data) => {
+      gameStore.finalizeStreamingLog(`seat_${data.speaker_seat}`, data.content)
+      gameStore.setSpeakingPlayer(null)
+    })
+    
+    // 轮到你行动
+    on('werewolf:your_turn', (data) => {
+      gameStore.setMyTurn(true, {
+        role: data.role,
+        action: data.action,
+        targets: data.targets,
+        message: data.message
+      })
+    })
+    
+    // 预言家查验结果
+    on('werewolf:seer_result', (data) => {
+      gameStore.addGameLog({
+        type: 'seer_result',
+        target_seat: data.target_seat,
+        target_name: data.target_name,
+        is_werewolf: data.is_werewolf,
+        message: data.message
+      })
+    })
+    
+    // 投票更新
+    on('werewolf:vote_update', (data) => {
+      gameStore.addVote(data.voter_seat, data.target_seat, data.is_abstain)
+    })
+    
+    // 投票结果
+    on('werewolf:vote_result', (data) => {
+      gameStore.updateVoteResults(data.vote_counts)
+      if (data.eliminated_seat) {
+        gameStore.addGameLog({
+          type: 'vote_result',
+          eliminated_seat: data.eliminated_seat,
+          eliminated_name: data.eliminated_name,
+          message: `投票结果：${data.eliminated_name} 被放逐`
+        })
+      } else if (data.is_tie) {
+        gameStore.addGameLog({
+          type: 'vote_result',
+          is_tie: true,
+          message: '投票结果：平票，无人出局'
+        })
+      }
+    })
+    
+    // 游戏结束
+    on('werewolf:game_over', (data) => {
+      gameStore.setGameEnded(true, data.winner, data.winning_players)
+      gameStore.setAllPlayersInfo(data.all_players)
+      gameStore.addGameLog({
+        type: 'game_end',
+        winner: data.winner,
+        message: `游戏结束！${data.winner_name}获胜`
+      })
+    })
+    
+    // 猎人开枪通知
+    on('werewolf:hunter_shoot', (data) => {
+      gameStore.setMyTurn(true, {
+        role: 'hunter',
+        action: 'shoot',
+        targets: data.targets,
+        message: data.message
+      })
+    })
+  }
+
   // Reset store
   function reset() {
     disconnect()
@@ -224,6 +369,8 @@ export const useSocketStore = defineStore('socket', () => {
     on,
     off,
     clearListeners,
+    setupHostHandlers,
+    setupWerewolfHandlers,
     reset
   }
 })

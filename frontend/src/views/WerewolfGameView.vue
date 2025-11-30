@@ -5,15 +5,33 @@
       <div class="room-info">
         <span class="room-code">房间: {{ roomCode }}</span>
         <el-tag v-if="isSpectator" type="info">观战中</el-tag>
+        <el-tag v-if="mode" :type="mode === 'player' ? 'success' : 'warning'" size="small">
+          {{ mode === 'player' ? '玩家模式' : '观战模式' }}
+        </el-tag>
       </div>
-      <div class="game-controls" v-if="isHost">
-        <el-button size="small" text @click="handlePauseGame" v-if="!isPaused">
+      <div class="game-controls">
+        <el-button v-if="isHost && !isPaused" size="small" text @click="handlePauseGame">
           <el-icon><VideoPause /></el-icon>
         </el-button>
-        <el-button size="small" text @click="handleResumeGame" v-else>
+        <el-button v-if="isHost && isPaused" size="small" text @click="handleResumeGame">
           <el-icon><VideoPlay /></el-icon>
         </el-button>
+        <el-button size="small" text @click="handleShowSettings">
+          <el-icon><Setting /></el-icon>
+        </el-button>
       </div>
+    </div>
+    
+    <!-- 主持人发言悬浮层 -->
+    <div class="host-announcement-overlay" v-if="showHostAnnouncement">
+      <HostAnnouncement
+        :content="hostAnnouncementContent"
+        :is-streaming="isHostStreaming"
+        :announcement-type="hostAnnouncementType"
+        :visible="showHostAnnouncement"
+        :closable="!isHostStreaming"
+        @close="handleCloseAnnouncement"
+      />
     </div>
     
     <!-- 主游戏区域 -->
@@ -46,12 +64,16 @@
             :targets="availableTargets"
             :disabled="skillUsed"
             @use-skill="handleUseSkill"
+            @empty-kill="handleEmptyKill"
+            @self-save="handleSelfSave"
           />
           <VotePanel
             v-else-if="currentPhase === 'vote' && canVote"
             :candidates="voteablePlayers"
             :my-vote="myVote"
             :has-voted="hasVoted"
+            :countdown="voteCountdown"
+            :disabled="voteDisabled"
             @vote="handleVote"
             @abstain="handleAbstain"
           />
@@ -123,15 +145,16 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { VideoPause, VideoPlay, Loading } from '@element-plus/icons-vue'
+import { VideoPause, VideoPlay, Loading, Setting } from '@element-plus/icons-vue'
 import { useGameStore } from '@/stores/game'
 import { useSocketStore } from '@/stores/socket'
-import { roomsApi } from '@/services/api'
+import { roomsApi, gamesApi } from '@/services/api'
 import GamePhaseIndicator from '@/components/werewolf/GamePhaseIndicator.vue'
 import SeatCircle from '@/components/werewolf/SeatCircle.vue'
 import GameLog from '@/components/werewolf/GameLog.vue'
 import NightActionPanel from '@/components/werewolf/NightActionPanel.vue'
 import VotePanel from '@/components/werewolf/VotePanel.vue'
+import HostAnnouncement from '@/components/werewolf/HostAnnouncement.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -144,11 +167,25 @@ const isPaused = ref(false)
 const selectedPlayerId = ref(null)
 const showResultDialog = ref(false)
 
+// 主持人发言状态
+const showHostAnnouncement = ref(false)
+const hostAnnouncementContent = ref('')
+const hostAnnouncementType = ref('')
+const isHostStreaming = ref(false)
+
+// 投票状态
+const voteCountdown = ref(0)
+const voteDisabled = ref(false)
+let voteCountdownTimer = null
+
+// 游戏模式
+const mode = computed(() => route.query.mode || 'player')
+
 // 计算属性 - 来自 store
 const roomCode = computed(() => route.params.code)
 const myPlayerId = computed(() => gameStore.myPlayerId)
 const myRole = computed(() => gameStore.myRole)
-const isSpectator = computed(() => gameStore.isSpectator)
+const isSpectator = computed(() => gameStore.isSpectator || mode.value === 'spectator')
 const isHost = computed(() => gameStore.isHost)
 const currentPhase = computed(() => gameStore.currentPhase || 'night')
 const subPhase = computed(() => gameStore.subPhase)
@@ -247,10 +284,14 @@ async function loadGameState() {
       return
     }
     
+    // 设置观战模式
+    if (mode.value === 'spectator') {
+      gameStore.setIsSpectator(true)
+    }
+    
     // TODO: 从后端获取当前玩家的角色信息
     // const playerInfo = await roomsApi.getMyInfo(roomCode.value)
     // gameStore.setMyRole(playerInfo.role)
-    // gameStore.setIsSpectator(playerInfo.is_spectator)
     
   } catch (err) {
     console.error('加载游戏状态失败:', err)
@@ -263,71 +304,81 @@ async function loadGameState() {
 
 // WebSocket 事件处理
 function setupSocketListeners() {
+  // 使用新的统一事件处理器
+  socketStore.setupHostHandlers(gameStore)
+  socketStore.setupWerewolfHandlers(gameStore)
+  
+  // 本地主持人发言监听（用于UI展示）
+  socketStore.on('host:announcement_start', handleHostAnnouncementStart)
+  socketStore.on('host:announcement_chunk', handleHostAnnouncementChunk)
+  socketStore.on('host:announcement_end', handleHostAnnouncementEnd)
+  
+  // 投票倒计时
+  socketStore.on('werewolf:vote_countdown', handleVoteCountdown)
+  
+  // 旧的事件监听（兼容）
   socketStore.on('game_state_update', handleGameStateUpdate)
-  socketStore.on('turn_changed', handleTurnChanged)
-  socketStore.on('phase_changed', handlePhaseChanged)
-  socketStore.on('player_died', handlePlayerDied)
-  socketStore.on('vote_update', handleVoteUpdate)
-  socketStore.on('ai_thinking', handleAiThinking)
-  socketStore.on('ai_action', handleAiAction)
   socketStore.on('game_ended', handleGameEnded)
   socketStore.on('game_log', handleGameLog)
 }
 
-function handleGameStateUpdate(data) {
-  gameStore.updateGameState(data)
+// 主持人发言开始
+function handleHostAnnouncementStart(data) {
+  showHostAnnouncement.value = true
+  hostAnnouncementContent.value = ''
+  hostAnnouncementType.value = data.announcement_type || ''
+  isHostStreaming.value = true
 }
 
-function handleTurnChanged(data) {
-  gameStore.setCurrentTurn(data.player_id, data.turn_number)
+// 主持人发言片段
+function handleHostAnnouncementChunk(data) {
+  hostAnnouncementContent.value = data.accumulated || ''
 }
 
-function handlePhaseChanged(data) {
-  gameStore.setPhase(data.phase, data.sub_phase)
-  if (data.day_number) {
-    gameStore.dayNumber = data.day_number
+// 主持人发言结束
+function handleHostAnnouncementEnd(data) {
+  hostAnnouncementContent.value = data.full_content || ''
+  isHostStreaming.value = false
+  
+  // 3秒后自动关闭（如果不是重要公告）
+  if (!['game_end', 'vote_result'].includes(hostAnnouncementType.value)) {
+    setTimeout(() => {
+      if (!isHostStreaming.value) {
+        showHostAnnouncement.value = false
+      }
+    }, 3000)
+  }
+}
+
+// 关闭主持人发言
+function handleCloseAnnouncement() {
+  showHostAnnouncement.value = false
+}
+
+// 投票倒计时
+function handleVoteCountdown(data) {
+  voteCountdown.value = data.remaining
+  voteDisabled.value = data.remaining <= 0
+  
+  // 清除旧的计时器
+  if (voteCountdownTimer) {
+    clearInterval(voteCountdownTimer)
   }
   
-  // 添加日志
-  gameStore.addGameLog({
-    type: 'system',
-    is_system: true,
-    message: `进入${getPhaseText(data.phase)}`
-  })
-}
-
-function getPhaseText(phase) {
-  switch (phase) {
-    case 'night': return '夜晚'
-    case 'day': return '白天'
-    case 'discussion': return '讨论阶段'
-    case 'vote': return '投票阶段'
-    default: return phase
+  // 本地倒计时
+  if (data.remaining > 0) {
+    voteCountdownTimer = setInterval(() => {
+      voteCountdown.value--
+      if (voteCountdown.value <= 0) {
+        clearInterval(voteCountdownTimer)
+        voteDisabled.value = true
+      }
+    }, 1000)
   }
 }
 
-function handlePlayerDied(data) {
-  gameStore.setPlayerDead(data.player_id, data.role_name)
-  gameStore.addGameLog({
-    type: 'death',
-    player_name: data.player_name,
-    message: `${data.player_name} 死亡，身份是 ${data.role_name}`
-  })
-}
-
-function handleVoteUpdate(data) {
-  gameStore.updateVoteResults(data.results)
-}
-
-function handleAiThinking(data) {
-  gameStore.setAiThinking(true, data.player_id)
-}
-
-function handleAiAction(data) {
-  gameStore.setAiThinking(false)
-  if (data.action_log) {
-    gameStore.addGameLog(data.action_log)
-  }
+function handleGameStateUpdate(data) {
+  gameStore.updateGameState(data)
 }
 
 function handleGameEnded(data) {
@@ -345,8 +396,7 @@ function handleSelectPlayer(player) {
 }
 
 function handleUseSkill(target) {
-  // TODO: 发送技能使用请求
-  socketStore.emit('use_skill', {
+  socketStore.emit('werewolf:use_skill', {
     room_code: roomCode.value,
     target_id: target.id
   })
@@ -354,8 +404,30 @@ function handleUseSkill(target) {
   selectedPlayerId.value = null
 }
 
+// 狼人空刀
+function handleEmptyKill() {
+  socketStore.emit('werewolf:use_skill', {
+    room_code: roomCode.value,
+    target_id: null,
+    action_type: 'empty_kill'
+  })
+  gameStore.useSkill()
+  ElMessage.info('已选择不击杀任何人')
+}
+
+// 女巫自救
+function handleSelfSave() {
+  socketStore.emit('werewolf:use_skill', {
+    room_code: roomCode.value,
+    target_id: myPlayerId.value,
+    action_type: 'self_save'
+  })
+  gameStore.useSkill()
+  ElMessage.info('已使用解药自救')
+}
+
 function handleVote(player) {
-  socketStore.emit('vote', {
+  socketStore.emit('werewolf:vote', {
     room_code: roomCode.value,
     target_id: player.id
   })
@@ -363,7 +435,7 @@ function handleVote(player) {
 }
 
 function handleAbstain() {
-  socketStore.emit('vote', {
+  socketStore.emit('werewolf:vote', {
     room_code: roomCode.value,
     target_id: null // 弃票
   })
@@ -390,6 +462,11 @@ async function handleResumeGame() {
   }
 }
 
+function handleShowSettings() {
+  // TODO: 显示设置面板
+  ElMessage.info('设置功能开发中')
+}
+
 function handleBackToLobby() {
   router.push('/lobby')
 }
@@ -411,15 +488,19 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  // 清理事件监听
+  socketStore.off('host:announcement_start', handleHostAnnouncementStart)
+  socketStore.off('host:announcement_chunk', handleHostAnnouncementChunk)
+  socketStore.off('host:announcement_end', handleHostAnnouncementEnd)
+  socketStore.off('werewolf:vote_countdown', handleVoteCountdown)
   socketStore.off('game_state_update', handleGameStateUpdate)
-  socketStore.off('turn_changed', handleTurnChanged)
-  socketStore.off('phase_changed', handlePhaseChanged)
-  socketStore.off('player_died', handlePlayerDied)
-  socketStore.off('vote_update', handleVoteUpdate)
-  socketStore.off('ai_thinking', handleAiThinking)
-  socketStore.off('ai_action', handleAiAction)
   socketStore.off('game_ended', handleGameEnded)
   socketStore.off('game_log', handleGameLog)
+  
+  // 清理倒计时
+  if (voteCountdownTimer) {
+    clearInterval(voteCountdownTimer)
+  }
 })
 </script>
 
@@ -456,8 +537,37 @@ onUnmounted(() => {
   font-family: monospace;
 }
 
+.game-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .game-controls .el-button {
   color: white;
+}
+
+/* 主持人发言悬浮层 */
+.host-announcement-overlay {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  max-width: 600px;
+  width: 90%;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 .game-main {

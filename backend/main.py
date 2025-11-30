@@ -61,12 +61,13 @@ async def root():
 
 
 # Import and include merged API routers
-from src.api import game_routes, user_routes, monitoring
+from src.api import game_routes, user_routes, monitoring, werewolf_routes
 
 # Include merged routers
 app.include_router(game_routes.router)
 app.include_router(user_routes.router)
 app.include_router(monitoring.router)
+app.include_router(werewolf_routes.router)
 
 # Mount Socket.IO app
 socket_app = socketio.ASGIApp(sio, app)
