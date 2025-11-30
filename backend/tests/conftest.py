@@ -66,7 +66,7 @@ async def test_db(test_engine):
 @pytest.fixture
 async def sample_game_type():
     """Return a sample game type from constants for testing."""
-    game_type = get_game_type_by_slug("crime-scene")
+    game_type = get_game_type_by_slug("werewolf")
     return game_type
 
 

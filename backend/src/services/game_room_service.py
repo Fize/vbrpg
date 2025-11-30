@@ -180,15 +180,14 @@ class GameRoomService:
         if not room:
             raise NotFoundError("Room not found")
 
-        # Create AI player
-        ai_name = f"AI-{room.ai_agent_counter + 1}"
+        # Create AI player with unique name (room code + counter + uuid suffix)
+        import uuid
         room.ai_agent_counter += 1
+        ai_name = f"AI-{room.code}-{room.ai_agent_counter}-{uuid.uuid4().hex[:6]}"
 
         ai_player = Player(
             username=ai_name,
-            display_name=ai_name,
-            is_guest=True,
-            player_type="ai"
+            is_guest=True
         )
         self.db.add(ai_player)
         await self.db.flush()
@@ -204,8 +203,7 @@ class GameRoomService:
 
         # Create AI agent record
         ai_agent = AIAgent(
-            player_id=ai_player.id,
-            game_room_id=room.id,
+            username=ai_player.username,
             personality_type=personality_type,
             difficulty_level=difficulty_level
         )
@@ -213,8 +211,9 @@ class GameRoomService:
 
         await self.db.commit()
         await self.db.refresh(ai_player)
+        await self.db.refresh(participant)
 
-        return ai_player
+        return participant
 
     async def remove_ai_agent(self, room_code: str, agent_id: str):
         """Remove an AI agent from room.
@@ -311,7 +310,15 @@ class GameRoomService:
         Returns:
             List of created AI players
         """
-        active_count = room.get_active_participants_count()
+        # Get active participants count with proper async handling
+        stmt = select(GameRoomParticipant).where(
+            GameRoomParticipant.game_room_id == room.id,
+            GameRoomParticipant.left_at.is_(None)
+        )
+        result = await self.db.execute(stmt)
+        active_participants = result.scalars().all()
+        active_count = len(active_participants)
+        
         slots_to_fill = room.min_players - active_count
 
         if slots_to_fill <= 0:
