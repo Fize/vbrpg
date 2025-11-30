@@ -50,6 +50,14 @@ const routes = [
     meta: {
       title: '游戏中'
     }
+  },
+  {
+    path: '/werewolf/:code',
+    name: 'WerewolfGame',
+    component: WerewolfGameView,
+    meta: {
+      title: '狼人杀'
+    }
   }
 ]
 

@@ -12,22 +12,54 @@
         v-for="(entry, index) in logs"
         :key="entry.id || index"
         class="log-entry"
-        :class="[`type-${entry.type}`, { 'is-system': entry.is_system }]"
+        :class="[
+          `type-${entry.type}`, 
+          { 
+            'is-system': entry.is_system,
+            'is-streaming': entry.isStreaming,
+            'is-host': entry.type === 'host_announcement'
+          }
+        ]"
       >
         <!-- 时间标记 -->
         <div v-if="showDayMarker(index)" class="day-marker">
           <span class="day-text">第 {{ entry.day }} 天 - {{ entry.phase_name }}</span>
         </div>
         
-        <!-- 日志内容 -->
-        <div class="entry-content">
+        <!-- 主持人发言 -->
+        <div v-if="entry.type === 'host_announcement'" class="host-entry">
+          <div class="host-header">
+            <el-icon class="host-icon"><Microphone /></el-icon>
+            <span class="host-label">主持人</span>
+          </div>
+          <div class="host-content">
+            <span class="host-message">{{ entry.content }}</span>
+            <span v-if="entry.isStreaming" class="typing-cursor">|</span>
+          </div>
+        </div>
+        
+        <!-- 玩家发言（流式） -->
+        <div v-else-if="entry.type === 'speech'" class="speech-entry">
+          <div class="speech-header">
+            <span class="speaker-name">{{ entry.player_name }}</span>
+            <span v-if="entry.time" class="entry-time">{{ formatTime(entry.time) }}</span>
+          </div>
+          <div class="speech-content">
+            <span class="speech-message">{{ entry.content }}</span>
+            <span v-if="entry.isStreaming" class="typing-cursor">|</span>
+          </div>
+        </div>
+        
+        <!-- 其他类型日志 -->
+        <div v-else class="entry-content">
           <span v-if="entry.time" class="entry-time">{{ formatTime(entry.time) }}</span>
           <span class="entry-icon">
             <el-icon v-if="entry.type === 'death'"><Close /></el-icon>
-            <el-icon v-else-if="entry.type === 'vote'"><Stamp /></el-icon>
-            <el-icon v-else-if="entry.type === 'speech'"><ChatDotRound /></el-icon>
+            <el-icon v-else-if="entry.type === 'vote' || entry.type === 'vote_result'"><Stamp /></el-icon>
             <el-icon v-else-if="entry.type === 'action'"><Aim /></el-icon>
-            <el-icon v-else-if="entry.type === 'skill'"><MagicStick /></el-icon>
+            <el-icon v-else-if="entry.type === 'skill' || entry.type === 'seer_result'"><MagicStick /></el-icon>
+            <el-icon v-else-if="entry.type === 'hunter_shoot'"><Aim /></el-icon>
+            <el-icon v-else-if="entry.type === 'game_end'"><Trophy /></el-icon>
             <el-icon v-else><InfoFilled /></el-icon>
           </span>
           <span class="entry-message" v-html="formatMessage(entry)"></span>
@@ -47,7 +79,8 @@
 import { ref, watch, nextTick } from 'vue'
 import { 
   Bottom, Close, Stamp, ChatDotRound, 
-  Aim, MagicStick, InfoFilled, DocumentCopy 
+  Aim, MagicStick, InfoFilled, DocumentCopy,
+  Microphone, Trophy
 } from '@element-plus/icons-vue'
 
 const props = defineProps({
@@ -239,6 +272,93 @@ defineExpose({
 .log-entry.is-system .entry-content {
   background: #f5f7fa;
   border-left: 3px solid #909399;
+}
+
+/* 主持人发言样式 */
+.host-entry {
+  background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+  border: 1px solid #667eea30;
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin: 8px 0;
+}
+
+.host-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.host-icon {
+  color: #667eea;
+  font-size: 18px;
+}
+
+.host-label {
+  color: #667eea;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.host-content {
+  color: #303133;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.host-message {
+  white-space: pre-wrap;
+}
+
+/* 玩家发言样式 */
+.speech-entry {
+  background: #f0f9eb;
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin: 8px 0;
+}
+
+.speech-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.speaker-name {
+  color: #67c23a;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.speech-content {
+  color: #303133;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.speech-message {
+  white-space: pre-wrap;
+}
+
+/* 打字光标动画 */
+.typing-cursor {
+  display: inline-block;
+  color: var(--el-color-primary);
+  font-weight: bold;
+  animation: blink 0.8s infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* 流式状态样式 */
+.log-entry.is-streaming .host-entry,
+.log-entry.is-streaming .speech-entry {
+  border-left: 3px solid var(--el-color-primary);
 }
 
 /* 高亮文本 */

@@ -6,8 +6,8 @@
     </div>
     
     <!-- 狼人行动 -->
-    <div v-if="roleType === 'werewolf'" class="action-content">
-      <p class="action-hint">选择一名玩家击杀</p>
+    <div v-if="roleType === 'werewolf' || role?.name === '狼人'" class="action-content">
+      <p class="action-hint">选择一名玩家击杀，或选择空刀</p>
       <div class="target-list">
         <div 
           v-for="target in validTargets" 
@@ -18,15 +18,21 @@
         >
           <span class="target-seat">{{ target.seat_number || '?' }}</span>
           <span class="target-name">{{ target.name || target.username }}</span>
+          <el-tag v-if="isTeammate(target)" size="small" type="danger">同伴</el-tag>
         </div>
       </div>
-      <el-button 
-        type="danger" 
-        :disabled="!selectedTarget || disabled"
-        @click="confirmAction"
-      >
-        确认击杀
-      </el-button>
+      <div class="action-buttons">
+        <el-button @click="emptyKill" :disabled="disabled">
+          空刀（不击杀）
+        </el-button>
+        <el-button 
+          type="danger" 
+          :disabled="!selectedTarget || disabled"
+          @click="confirmAction"
+        >
+          确认击杀
+        </el-button>
+      </div>
     </div>
     
     <!-- 预言家查验 -->
@@ -64,6 +70,7 @@
           </div>
           <p class="action-hint" v-if="killedPlayer">
             今晚 <strong>{{ killedPlayer.name }}</strong> 被杀，是否使用解药？
+            <span v-if="isSelfKilled" class="self-save-hint">（可以自救）</span>
           </p>
           <p class="action-hint" v-else>
             今晚无人被杀
@@ -74,8 +81,14 @@
             :disabled="disabled"
             @click="useAntidote"
           >
-            使用解药
+            使用解药{{ isSelfKilled ? '（自救）' : '' }}
           </el-button>
+        </div>
+        <div v-else class="witch-action used">
+          <div class="action-label">
+            <el-icon><FirstAidKit /></el-icon>
+            <span>解药（已使用）</span>
+          </div>
         </div>
         
         <!-- 毒药 -->
@@ -84,10 +97,10 @@
             <el-icon><Warning /></el-icon>
             <span>毒药</span>
           </div>
-          <p class="action-hint">选择一名玩家毒杀</p>
+          <p class="action-hint">选择一名玩家毒杀（可选）</p>
           <div class="target-list">
             <div 
-              v-for="target in validTargets" 
+              v-for="target in poisonTargets" 
               :key="target.id"
               class="target-item"
               :class="{ selected: selectedTarget?.id === target.id }"
@@ -105,9 +118,15 @@
             使用毒药
           </el-button>
         </div>
+        <div v-else class="witch-action used">
+          <div class="action-label">
+            <el-icon><Warning /></el-icon>
+            <span>毒药（已使用）</span>
+          </div>
+        </div>
         
         <el-button @click="skipAction" :disabled="disabled">
-          跳过
+          跳过（不使用药水）
         </el-button>
       </div>
     </div>
@@ -160,6 +179,14 @@ const props = defineProps({
     type: Object,
     default: null
   },
+  myPlayerId: {
+    type: String,
+    default: ''
+  },
+  teammates: {
+    type: Array,
+    default: () => []
+  },
   targets: {
     type: Array,
     default: () => []
@@ -182,7 +209,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['use-skill', 'use-antidote', 'use-poison', 'skip'])
+const emit = defineEmits(['use-skill', 'use-antidote', 'use-poison', 'skip', 'empty-kill'])
 
 const selectedTarget = ref(null)
 
@@ -205,7 +232,7 @@ const actionTitle = computed(() => {
 const actionDescription = computed(() => {
   if (!props.role) return ''
   switch (props.role.name) {
-    case '狼人': return '与同伴商议，选择击杀目标'
+    case '狼人': return '与同伴商议，选择击杀目标或空刀'
     case '预言家': return '查验一名玩家的真实身份'
     case '女巫': return '你可以使用解药或毒药'
     case '猎人': return '死亡时可以开枪带走一人'
@@ -213,9 +240,24 @@ const actionDescription = computed(() => {
   }
 })
 
-// 有效目标（排除自己和已死亡的）
+// 有效目标（排除已死亡的）
 const validTargets = computed(() => {
   return props.targets.filter(t => t.is_alive)
+})
+
+// 毒药目标（排除自己）
+const poisonTargets = computed(() => {
+  return validTargets.value.filter(t => t.id !== props.myPlayerId)
+})
+
+// 检查是否是队友
+function isTeammate(target) {
+  return props.teammates.some(t => t.id === target.id)
+}
+
+// 是否是自己被杀（女巫自救判断）
+const isSelfKilled = computed(() => {
+  return props.killedPlayer && props.killedPlayer.id === props.myPlayerId
 })
 
 // 选择目标
@@ -230,6 +272,11 @@ function confirmAction() {
     emit('use-skill', selectedTarget.value)
     selectedTarget.value = null
   }
+}
+
+// 空刀（狼人不击杀任何人）
+function emptyKill() {
+  emit('empty-kill')
 }
 
 // 使用解药
@@ -356,6 +403,19 @@ function skipAction() {
   font-weight: 600;
   color: #303133;
   margin-bottom: 8px;
+}
+
+.witch-action.used {
+  opacity: 0.5;
+}
+
+.witch-action.used .action-label {
+  color: #909399;
+}
+
+.self-save-hint {
+  color: #67c23a;
+  font-weight: 500;
 }
 
 .action-buttons {

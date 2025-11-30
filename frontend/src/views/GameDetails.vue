@@ -82,15 +82,19 @@
               <el-button 
                 type="primary" 
                 size="large"
-                :disabled="!game.is_available"
+                :disabled="!game.is_available || isStarting"
+                :loading="isStarting"
                 @click="handlePlayNow"
                 class="play-button"
               >
-                <el-icon><VideoPlay /></el-icon>
-                {{ game.is_available ? '立即开始' : '即将推出' }}
+                <el-icon v-if="!isStarting"><VideoPlay /></el-icon>
+                {{ isStarting ? startingText : (game.is_available ? '立即开始' : '即将推出') }}
               </el-button>
 
-              <p v-if="!game.is_available" class="coming-soon-text">
+              <p v-if="startError" class="error-text">
+                {{ startError }}
+              </p>
+              <p v-else-if="!game.is_available" class="coming-soon-text">
                 这个游戏正在开发中，敬请期待！
               </p>
             </el-card>
@@ -118,6 +122,14 @@
         </el-row>
       </el-main>
     </el-container>
+
+    <!-- 狼人杀模式选择对话框 -->
+    <WerewolfModeDialog
+      v-model="showModeDialog"
+      @start="handleStartWerewolf"
+      @cancel="handleModeCancel"
+      ref="modeDialogRef"
+    />
   </div>
 </template>
 
@@ -135,12 +147,18 @@ import {
 } from '@element-plus/icons-vue'
 import { gamesApi } from '@/services/api'
 import LoadingIndicator from '@/components/common/LoadingIndicator.vue'
+import WerewolfModeDialog from '@/components/werewolf/WerewolfModeDialog.vue'
 
 const router = useRouter()
 const route = useRoute()
 
 const loading = ref(false)
 const game = ref(null)
+const showModeDialog = ref(false)
+const isStarting = ref(false)
+const startingText = ref('正在准备游戏...')
+const startError = ref('')
+const modeDialogRef = ref(null)
 
 const formattedRules = computed(() => {
   if (!game.value?.rules_summary) return ''
@@ -171,12 +189,68 @@ const goBack = () => {
 }
 
 const handlePlayNow = () => {
-  if (game.value?.is_available) {
+  if (!game.value?.is_available) return
+  
+  startError.value = ''
+  
+  // 狼人杀游戏：显示模式选择对话框
+  if (game.value.slug === 'werewolf') {
+    showModeDialog.value = true
+  } else {
+    // 其他游戏：保持原有流程
     router.push({ 
       name: 'GameRoomConfig', 
       query: { gameType: game.value.slug } 
     })
   }
+}
+
+const handleStartWerewolf = async ({ mode, role }) => {
+  isStarting.value = true
+  startingText.value = '正在准备游戏...'
+  startError.value = ''
+  
+  try {
+    // 获取或生成玩家ID
+    let playerId = localStorage.getItem('playerId')
+    if (!playerId) {
+      playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      localStorage.setItem('playerId', playerId)
+    }
+    
+    // 调用快速开始 API
+    const result = await gamesApi.quickStartWerewolf({ 
+      player_id: playerId,
+      preferred_role: mode === 'spectator' ? null : role
+    })
+    
+    startingText.value = '即将进入游戏...'
+    
+    // 关闭对话框
+    showModeDialog.value = false
+    
+    // 跳转到游戏界面
+    router.push({ 
+      name: 'WerewolfGame', 
+      params: { code: result.room_code },
+      query: { mode }
+    })
+  } catch (error) {
+    console.error('Failed to start werewolf game:', error)
+    startError.value = error.response?.data?.detail || '游戏启动失败，请重试'
+    ElMessage.error(startError.value)
+    
+    // 重置对话框状态
+    if (modeDialogRef.value) {
+      modeDialogRef.value.resetStarting()
+    }
+  } finally {
+    isStarting.value = false
+  }
+}
+
+const handleModeCancel = () => {
+  showModeDialog.value = false
 }
 
 onMounted(async () => {
@@ -313,6 +387,13 @@ onMounted(async () => {
 .coming-soon-text {
   text-align: center;
   color: #909399;
+  font-size: 14px;
+  margin: 0;
+}
+
+.error-text {
+  text-align: center;
+  color: var(--el-color-danger);
   font-size: 14px;
   margin: 0;
 }

@@ -3,6 +3,13 @@
     <div class="panel-header">
       <h3 class="panel-title">投票阶段</h3>
       <p class="panel-desc">选择一名玩家进行投票，或选择弃票</p>
+      <!-- 倒计时 -->
+      <div v-if="countdown > 0" class="countdown">
+        <el-icon class="countdown-icon"><Clock /></el-icon>
+        <span class="countdown-text" :class="{ 'is-urgent': countdown <= 10 }">
+          {{ countdown }}s
+        </span>
+      </div>
     </div>
     
     <div v-if="hasVoted" class="voted-status">
@@ -18,7 +25,10 @@
           v-for="candidate in candidates" 
           :key="candidate.id"
           class="candidate-item"
-          :class="{ selected: selectedCandidate?.id === candidate.id }"
+          :class="{ 
+            selected: selectedCandidate?.id === candidate.id,
+            disabled: disabled
+          }"
           @click="selectCandidate(candidate)"
         >
           <div class="candidate-avatar">
@@ -38,13 +48,13 @@
       
       <!-- 操作按钮 -->
       <div class="vote-actions">
-        <el-button size="large" @click="handleAbstain">
+        <el-button size="large" :disabled="disabled" @click="handleAbstain">
           弃票
         </el-button>
         <el-button 
           type="primary" 
           size="large"
-          :disabled="!selectedCandidate"
+          :disabled="!selectedCandidate || disabled"
           @click="handleVote"
         >
           确认投票
@@ -53,7 +63,7 @@
     </div>
     
     <!-- 投票结果预览 -->
-    <div v-if="showResults" class="vote-results">
+    <div v-if="showResults && sortedCandidates.length > 0" class="vote-results">
       <h4 class="results-title">当前票数</h4>
       <div class="results-list">
         <div 
@@ -77,7 +87,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { CircleCheck, Check } from '@element-plus/icons-vue'
+import { CircleCheck, Check, Clock } from '@element-plus/icons-vue'
 
 const props = defineProps({
   candidates: {
@@ -95,6 +105,14 @@ const props = defineProps({
   showResults: {
     type: Boolean,
     default: true
+  },
+  countdown: {
+    type: Number,
+    default: 0
+  },
+  disabled: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -125,7 +143,7 @@ function getVotePercent(voteCount) {
 
 // 选择候选人
 function selectCandidate(candidate) {
-  if (props.hasVoted) return
+  if (props.hasVoted || props.disabled) return
   selectedCandidate.value = selectedCandidate.value?.id === candidate.id ? null : candidate
 }
 
@@ -164,6 +182,34 @@ function handleAbstain() {
   font-size: 12px;
   color: #909399;
   margin: 0;
+}
+
+.countdown {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.countdown-icon {
+  color: var(--el-color-warning);
+}
+
+.countdown-text {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--el-color-warning);
+}
+
+.countdown-text.is-urgent {
+  color: var(--el-color-danger);
+  animation: urgent-pulse 0.5s infinite;
+}
+
+@keyframes urgent-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .voted-status {
@@ -213,6 +259,11 @@ function handleAbstain() {
 .candidate-item.selected {
   background: #ecf5ff;
   border-color: var(--el-color-primary);
+}
+
+.candidate-item.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .candidate-avatar {

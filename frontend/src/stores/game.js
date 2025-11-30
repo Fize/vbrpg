@@ -313,6 +313,62 @@ export const useGameStore = defineStore('game', () => {
     })
   }
   
+  /**
+   * 添加流式发言日志（发言开始时调用）
+   * @param {Object} log - 日志对象
+   * @param {string} log.type - 日志类型 ('speech' | 'host_announcement')
+   * @param {string} log.player_id - 发言玩家 ID
+   * @param {string} log.player_name - 发言玩家名称
+   * @param {string} log.content - 初始内容（通常为空字符串）
+   * @param {boolean} log.isStreaming - 是否正在流式输出
+   */
+  function addStreamingLog(log) {
+    const streamingLog = {
+      ...log,
+      id: `streaming_${log.player_id}_${Date.now()}`,
+      time: new Date().toISOString(),
+      day: dayNumber.value,
+      phase: currentPhase.value,
+      phase_name: getPhaseDisplayName(currentPhase.value),
+      isStreaming: true
+    }
+    gameLogs.value.push(streamingLog)
+    return streamingLog.id
+  }
+  
+  /**
+   * 更新流式发言内容（收到新的 chunk 时调用）
+   * @param {string} playerId - 发言玩家 ID
+   * @param {string} content - 累积的发言内容
+   */
+  function updateStreamingLog(playerId, content) {
+    // 查找最后一条该玩家的流式日志
+    for (let i = gameLogs.value.length - 1; i >= 0; i--) {
+      const log = gameLogs.value[i]
+      if (log.player_id === playerId && log.isStreaming) {
+        log.content = content
+        return
+      }
+    }
+  }
+  
+  /**
+   * 完成流式发言（发言结束时调用）
+   * @param {string} playerId - 发言玩家 ID
+   * @param {string} fullContent - 完整的发言内容
+   */
+  function finalizeStreamingLog(playerId, fullContent) {
+    // 查找最后一条该玩家的流式日志
+    for (let i = gameLogs.value.length - 1; i >= 0; i--) {
+      const log = gameLogs.value[i]
+      if (log.player_id === playerId && log.isStreaming) {
+        log.content = fullContent
+        log.isStreaming = false
+        return
+      }
+    }
+  }
+  
   function getPhaseDisplayName(phase) {
     switch (phase) {
       case 'night': return '夜晚'
@@ -385,6 +441,45 @@ export const useGameStore = defineStore('game', () => {
     myPlayerId.value = localStorage.getItem('playerId') || null
   }
 
+  // 设置我的回合状态
+  function setMyTurn(isMyTurn, actionInfo = null) {
+    if (isMyTurn && actionInfo) {
+      mySkillTargets.value = actionInfo.targets || []
+      // 可以根据 actionInfo.role 和 actionInfo.action 来显示相应的 UI
+    }
+  }
+
+  // 添加投票
+  function addVote(voterSeat, targetSeat, isAbstain) {
+    if (targetSeat && !isAbstain) {
+      const key = `seat_${targetSeat}`
+      if (!voteResults.value[key]) {
+        voteResults.value[key] = 0
+      }
+      voteResults.value[key]++
+    }
+  }
+
+  // 设置所有玩家信息（游戏结束后）
+  function setAllPlayersInfo(players) {
+    players.forEach(p => {
+      const key = `seat_${p.seat_number}`
+      if (playerStates.value[key]) {
+        playerStates.value[key].role_name = p.role
+        playerStates.value[key].team = p.team
+        playerStates.value[key].role_revealed = true
+      } else {
+        playerStates.value[key] = {
+          is_alive: p.is_alive,
+          role_name: p.role,
+          team: p.team,
+          role_revealed: true,
+          vote_count: 0
+        }
+      }
+    })
+  }
+
   return {
     // State
     currentRoom,
@@ -454,6 +549,9 @@ export const useGameStore = defineStore('game', () => {
     setVote,
     updateVoteResults,
     addGameLog,
+    addStreamingLog,
+    updateStreamingLog,
+    finalizeStreamingLog,
     setSpeakingPlayer,
     setSkillTargets,
     useSkill,
@@ -462,6 +560,9 @@ export const useGameStore = defineStore('game', () => {
     setError,
     clearError,
     leaveRoom,
-    reset
+    reset,
+    setMyTurn,
+    addVote,
+    setAllPlayersInfo
   }
 })

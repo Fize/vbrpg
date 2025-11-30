@@ -183,6 +183,58 @@ export const gamesApi = {
   async getGameDetails(slug) {
     const response = await apiClient.get(`/games/${slug}`)
     return response.data
+  },
+
+  /**
+   * 狼人杀快速开始 - 直接创建房间并开始游戏
+   * @param {Object} options - 游戏选项
+   * @param {string} options.player_id - 玩家ID
+   * @param {string|null} options.preferred_role - 首选角色（null 表示随机分配）
+   * @returns {Promise<Object>} 返回房间信息和游戏状态
+   */
+  async quickStartWerewolf(options) {
+    const response = await apiClient.post('/werewolf/quick-start', options)
+    return response.data
+  },
+
+  /**
+   * 狼人杀游戏行动
+   * @param {string} roomCode - 房间码
+   * @param {Object} action - 行动信息
+   * @param {string} action.player_id - 玩家ID
+   * @param {string} action.action_type - 行动类型 ('kill' | 'check' | 'save' | 'poison' | 'shoot' | 'vote')
+   * @param {number|null} action.target_seat - 目标座位号
+   * @returns {Promise<Object>} 返回操作结果
+   */
+  async werewolfAction(roomCode, action) {
+    const response = await apiClient.post(`/werewolf/rooms/${roomCode}/action`, action)
+    return response.data
+  },
+
+  /**
+   * 获取狼人杀游戏状态
+   * @param {string} roomCode - 房间码
+   * @param {string} playerId - 玩家ID
+   * @returns {Promise<Object>} 游戏状态
+   */
+  async getWerewolfState(roomCode, playerId) {
+    const response = await apiClient.get(`/werewolf/rooms/${roomCode}/state`, {
+      params: { player_id: playerId }
+    })
+    return response.data
+  },
+
+  /**
+   * 获取玩家在狼人杀游戏中的角色
+   * @param {string} roomCode - 房间码
+   * @param {string} playerId - 玩家ID
+   * @returns {Promise<Object>} 角色信息
+   */
+  async getWerewolfRole(roomCode, playerId) {
+    const response = await apiClient.get(`/werewolf/rooms/${roomCode}/role`, {
+      params: { player_id: playerId }
+    })
+    return response.data
   }
 }
 

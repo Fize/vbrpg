@@ -1,59 +1,244 @@
 """LangChain LLM integration for AI agent decision-making."""
 
 import logging
-import os
-from typing import Any
+import time
+from typing import Any, AsyncIterator, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+
+from src.utils.ai_logger import get_ai_logger
+from src.utils.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 class LLMClient:
     """Client for interacting with LLM services via LangChain.
-    
+
     Handles:
-    - OpenAI API integration
+    - OpenAI API integration (including custom base URL)
+    - Streaming response generation
     - Prompt template management
     - Error handling (timeouts, connection errors, rate limits)
     - Response parsing
+    - AI call logging
     """
 
     def __init__(
         self,
-        model_name: str = "gpt-4o-mini",
-        temperature: float = 0.7,
-        timeout: int = 10,
-        max_retries: int = 2
+        model_name: Optional[str] = None,
+        temperature: Optional[float] = None,
+        timeout: Optional[int] = None,
+        max_retries: Optional[int] = None,
+        api_base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
     ):
         """Initialize LLM client.
-        
+
         Args:
-            model_name: OpenAI model to use
-            temperature: Sampling temperature (0.0-1.0)
-            timeout: Request timeout in seconds
-            max_retries: Number of retry attempts on failure
+            model_name: Model to use (defaults to settings.AI_MODEL)
+            temperature: Sampling temperature (defaults to settings.AI_TEMPERATURE)
+            timeout: Request timeout in seconds (defaults to settings.AI_TIMEOUT)
+            max_retries: Number of retry attempts (defaults to settings.AI_MAX_RETRIES)
+            api_base_url: Custom API base URL (defaults to settings.AI_API_BASE_URL)
+            api_key: API key (defaults to settings.effective_ai_api_key)
         """
-        self.model_name = model_name
-        self.temperature = temperature
-        self.timeout = timeout
-        self.max_retries = max_retries
+        self.model_name = model_name or settings.AI_MODEL
+        self.temperature = temperature if temperature is not None else settings.AI_TEMPERATURE
+        self.timeout = timeout if timeout is not None else settings.AI_TIMEOUT
+        self.max_retries = max_retries if max_retries is not None else settings.AI_MAX_RETRIES
+        self.api_base_url = api_base_url or settings.AI_API_BASE_URL or None
+        self.api_key = api_key or settings.effective_ai_api_key
+
+        # AI call logger
+        self.ai_logger = get_ai_logger()
 
         # Initialize ChatOpenAI client
-        api_key = os.getenv("OPENAI_API_KEY", "sk-test-key-for-testing")
-        if api_key == "sk-test-key-for-testing":
-            logger.warning("Using test API key - LLM functionality will not work")
+        if not self.api_key:
+            logger.warning("No AI API key configured - LLM functionality will not work")
+            self.api_key = "sk-test-key-for-testing"
 
-        self.llm = ChatOpenAI(
-            model=model_name,
-            temperature=temperature,
-            timeout=timeout,
-            max_retries=max_retries,
-            openai_api_key=api_key  # Use explicit parameter name
+        llm_kwargs = {
+            "model": self.model_name,
+            "temperature": self.temperature,
+            "timeout": self.timeout,
+            "max_retries": self.max_retries,
+            "openai_api_key": self.api_key,
+        }
+
+        # Add custom base URL if configured
+        if self.api_base_url:
+            llm_kwargs["openai_api_base"] = self.api_base_url
+            logger.info(f"Using custom API base URL: {self.api_base_url}")
+
+        self.llm = ChatOpenAI(**llm_kwargs)
+
+        logger.info(
+            f"LLM client initialized with model={self.model_name}, "
+            f"temperature={self.temperature}"
         )
 
-        logger.info(f"LLM client initialized with model={model_name}, temperature={temperature}")
+    async def generate(
+        self,
+        messages: list[dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        """Generate a response from the LLM.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys.
+            temperature: Override default temperature.
+            max_tokens: Maximum tokens to generate.
+
+        Returns:
+            Generated text content.
+
+        Raises:
+            LLMError: On any LLM-related error.
+        """
+        start_time = time.time()
+        request_id = self.ai_logger.log_request(
+            model=self.model_name,
+            messages=messages,
+            temperature=temperature or self.temperature,
+            max_tokens=max_tokens,
+        )
+
+        try:
+            # Convert to LangChain message format
+            lc_messages = self._convert_messages(messages)
+
+            # Create temporary LLM with overridden settings if needed
+            llm = self.llm
+            if temperature is not None or max_tokens is not None:
+                kwargs = {}
+                if temperature is not None:
+                    kwargs["temperature"] = temperature
+                if max_tokens is not None:
+                    kwargs["max_tokens"] = max_tokens
+                llm = self.llm.bind(**kwargs) if kwargs else self.llm
+
+            # Generate response
+            response = await llm.ainvoke(lc_messages)
+
+            latency_ms = (time.time() - start_time) * 1000
+            content = response.content
+
+            # Log response
+            usage = getattr(response, "usage_metadata", None)
+            self.ai_logger.log_response(
+                request_id=request_id,
+                response_content=content,
+                model=self.model_name,
+                prompt_tokens=usage.get("input_tokens") if usage else None,
+                completion_tokens=usage.get("output_tokens") if usage else None,
+                total_tokens=usage.get("total_tokens") if usage else None,
+                latency_ms=latency_ms,
+                is_stream=False,
+            )
+
+            return content
+
+        except Exception as e:
+            latency_ms = (time.time() - start_time) * 1000
+            self.ai_logger.log_error(
+                request_id=request_id,
+                error=e,
+                model=self.model_name,
+                latency_ms=latency_ms,
+            )
+            raise self._wrap_exception(e)
+
+    async def generate_stream(
+        self,
+        messages: list[dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> AsyncIterator[str]:
+        """Generate a streaming response from the LLM.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys.
+            temperature: Override default temperature.
+            max_tokens: Maximum tokens to generate.
+
+        Yields:
+            Chunks of generated text.
+
+        Raises:
+            LLMError: On any LLM-related error.
+        """
+        start_time = time.time()
+        request_id = self.ai_logger.log_request(
+            model=self.model_name,
+            messages=messages,
+            temperature=temperature or self.temperature,
+            max_tokens=max_tokens,
+            extra={"streaming": True},
+        )
+
+        try:
+            # Convert to LangChain message format
+            lc_messages = self._convert_messages(messages)
+
+            # Create temporary LLM with overridden settings if needed
+            llm = self.llm
+            if temperature is not None or max_tokens is not None:
+                kwargs = {}
+                if temperature is not None:
+                    kwargs["temperature"] = temperature
+                if max_tokens is not None:
+                    kwargs["max_tokens"] = max_tokens
+                llm = self.llm.bind(**kwargs) if kwargs else self.llm
+
+            self.ai_logger.log_stream_start(request_id, self.model_name)
+
+            # Stream response
+            full_content = ""
+            chunk_count = 0
+
+            async for chunk in llm.astream(lc_messages):
+                if chunk.content:
+                    full_content += chunk.content
+                    chunk_count += 1
+                    yield chunk.content
+
+            latency_ms = (time.time() - start_time) * 1000
+
+            # Log stream completion
+            self.ai_logger.log_stream_end(
+                request_id=request_id,
+                model=self.model_name,
+                total_chunks=chunk_count,
+                total_content_length=len(full_content),
+                latency_ms=latency_ms,
+            )
+
+        except Exception as e:
+            latency_ms = (time.time() - start_time) * 1000
+            self.ai_logger.log_error(
+                request_id=request_id,
+                error=e,
+                model=self.model_name,
+                latency_ms=latency_ms,
+            )
+            raise self._wrap_exception(e)
+
+    def _convert_messages(self, messages: list[dict[str, str]]) -> list:
+        """Convert message dicts to LangChain message objects."""
+        lc_messages = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+
+            if role == "system":
+                lc_messages.append(SystemMessage(content=content))
+            else:
+                lc_messages.append(HumanMessage(content=content))
+
+        return lc_messages
 
     async def generate_decision(
         self,
