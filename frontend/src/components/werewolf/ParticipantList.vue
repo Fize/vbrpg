@@ -132,10 +132,28 @@ function canRemove(participant) {
 </script>
 
 <style scoped>
+/* ===== 赛博朋克主题变量 ===== */
 .participant-list {
-  background: #fafafa;
-  border-radius: 12px;
-  padding: 16px;
+  --cyber-bg: #0a0a12;
+  --cyber-surface: rgba(18, 18, 31, 0.9);
+  --cyber-cyan: #00f0ff;
+  --cyber-purple: #a855f7;
+  --cyber-pink: #ff00aa;
+  --cyber-yellow: #ffd700;
+  --cyber-red: #ff3366;
+  --cyber-green: #00ff88;
+  --cyber-text: #e0e0ff;
+  --cyber-text-dim: rgba(224, 224, 255, 0.5);
+  --cyber-border: rgba(0, 240, 255, 0.3);
+  --cyber-glow: 0 0 10px rgba(0, 240, 255, 0.3);
+}
+
+.participant-list {
+  background: var(--cyber-surface);
+  border-radius: 8px;
+  padding: 20px;
+  border: 1px solid var(--cyber-border);
+  box-shadow: var(--cyber-glow);
 }
 
 .list-header {
@@ -143,18 +161,31 @@ function canRemove(participant) {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--cyber-border);
 }
 
 .list-title {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--cyber-cyan);
   margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.list-title::before {
+  content: '▸';
+  color: var(--cyber-purple);
 }
 
 .participant-count {
-  font-size: 14px;
-  color: #909399;
+  font-size: 13px;
+  color: var(--cyber-text-dim);
+  font-family: 'Orbitron', monospace;
 }
 
 .participants {
@@ -167,62 +198,89 @@ function canRemove(participant) {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px;
-  background: white;
-  border-radius: 8px;
-  border: 1px solid #ebeef5;
-  transition: all 0.2s ease;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  border: 1px solid rgba(0, 240, 255, 0.1);
+  transition: all 0.3s ease;
 }
 
 .participant-item:hover {
-  border-color: #dcdfe6;
+  border-color: var(--cyber-border);
+  background: rgba(0, 240, 255, 0.05);
 }
 
 .participant-item.is-current {
-  background: #ecf5ff;
-  border-color: var(--el-color-primary-light-5);
+  background: rgba(0, 240, 255, 0.1);
+  border-color: var(--cyber-cyan);
+  box-shadow: var(--cyber-glow);
 }
 
 .participant-item.is-host {
-  border-color: var(--el-color-warning-light-3);
+  border-color: var(--cyber-yellow);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.2);
 }
 
 .participant-item.is-offline {
-  opacity: 0.6;
+  opacity: 0.4;
 }
 
 .participant-item.empty-slot {
-  background: #f5f7fa;
+  background: transparent;
   border-style: dashed;
+  border-color: rgba(0, 240, 255, 0.15);
 }
 
 .participant-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, var(--cyber-cyan), var(--cyber-purple));
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: var(--cyber-bg);
   flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.participant-avatar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(45deg, transparent 40%, rgba(255,255,255,0.3) 50%, transparent 60%);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
 .participant-item.is-ai .participant-avatar {
-  background: linear-gradient(135deg, #606266 0%, #909399 100%);
+  background: linear-gradient(135deg, var(--cyber-purple), var(--cyber-pink));
 }
 
 .participant-item.is-spectator .participant-avatar {
-  background: linear-gradient(135deg, #67c23a 0%, #95d475 100%);
+  background: linear-gradient(135deg, var(--cyber-green), var(--cyber-cyan));
 }
 
 .participant-item.empty-slot .participant-avatar {
-  background: #dcdfe6;
+  background: rgba(0, 240, 255, 0.1);
+  border: 1px dashed var(--cyber-border);
+}
+
+.participant-item.empty-slot .participant-avatar::before {
+  display: none;
 }
 
 .seat-number {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
+  font-family: 'Orbitron', monospace;
+  position: relative;
+  z-index: 1;
 }
 
 .participant-info {
@@ -233,39 +291,61 @@ function canRemove(participant) {
 .participant-name {
   font-size: 14px;
   font-weight: 500;
-  color: #303133;
+  color: var(--cyber-text);
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
 .participant-name.empty {
-  color: #c0c4cc;
+  color: var(--cyber-text-dim);
   font-weight: 400;
+  font-style: italic;
+}
+
+.participant-name :deep(.el-tag) {
+  background: transparent;
+  border: 1px solid currentColor;
+  font-size: 10px;
+  padding: 0 6px;
+  height: 18px;
+  line-height: 16px;
+  font-family: 'Orbitron', monospace;
+  text-transform: uppercase;
+}
+
+.participant-name :deep(.el-tag--warning) {
+  color: var(--cyber-yellow);
+  border-color: var(--cyber-yellow);
+}
+
+.participant-name :deep(.el-tag--info) {
+  color: var(--cyber-purple);
+  border-color: var(--cyber-purple);
 }
 
 .participant-status {
   font-size: 12px;
-  color: #909399;
+  color: var(--cyber-text-dim);
   margin-top: 4px;
 }
 
 .role-name {
-  color: var(--el-color-primary);
+  color: var(--cyber-cyan);
   font-weight: 500;
 }
 
 .ready-status {
-  color: var(--el-color-success);
+  color: var(--cyber-green);
 }
 
 .waiting-status {
-  color: #c0c4cc;
+  color: var(--cyber-text-dim);
 }
 
 .online-indicator {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -275,21 +355,38 @@ function canRemove(participant) {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #c0c4cc;
+  background: var(--cyber-text-dim);
+  transition: all 0.3s;
 }
 
 .online-indicator.online .dot {
-  background: var(--el-color-success);
+  background: var(--cyber-green);
+  box-shadow: 0 0 10px var(--cyber-green);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(0.9); }
 }
 
 .participant-actions {
   flex-shrink: 0;
 }
 
+.participant-actions :deep(.el-button) {
+  color: var(--cyber-red);
+  font-size: 12px;
+}
+
+.participant-actions :deep(.el-button:hover) {
+  color: #ff6699;
+}
+
 /* 响应式 */
 @media (max-width: 768px) {
   .participant-list {
-    padding: 12px;
+    padding: 14px;
   }
   
   .participant-item {
@@ -297,8 +394,8 @@ function canRemove(participant) {
   }
   
   .participant-avatar {
-    width: 36px;
-    height: 36px;
+    width: 38px;
+    height: 38px;
   }
 }
 </style>

@@ -90,15 +90,49 @@ function handleClose() {
 <style scoped>
 .host-announcement {
   position: relative;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: rgba(10, 10, 20, .95);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(168, 85, 247, .4);
   border-radius: 16px;
-  padding: 20px;
+  padding: 22px;
   margin: 16px 0;
-  color: white;
-  box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+  color: var(--color-text-primary);
+  box-shadow: 
+    0 8px 40px rgba(168, 85, 247, .25),
+    0 0 60px rgba(168, 85, 247, .1);
   opacity: 0;
   transform: translateY(-20px);
-  transition: all 0.4s ease;
+  transition: all .4s ease;
+  overflow: hidden;
+}
+
+/* 顶部发光线 */
+.host-announcement:before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-primary), #a855f7, var(--color-accent));
+  animation: lineGlow 3s ease-in-out infinite;
+}
+
+@keyframes lineGlow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .6; }
+}
+
+/* 背景网格 */
+.host-announcement:after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: 
+    linear-gradient(rgba(168, 85, 247, .03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(168, 85, 247, .03) 1px, transparent 1px);
+  background-size: 30px 30px;
+  pointer-events: none;
 }
 
 .host-announcement.is-visible {
@@ -107,37 +141,60 @@ function handleClose() {
 }
 
 .host-announcement.is-streaming {
-  animation: pulse 2s infinite;
+  animation: streamPulse 2s infinite;
 }
 
-@keyframes pulse {
+@keyframes streamPulse {
   0%, 100% {
-    box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+    box-shadow: 
+      0 8px 40px rgba(168, 85, 247, .25),
+      0 0 60px rgba(168, 85, 247, .1);
   }
   50% {
-    box-shadow: 0 8px 48px rgba(102, 126, 234, 0.5);
+    box-shadow: 
+      0 8px 60px rgba(168, 85, 247, .4),
+      0 0 80px rgba(168, 85, 247, .2);
   }
 }
 
 .announcement-container {
   display: flex;
-  gap: 16px;
+  gap: 18px;
+  position: relative;
+  z-index: 1;
 }
 
 .host-avatar {
   flex-shrink: 0;
-  width: 48px;
-  height: 48px;
-  background: rgba(255, 255, 255, 0.2);
+  width: 52px;
+  height: 52px;
+  background: linear-gradient(135deg, rgba(168, 85, 247, .2), rgba(0, 240, 255, .2));
+  border: 2px solid rgba(168, 85, 247, .5);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+}
+
+.host-avatar:before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 1px solid rgba(168, 85, 247, .3);
+  border-radius: 50%;
+  animation: ringPulse 2s ease-in-out infinite;
+}
+
+@keyframes ringPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: .5; }
 }
 
 .avatar-icon {
-  font-size: 24px;
-  color: white;
+  font-size: 26px;
+  color: #a855f7;
+  text-shadow: 0 0 15px #a855f7;
 }
 
 .announcement-content {
@@ -148,42 +205,53 @@ function handleClose() {
 .announcement-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
+  gap: 14px;
+  margin-bottom: 10px;
 }
 
 .host-name {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
+  color: #a855f7;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  text-shadow: 0 0 10px rgba(168, 85, 247, .5);
 }
 
 .announcement-type {
-  font-size: 12px;
-  padding: 2px 8px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 10px;
+  font-size: 10px;
+  padding: 3px 10px;
+  background: rgba(168, 85, 247, .15);
+  border: 1px solid rgba(168, 85, 247, .3);
+  border-radius: 12px;
+  color: #a855f7;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
 .announcement-body {
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.7;
 }
 
 .announcement-text {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
+  color: var(--color-text-primary);
 }
 
 /* 打字光标 */
 .typing-cursor {
   display: inline-block;
   font-weight: bold;
-  animation: blink 0.8s infinite;
+  color: var(--color-primary);
+  text-shadow: 0 0 10px var(--color-primary);
+  animation: cursorBlink .8s infinite;
   margin-left: 2px;
 }
 
-@keyframes blink {
+@keyframes cursorBlink {
   0%, 50% { opacity: 1; }
   51%, 100% { opacity: 0; }
 }
@@ -191,14 +259,16 @@ function handleClose() {
 /* 关闭按钮 */
 .close-btn {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  color: rgba(255, 255, 255, 0.7);
-  transition: color 0.3s;
+  top: 14px;
+  right: 14px;
+  color: var(--color-text-secondary);
+  z-index: 2;
+  transition: all .3s;
 }
 
 .close-btn:hover {
-  color: white;
+  color: var(--color-primary);
+  text-shadow: 0 0 10px var(--color-primary);
 }
 
 .close-btn :deep(.el-icon) {
@@ -208,31 +278,31 @@ function handleClose() {
 /* 响应式 */
 @media (max-width: 768px) {
   .host-announcement {
-    padding: 16px;
+    padding: 18px;
     margin: 12px 0;
   }
   
   .host-avatar {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
   }
   
   .avatar-icon {
-    font-size: 20px;
+    font-size: 22px;
   }
   
   .announcement-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
+    gap: 6px;
   }
   
   .host-name {
-    font-size: 14px;
+    font-size: 12px;
   }
   
   .announcement-body {
-    font-size: 14px;
+    font-size: 13px;
   }
 }
 </style>

@@ -219,7 +219,7 @@ start_dev() {
     log_info "Server: http://${host}:${port}"
     log_info "API Docs: http://localhost:${port}/docs"
     
-    local cmd="uvicorn main:app --host ${host} --port ${port}"
+    local cmd="uvicorn main:socket_app --host ${host} --port ${port}"
     
     if [[ "${reload}" == "true" ]]; then
         cmd="${cmd} --reload"
@@ -257,7 +257,7 @@ start_prod() {
     # Create log directory
     mkdir -p "${LOG_DIR}"
     
-    local cmd="uvicorn main:app \
+    local cmd="uvicorn main:socket_app \
         --host ${host} \
         --port ${port} \
         --workers ${workers} \

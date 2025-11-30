@@ -257,8 +257,8 @@ const canSelectPlayer = computed(() => {
          (currentPhase.value === 'vote' && canVote.value)
 })
 
-// 是否显示角色（游戏结束后显示）
-const showRoles = computed(() => gameEnded.value)
+// 是否显示角色（单人模式始终显示，因为用户是观战者）
+const showRoles = computed(() => true)
 
 // 获取阵营名称
 function getTeamName(team) {
@@ -269,6 +269,20 @@ function getTeamName(team) {
     default: return ''
   }
 }
+
+// 标准10人局角色配置
+const ROLE_CONFIG = [
+  { role_name: '狼人', role_type: 'werewolf' },
+  { role_name: '狼人', role_type: 'werewolf' },
+  { role_name: '狼人', role_type: 'werewolf' },
+  { role_name: '预言家', role_type: 'god' },
+  { role_name: '女巫', role_type: 'god' },
+  { role_name: '猎人', role_type: 'god' },
+  { role_name: '村民', role_type: 'villager' },
+  { role_name: '村民', role_type: 'villager' },
+  { role_name: '村民', role_type: 'villager' },
+  { role_name: '村民', role_type: 'villager' },
+]
 
 // 加载游戏状态
 async function loadGameState() {
@@ -289,9 +303,30 @@ async function loadGameState() {
       gameStore.setIsSpectator(true)
     }
     
-    // TODO: 从后端获取当前玩家的角色信息
-    // const playerInfo = await roomsApi.getMyInfo(roomCode.value)
-    // gameStore.setMyRole(playerInfo.role)
+    // 单人模式：为所有玩家分配角色（洗牌后分配）
+    const shuffledRoles = [...ROLE_CONFIG].sort(() => Math.random() - 0.5)
+    const participants = room.participants || []
+    
+    // 初始化玩家状态（包含角色信息）
+    const playerStates = {}
+    participants.forEach((p, index) => {
+      const playerId = p.id || p.player_id
+      const role = shuffledRoles[index] || { role_name: '村民', role_type: 'villager' }
+      playerStates[playerId] = {
+        is_alive: true,
+        role_name: role.role_name,
+        role_type: role.role_type,
+        role_revealed: true, // 单人观战模式下显示所有角色
+        vote_count: 0
+      }
+    })
+    
+    // 更新 store 中的玩家状态
+    gameStore.setPlayerStates(playerStates)
+    
+    // 设置游戏阶段
+    gameStore.setCurrentPhase('night')
+    gameStore.setTurnNumber(1)
     
   } catch (err) {
     console.error('加载游戏状态失败:', err)
@@ -507,34 +542,78 @@ onUnmounted(() => {
 <style scoped>
 .werewolf-game-view {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--color-bg-primary);
   display: flex;
   flex-direction: column;
-  transition: background 0.5s ease;
+  transition: background .5s ease;
+  position: relative;
+}
+
+/* 科幻背景效果 */
+.werewolf-game-view:before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: 
+    linear-gradient(rgba(0, 240, 255, .02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 240, 255, .02) 1px, transparent 1px);
+  background-size: 60px 60px;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .werewolf-game-view.is-night {
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  background: linear-gradient(135deg, #0a0a15 0%, #10102a 50%, #0a1525 100%);
 }
 
+.werewolf-game-view.is-night:before {
+  background-image: 
+    linear-gradient(rgba(168, 85, 247, .02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(168, 85, 247, .02) 1px, transparent 1px);
+}
+
+/* 顶部状态栏 */
 .top-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 20px;
-  background: rgba(0, 0, 0, 0.2);
+  padding: 14px 24px;
+  background: rgba(10, 10, 20, .8);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(0, 240, 255, .2);
+  position: relative;
+  z-index: 100;
+}
+
+.top-bar:after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-primary), transparent);
+  opacity: .5;
 }
 
 .room-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .room-code {
-  color: white;
-  font-size: 14px;
-  font-family: monospace;
+  color: var(--color-primary);
+  font-size: 13px;
+  font-family: 'Courier New', monospace;
+  padding: 6px 14px;
+  background: rgba(0, 240, 255, .1);
+  border: 1px solid rgba(0, 240, 255, .3);
+  border-radius: 6px;
+  text-shadow: 0 0 10px var(--color-primary);
 }
 
 .game-controls {
@@ -544,7 +623,16 @@ onUnmounted(() => {
 }
 
 .game-controls .el-button {
-  color: white;
+  color: var(--color-text-secondary);
+  border: 1px solid rgba(0, 240, 255, .3);
+  background: rgba(0, 240, 255, .05);
+  border-radius: 6px;
+}
+
+.game-controls .el-button:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  background: rgba(0, 240, 255, .1);
 }
 
 /* 主持人发言悬浮层 */
@@ -573,10 +661,12 @@ onUnmounted(() => {
 .game-main {
   flex: 1;
   display: grid;
-  grid-template-columns: 280px 1fr 300px;
+  grid-template-columns: 280px 1fr 320px;
   gap: 20px;
   padding: 20px;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .left-panel {
@@ -586,72 +676,121 @@ onUnmounted(() => {
 }
 
 .my-role-card {
-  background: white;
-  border-radius: 12px;
-  padding: 16px;
+  background: rgba(10, 10, 20, .9);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  border: 1px solid rgba(0, 240, 255, .2);
+  padding: 18px;
+  position: relative;
+  overflow: hidden;
+}
+
+.my-role-card:before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-primary), var(--color-accent), var(--color-primary));
 }
 
 .card-title {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
-  color: #303133;
-  margin: 0 0 12px;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin: 0 0 14px;
 }
 
 .role-info {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 16px;
-  border-radius: 8px;
-  margin-bottom: 12px;
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(0, 240, 255, .3);
+  position: relative;
+  overflow: hidden;
+}
+
+.role-info:before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -50%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .05), transparent);
+  animation: shine 3s infinite;
+}
+
+@keyframes shine {
+  0% { left: -50%; }
+  100% { left: 150%; }
 }
 
 .role-info.team-werewolf {
-  background: linear-gradient(135deg, #f56c6c 0%, #c45656 100%);
-  color: white;
+  background: linear-gradient(135deg, rgba(255, 51, 102, .15), rgba(255, 0, 85, .15));
+  border-color: rgba(255, 51, 102, .4);
 }
 
 .role-info.team-villager {
-  background: linear-gradient(135deg, #67c23a 0%, #529b2e 100%);
-  color: white;
+  background: linear-gradient(135deg, rgba(0, 255, 136, .15), rgba(0, 200, 100, .15));
+  border-color: rgba(0, 255, 136, .4);
 }
 
 .role-info.team-god {
-  background: linear-gradient(135deg, #409eff 0%, #337ecc 100%);
-  color: white;
+  background: linear-gradient(135deg, rgba(0, 170, 255, .15), rgba(0, 128, 255, .15));
+  border-color: rgba(0, 170, 255, .4);
 }
 
 .role-name {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
+  color: var(--color-text-primary);
+  text-shadow: 0 0 15px currentColor;
 }
 
+.team-werewolf .role-name { color: #ff3366; }
+.team-villager .role-name { color: #00ff88; }
+.team-god .role-name { color: #00aaff; }
+
 .role-team {
-  font-size: 12px;
-  opacity: 0.9;
-  margin-top: 4px;
+  font-size: 11px;
+  opacity: .8;
+  margin-top: 6px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--color-text-secondary);
 }
 
 .role-desc {
   font-size: 12px;
-  color: #909399;
+  color: var(--color-text-secondary);
   margin: 0;
-  line-height: 1.6;
+  line-height: 1.7;
+  text-align: center;
 }
 
 .action-panel {
-  background: white;
-  border-radius: 12px;
-  padding: 16px;
+  background: rgba(10, 10, 20, .9);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  border: 1px solid rgba(0, 240, 255, .2);
+  padding: 18px;
 }
 
 .center-area {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
+  background: rgba(0, 240, 255, .03);
+  border-radius: 20px;
+  border: 1px solid rgba(0, 240, 255, .1);
+  position: relative;
 }
 
 .center-status {
@@ -659,12 +798,15 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 100px;
-  height: 100px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  width: 110px;
+  height: 110px;
+  background: linear-gradient(135deg, rgba(0, 240, 255, .1), rgba(168, 85, 247, .1));
   border-radius: 50%;
-  color: white;
-  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+  border: 2px solid rgba(0, 240, 255, .4);
+  color: var(--color-primary);
+  box-shadow: 
+    0 0 30px rgba(0, 240, 255, .2),
+    inset 0 0 30px rgba(0, 240, 255, .1);
 }
 
 .ai-thinking {
@@ -672,7 +814,20 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 11px;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.ai-thinking .is-loading {
+  font-size: 24px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .game-result {
@@ -682,6 +837,7 @@ onUnmounted(() => {
 .result-text {
   font-size: 14px;
   font-weight: 600;
+  text-shadow: 0 0 10px currentColor;
 }
 
 .alive-info {
@@ -691,15 +847,19 @@ onUnmounted(() => {
 }
 
 .alive-count {
-  font-size: 32px;
+  font-size: 36px;
   font-weight: 700;
   line-height: 1;
+  font-family: 'Courier New', monospace;
+  text-shadow: 0 0 20px var(--color-primary);
 }
 
 .alive-label {
-  font-size: 14px;
-  margin-top: 4px;
-  opacity: 0.9;
+  font-size: 11px;
+  margin-top: 6px;
+  opacity: .7;
+  text-transform: uppercase;
+  letter-spacing: 2px;
 }
 
 .right-panel {
@@ -711,35 +871,40 @@ onUnmounted(() => {
 /* 游戏结果弹窗 */
 .result-content {
   text-align: center;
-  padding: 20px 0;
+  padding: 24px 0;
+  background: rgba(10, 10, 20, .9);
+  border-radius: 12px;
 }
 
 .winner-team {
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 700;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
+  text-shadow: 0 0 20px currentColor;
 }
 
 .winner-team.team-werewolf {
-  color: #f56c6c;
+  color: #ff3366;
 }
 
 .winner-team.team-villager {
-  color: #67c23a;
+  color: #00ff88;
 }
 
 .winner-players {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .winner-player {
-  padding: 4px 12px;
-  background: #f5f7fa;
-  border-radius: 12px;
-  font-size: 14px;
+  padding: 6px 14px;
+  background: rgba(0, 240, 255, .1);
+  border: 1px solid rgba(0, 240, 255, .3);
+  border-radius: 20px;
+  font-size: 13px;
+  color: var(--color-text-primary);
 }
 
 /* 响应式 */
@@ -763,6 +928,15 @@ onUnmounted(() => {
   .game-main {
     padding: 12px;
     gap: 12px;
+  }
+  
+  .top-bar {
+    padding: 10px 16px;
+  }
+  
+  .room-code {
+    font-size: 11px;
+    padding: 4px 10px;
   }
 }
 </style>

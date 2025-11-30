@@ -242,6 +242,18 @@ export const useGameStore = defineStore('game', () => {
     isSpectator.value = spectator
   }
   
+  function setPlayerStates(states) {
+    playerStates.value = states
+  }
+  
+  function setCurrentPhase(phase) {
+    currentPhase.value = phase
+  }
+  
+  function setTurnNumber(turn) {
+    turnNumber.value = turn
+  }
+  
   function setCurrentTurn(playerId, turn) {
     currentTurn.value = playerId
     if (turn !== undefined) {
@@ -541,6 +553,9 @@ export const useGameStore = defineStore('game', () => {
     updateGameState,
     setMyRole,
     setIsSpectator,
+    setPlayerStates,
+    setCurrentPhase,
+    setTurnNumber,
     setCurrentTurn,
     setPhase,
     setAiThinking,

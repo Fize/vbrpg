@@ -1,5 +1,6 @@
 """Pydantic schemas for API request/response models."""
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -53,8 +54,8 @@ class ParticipantResponse(BaseModel):
 # Room schemas
 class CreateRoomRequest(BaseModel):
     game_type_slug: str
-    max_players: int = Field(ge=2, le=8)
-    min_players: int = Field(ge=2, le=8)
+    max_players: int = Field(ge=2, le=12)
+    min_players: int = Field(ge=2, le=12)
     user_role: str = Field(default="spectator")  # 'spectator' or role ID
     is_spectator_mode: bool = Field(default=True)
 
@@ -79,6 +80,8 @@ class GameRoomResponse(GameRoomBase):
 
 class GameRoomDetailedResponse(GameRoomResponse):
     participants: list[ParticipantResponse] = []
+    user_role: Optional[str] = None
+    is_spectator_mode: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True)
 

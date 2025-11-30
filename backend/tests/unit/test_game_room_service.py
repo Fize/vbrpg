@@ -23,8 +23,8 @@ class TestGameRoomServiceCreate:
         
         room = await service.create_room(
             game_type_slug=sample_game_type["slug"],
-            max_players=6,
-            min_players=4
+            max_players=10,
+            min_players=10
         )
         
         assert room is not None
@@ -32,8 +32,8 @@ class TestGameRoomServiceCreate:
         assert len(room.code) == 8
         assert room.game_type_id == sample_game_type["slug"]
         assert room.status == "Waiting"
-        assert room.max_players == 6
-        assert room.min_players == 4
+        assert room.max_players == 10
+        assert room.min_players == 10
         # 单人模式默认为旁观者模式
         assert room.user_role == "spectator"
         assert room.is_spectator_mode is True
@@ -44,8 +44,8 @@ class TestGameRoomServiceCreate:
         
         room = await service.create_room(
             game_type_slug=sample_game_type["slug"],
-            max_players=6,
-            min_players=4,
+            max_players=10,
+            min_players=10,
             user_role="detective",
             is_spectator_mode=False
         )
@@ -60,8 +60,8 @@ class TestGameRoomServiceCreate:
         with pytest.raises(NotFoundError, match="Game type .* not found"):
             await service.create_room(
                 game_type_slug="nonexistent-game",
-                max_players=6,
-                min_players=4
+                max_players=10,
+                min_players=10
             )
     
     async def test_create_room_invalid_player_counts(self, test_db, sample_game_type):
@@ -72,8 +72,16 @@ class TestGameRoomServiceCreate:
         with pytest.raises(BadRequestError, match="cannot exceed maximum"):
             await service.create_room(
                 game_type_slug=sample_game_type["slug"],
-                max_players=3,
-                min_players=5
+                max_players=8,
+                min_players=10
+            )
+        
+        # min_players less than required for werewolf
+        with pytest.raises(BadRequestError, match="Minimum players cannot be less than 6"):
+            await service.create_room(
+                game_type_slug=sample_game_type["slug"],
+                max_players=10,
+                min_players=4
             )
 
 
@@ -108,8 +116,8 @@ class TestGameRoomServiceList:
         service = GameRoomService(test_db)
         
         # Create multiple rooms
-        await service.create_room(sample_game_type["slug"], 6, 4)
-        await service.create_room(sample_game_type["slug"], 8, 4)
+        await service.create_room(sample_game_type["slug"], 10, 10)
+        await service.create_room(sample_game_type["slug"], 12, 10)
         
         rooms = await service.list_rooms()
         
@@ -119,8 +127,8 @@ class TestGameRoomServiceList:
         """Test listing rooms filtered by status."""
         service = GameRoomService(test_db)
         
-        room1 = await service.create_room(sample_game_type["slug"], 6, 4)
-        room2 = await service.create_room(sample_game_type["slug"], 6, 4)
+        room1 = await service.create_room(sample_game_type["slug"], 10, 10)
+        room2 = await service.create_room(sample_game_type["slug"], 10, 10)
         
         # Change room2 to In Progress
         room2.status = "In Progress"
@@ -135,7 +143,7 @@ class TestGameRoomServiceList:
         """Test listing rooms filtered by game type."""
         service = GameRoomService(test_db)
         
-        room = await service.create_room(sample_game_type["slug"], 6, 4)
+        room = await service.create_room(sample_game_type["slug"], 10, 10)
         
         rooms = await service.list_rooms(game_type_slug=sample_game_type["slug"])
         
@@ -148,7 +156,7 @@ class TestGameRoomServiceList:
         
         # Create multiple rooms
         for _ in range(5):
-            await service.create_room(sample_game_type["slug"], 6, 4)
+            await service.create_room(sample_game_type["slug"], 10, 10)
         
         rooms = await service.list_rooms(limit=3)
         
@@ -163,24 +171,27 @@ class TestGameRoomServiceAI:
         """Test creating an AI agent in a room."""
         service = GameRoomService(test_db)
         
-        ai_player = await service.create_ai_agent(
+        participant = await service.create_ai_agent(
             room_id=sample_game_room.id,
             personality_type="analytical_detective",
             difficulty_level=3
         )
         
-        assert ai_player is not None
-        assert ai_player.player_type == "ai"
-        assert "AI" in ai_player.username
+        assert participant is not None
+        assert participant.is_ai_agent is True
+        assert participant.ai_personality == "analytical_detective"
+        assert "AI" in participant.player.username
+        assert participant.player.is_guest is True
     
     async def test_fill_ai_players(self, test_db, sample_game_room):
         """Test auto-filling room with AI players."""
         service = GameRoomService(test_db)
         
-        # sample_game_room has min_players=4, currently 0 participants
+        # sample_game_room has min_players=4, currently 1 participant (the creator)
         ai_players = await service.fill_ai_players(sample_game_room)
         
-        assert len(ai_players) == sample_game_room.min_players
+        # Should create min_players - 1 AI players (since creator is already a participant)
+        assert len(ai_players) == sample_game_room.min_players - 1
         
         # Verify participants were created
         stmt = select(GameRoomParticipant).where(
@@ -190,26 +201,19 @@ class TestGameRoomServiceAI:
         result = await test_db.execute(stmt)
         participants = result.scalars().all()
         
-        assert len(participants) == sample_game_room.min_players
+        # Should have min_players - 1 AI participants (plus 1 human creator = min_players total)
+        assert len(participants) == sample_game_room.min_players - 1
     
     async def test_remove_ai_agent(self, test_db, sample_game_room):
         """Test removing an AI agent from a room."""
         service = GameRoomService(test_db)
         
         # First create an AI agent
-        ai_player = await service.create_ai_agent(
+        participant = await service.create_ai_agent(
             room_id=sample_game_room.id,
             personality_type="analytical_detective",
             difficulty_level=3
         )
-        
-        # Get the participant
-        stmt = select(GameRoomParticipant).where(
-            GameRoomParticipant.game_room_id == sample_game_room.id,
-            GameRoomParticipant.player_id == ai_player.id
-        )
-        result = await test_db.execute(stmt)
-        participant = result.scalar_one()
         
         # Remove the AI agent
         await service.remove_ai_agent(sample_game_room.code, participant.id)

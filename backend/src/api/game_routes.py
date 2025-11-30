@@ -88,7 +88,9 @@ def map_room_to_detailed_response(room) -> GameRoomDetailedResponse:
         completed_at=room.completed_at,
         game_type=game_type,
         current_player_count=room.get_active_participants_count(),
-        participants=participants
+        participants=participants,
+        user_role=room.user_role,
+        is_spectator_mode=room.is_spectator_mode
     )
 
 
@@ -150,6 +152,7 @@ async def create_room(
     """Create a new game room for single-player mode.
     
     All players are AI agents. User can be spectator or participant.
+    Room is automatically filled with AI agents (10 for werewolf).
     """
     try:
         service = GameRoomService(db)
@@ -158,6 +161,24 @@ async def create_room(
             max_players=request.max_players,
             min_players=request.min_players
         )
+        room_code = room.code
+        
+        # 自动填充 AI 玩家（单人模式）
+        ai_count = request.max_players  # 狼人杀固定10人
+        for _ in range(ai_count):
+            try:
+                await service.create_ai_agent(room.id)
+            except Exception as e:
+                # 如果添加 AI 失败（如已满），跳过
+                import logging
+                logging.warning(f"Failed to add AI agent: {e}")
+                break
+        
+        # 清除会话缓存，确保获取最新数据
+        db.expire_all()
+        
+        # 重新获取房间数据（包含所有 AI）
+        room = await service.get_room(room_code)
         return map_room_to_detailed_response(room)
     except APIError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -236,12 +257,12 @@ async def add_ai_agent(
             raise RoomFullError("Room is at maximum capacity")
 
         # Create AI agent
-        ai_agent = await service.create_ai_agent(room.id)
+        participant = await service.create_ai_agent(room.id)
 
         # Broadcast AI agent added event
         ai_data = {
-            "id": ai_agent.id,
-            "username": ai_agent.username,
+            "id": participant.id,
+            "username": participant.player.username,
             "is_ai": True
         }
         await ws_handlers.broadcast_ai_agent_added(room_code, ai_data)
@@ -249,13 +270,13 @@ async def add_ai_agent(
         # Return response
         return {
             "ai_agent": {
-                "id": ai_agent.id,
-                "username": ai_agent.username,
-                "is_guest": ai_agent.is_guest,
+                "id": participant.id,
+                "username": participant.player.username,
+                "is_guest": participant.player.is_guest,
                 "player_type": "ai",
-                "created_at": ai_agent.created_at.isoformat(),
-                "last_active": ai_agent.last_active.isoformat(),
-                "expires_at": ai_agent.expires_at.isoformat() if ai_agent.expires_at else None
+                "created_at": participant.joined_at.isoformat(),
+                "last_active": participant.player.last_active.isoformat(),
+                "expires_at": participant.player.expires_at.isoformat() if participant.player.expires_at else None
             },
             "room_code": room_code
         }

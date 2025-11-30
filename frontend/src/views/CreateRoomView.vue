@@ -177,7 +177,7 @@ async function handleCreateRoom() {
   creating.value = true
   
   try {
-    // 创建房间
+    // 创建房间（后端会自动填充10个AI玩家）
     const roomData = {
       game_type_slug: 'werewolf',
       max_players: 10,
@@ -199,16 +199,7 @@ async function handleCreateRoom() {
       await roomsApi.selectRole(roomCode, null, true)
     }
     
-    // 添加 AI 玩家（固定10个，全AI模式）
-    for (let i = 0; i < 10; i++) {
-      try {
-        await roomsApi.addAIAgent(roomCode)
-      } catch (err) {
-        console.warn(`添加第 ${i + 1} 个 AI 失败:`, err)
-      }
-    }
-    
-    ElMessage.success('房间创建成功')
+    ElMessage.success('房间创建成功，AI玩家已就位')
     
     // 跳转到房间等待页面
     router.push(`/room/${roomCode}`)
