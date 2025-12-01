@@ -36,11 +36,15 @@ def mock_werewolf_game_service():
 
 @pytest.mark.asyncio
 class TestWerewolfQuickStartAPI:
-    """Tests for the quick-start endpoint."""
+    """Tests for the quick-start endpoint.
+    
+    注意：quick-start 现在会在数据库中创建房间和参与者记录，
+    因此测试需要真实的数据库 fixture。
+    """
 
     async def test_quick_start_success(self, client, mock_werewolf_game_service):
         """Test successful game start."""
-        # Setup mock response
+        # Setup mock response for WerewolfGameService
         mock_werewolf_game_service.get_visible_state.return_value = {
             "phase": "night",
             "day_number": 1,
@@ -80,7 +84,7 @@ class TestWerewolfQuickStartAPI:
         assert len(data["players"]) == 10
 
     async def test_quick_start_without_preferred_role(self, client, mock_werewolf_game_service):
-        """Test game start without specifying preferred role."""
+        """Test game start without specifying preferred role (spectator mode)."""
         mock_werewolf_game_service.get_visible_state.return_value = {
             "phase": "night",
             "day_number": 1,

@@ -359,23 +359,23 @@ async def join_room(sid: str, data: dict, callback=None):
     
     Args:
         sid: Socket session ID
-        data: {"room_code": str, "player_id": str}
+        data: {"room_code": str, "player_id": str (optional for spectators)}
         callback: Optional callback function
     """
     try:
         room_code = data.get("room_code")
         player_id = data.get("player_id")
 
-        if not room_code or not player_id:
+        if not room_code:
             await sio.emit(
                 "error",
-                {"message": "room_code and player_id are required"},
+                {"message": "room_code is required"},
                 room=sid
             )
             return
 
-        # Store player session
-        user_sessions[sid] = player_id
+        # Store player session (use sid as fallback for spectators)
+        user_sessions[sid] = player_id or f"spectator_{sid}"
 
         # Add socket to room
         await sio.enter_room(sid, room_code)
@@ -383,7 +383,7 @@ async def join_room(sid: str, data: dict, callback=None):
         # Track room connection (cancels cleanup if pending)
         track_room_connection(room_code, sid)
         
-        logger.info(f"Player {player_id} joined WebSocket room {room_code}")
+        logger.info(f"Client {player_id or 'spectator'} joined WebSocket room {room_code}")
 
         # Send confirmation to the player
         await sio.emit(
