@@ -53,13 +53,13 @@
       <!-- 座位 -->
       <div 
         v-for="(player, index) in players"
-        :key="player.id || index"
+        :key="player.id || `seat-${player.seat_number || index}`"
         class="seat-wrapper"
         :style="getSeatStyle(index)"
       >
         <PlayerSeat
           :player="player"
-          :seat-number="index + 1"
+          :seat-number="player.seat_number || index + 1"
           :is-current="player.id === currentPlayerId"
           :is-selected="selectedPlayerId === player.id"
           :selectable="selectable && player.is_alive"

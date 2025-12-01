@@ -76,7 +76,7 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { 
   Bottom, Close, Stamp, ChatDotRound, 
   Aim, MagicStick, InfoFilled, DocumentCopy,
@@ -95,11 +95,41 @@ const props = defineProps({
 })
 
 const logContentRef = ref(null)
+const userScrolled = ref(false) // 用户是否手动滚动
+let scrollTimeout = null
+
+// 检查是否在底部附近（允许50px误差）
+function isNearBottom() {
+  if (!logContentRef.value) return true
+  const { scrollTop, scrollHeight, clientHeight } = logContentRef.value
+  return scrollHeight - scrollTop - clientHeight < 50
+}
+
+// 处理用户滚动
+function handleScroll() {
+  // 清除之前的定时器
+  if (scrollTimeout) {
+    clearTimeout(scrollTimeout)
+  }
+  
+  // 如果用户向上滚动，标记为用户滚动
+  if (!isNearBottom()) {
+    userScrolled.value = true
+  }
+  
+  // 如果用户滚动到底部，5秒后恢复自动滚动
+  if (isNearBottom()) {
+    scrollTimeout = setTimeout(() => {
+      userScrolled.value = false
+    }, 5000)
+  }
+}
 
 // 滚动到底部
 function scrollToBottom() {
   if (logContentRef.value) {
     logContentRef.value.scrollTop = logContentRef.value.scrollHeight
+    userScrolled.value = false
   }
 }
 
@@ -141,10 +171,26 @@ function formatMessage(entry) {
   return message
 }
 
-// 自动滚动
+// 自动滚动 - 只在用户没有手动滚动时才自动滚动
 watch(() => props.logs.length, () => {
-  if (props.autoScroll) {
+  if (props.autoScroll && !userScrolled.value) {
     nextTick(scrollToBottom)
+  }
+})
+
+// 监听滚动事件
+onMounted(() => {
+  if (logContentRef.value) {
+    logContentRef.value.addEventListener('scroll', handleScroll)
+  }
+})
+
+onUnmounted(() => {
+  if (logContentRef.value) {
+    logContentRef.value.removeEventListener('scroll', handleScroll)
+  }
+  if (scrollTimeout) {
+    clearTimeout(scrollTimeout)
   }
 })
 

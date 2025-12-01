@@ -17,11 +17,19 @@ class WerewolfPhase(str, Enum):
 
     WAITING = "waiting"  # Waiting for game to start
     NIGHT = "night"  # Night phase
+    NIGHT_WEREWOLF = "night_werewolf"  # Night - werewolf action sub-phase
+    NIGHT_SEER = "night_seer"  # Night - seer action sub-phase
+    NIGHT_WITCH = "night_witch"  # Night - witch action sub-phase
     DAY = "day"  # Day phase - general
-    DISCUSSION = "discussion"  # Discussion sub-phase
-    VOTE = "vote"  # Voting sub-phase
+    DAY_ANNOUNCEMENT = "day_announcement"  # Day announcement phase
+    DAY_DISCUSSION = "day_discussion"  # Day discussion phase
+    DAY_VOTE = "day_vote"  # Day voting phase
+    DISCUSSION = "discussion"  # Discussion sub-phase (legacy)
+    VOTE = "vote"  # Voting sub-phase (legacy)
     LAST_WORDS = "last_words"  # Last words phase
-    ENDED = "ended"  # Game has ended
+    HUNTER_SHOOT = "hunter_shoot"  # Hunter shooting phase
+    GAME_OVER = "game_over"  # Game has ended
+    ENDED = "ended"  # Game has ended (legacy)
 
 
 class NightSubPhase(str, Enum):
@@ -172,6 +180,7 @@ class WerewolfGameState:
     # === 新增字段: 游戏控制 ===
     is_paused: bool = False  # 是否暂停
     is_started: bool = False  # 是否已开始
+    is_stopped: bool = False  # 是否已停止（用户离开房间时设置）
     current_speaker_seat: Optional[int] = None  # 当前发言者座位
     waiting_for_player_input: bool = False  # 是否等待玩家输入
     speech_reminder_count: int = 0  # 发言提醒次数
@@ -856,3 +865,166 @@ class WerewolfEngine:
             state["has_poison"] = self.state.witch_has_poison
 
         return state
+
+    # =========================================================================
+    # 外部状态操作方法 (接受 game_state 参数)
+    # =========================================================================
+
+    def process_werewolf_action(
+        self,
+        game_state: WerewolfGameState,
+        target_seat: Optional[int]
+    ) -> None:
+        """Process werewolf kill action on external game state."""
+        game_state.current_night_actions.werewolf_kill_target = target_seat
+        logger.info(f"Werewolf kill target set: {target_seat}")
+
+    def process_seer_action(
+        self,
+        game_state: WerewolfGameState,
+        target_seat: int
+    ) -> bool:
+        """Process seer check action on external game state. Returns True if target is werewolf."""
+        game_state.current_night_actions.seer_check_target = target_seat
+        player = game_state.players.get(target_seat)
+        is_werewolf = player.role == "werewolf" if player else False
+        logger.info(f"Seer check: seat {target_seat} is werewolf={is_werewolf}")
+        return is_werewolf
+
+    def process_witch_action(
+        self,
+        game_state: WerewolfGameState,
+        save_target: Optional[int] = None,
+        poison_target: Optional[int] = None
+    ) -> None:
+        """Process witch action on external game state."""
+        if save_target and game_state.witch_has_antidote:
+            game_state.current_night_actions.witch_save = True
+            game_state.witch_has_antidote = False
+            logger.info(f"Witch saved seat {save_target}")
+
+        if poison_target and game_state.witch_has_poison:
+            game_state.current_night_actions.witch_poison_target = poison_target
+            game_state.witch_has_poison = False
+            logger.info(f"Witch poisoned seat {poison_target}")
+
+    def advance_to_day(self, game_state: WerewolfGameState) -> List[int]:
+        """
+        Process night actions and advance to day on external game state.
+        Returns list of dead player seat numbers.
+        """
+        deaths = []
+        actions = game_state.current_night_actions
+
+        # Process werewolf kill
+        if actions.werewolf_kill_target and not actions.witch_save:
+            target = game_state.players.get(actions.werewolf_kill_target)
+            if target and target.is_alive:
+                target.is_alive = False
+                target.death_reason = DeathReason.KILLED
+                target.death_day = game_state.day_number
+                deaths.append(target.seat_number)
+                logger.info(f"Player {target.seat_number} killed by werewolf")
+
+        # Process witch poison
+        if actions.witch_poison_target:
+            target = game_state.players.get(actions.witch_poison_target)
+            if target and target.is_alive:
+                target.is_alive = False
+                target.death_reason = DeathReason.POISONED
+                target.death_day = game_state.day_number
+                deaths.append(target.seat_number)
+                logger.info(f"Player {target.seat_number} poisoned by witch")
+
+        # Reset night actions
+        game_state.current_night_actions = NightActions()
+        
+        # Advance day
+        game_state.day_number += 1
+        game_state.phase = WerewolfPhase.DAY
+
+        return deaths
+
+    def process_vote(
+        self,
+        game_state: WerewolfGameState,
+        voter_seat: int,
+        target_seat: Optional[int]
+    ) -> None:
+        """Process a vote on external game state."""
+        if target_seat is not None:
+            game_state.current_votes[voter_seat] = target_seat
+        logger.info(f"Vote: seat {voter_seat} -> {target_seat}")
+
+    def process_vote_result(
+        self,
+        game_state: WerewolfGameState
+    ) -> tuple[Optional[int], bool, dict[int, int]]:
+        """
+        Process vote result on external game state.
+        Returns (eliminated_seat, is_tie, vote_counts).
+        """
+        # Count votes
+        vote_counts: dict[int, int] = {}
+        for voter, target in game_state.current_votes.items():
+            if target is not None:
+                vote_counts[target] = vote_counts.get(target, 0) + 1
+
+        if not vote_counts:
+            return None, False, vote_counts
+
+        # Find max votes
+        max_votes = max(vote_counts.values())
+        max_players = [seat for seat, count in vote_counts.items() if count == max_votes]
+
+        # Check tie
+        is_tie = len(max_players) > 1
+        eliminated = None
+
+        if not is_tie:
+            eliminated = max_players[0]
+            player = game_state.players.get(eliminated)
+            if player:
+                player.is_alive = False
+                player.death_reason = DeathReason.VOTED
+                player.death_day = game_state.day_number
+                logger.info(f"Player {eliminated} eliminated by vote")
+
+        # Clear votes
+        game_state.current_votes = {}
+
+        return eliminated, is_tie, vote_counts
+
+    def check_winner(self, game_state: WerewolfGameState) -> Optional[str]:
+        """Check win condition on external game state. Returns 'werewolf', 'villager', or None."""
+        alive_wolves = 0
+        alive_villagers = 0
+
+        for player in game_state.players.values():
+            if player.is_alive:
+                if player.team == "werewolf":
+                    alive_wolves += 1
+                else:
+                    alive_villagers += 1
+
+        if alive_wolves == 0:
+            logger.info("Game over: Villagers win")
+            return "villager"
+        if alive_wolves >= alive_villagers:
+            logger.info("Game over: Werewolves win")
+            return "werewolf"
+
+        return None
+
+    def process_hunter_shoot(
+        self,
+        game_state: WerewolfGameState,
+        target_seat: int
+    ) -> None:
+        """Process hunter shoot on external game state."""
+        target = game_state.players.get(target_seat)
+        if target and target.is_alive:
+            target.is_alive = False
+            target.death_reason = DeathReason.SHOT
+            target.death_day = game_state.day_number
+            logger.info(f"Player {target_seat} shot by hunter")

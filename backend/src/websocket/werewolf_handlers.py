@@ -723,6 +723,8 @@ async def werewolf_pause_game(sid: str, data: dict):
         sid: Socket session ID
         data: {"room_code": str, "player_id": str}
     """
+    from src.api.werewolf_routes import _game_services
+    
     try:
         room_code = data.get("room_code")
         player_id = data.get("player_id")
@@ -737,18 +739,33 @@ async def werewolf_pause_game(sid: str, data: dict):
         
         logger.info(f"Pause game request received for room {room_code} from player {player_id}")
         
-        # 广播游戏暂停事件
-        await sio.emit(
-            "werewolf:game_paused",
-            {
-                "room_code": room_code,
-                "message": "游戏已暂停",
-                "paused_by": player_id,
-            },
-            room=room_code
-        )
-        
-        # 实际的暂停处理将由 WerewolfGameService.pause_game() 处理
+        # 获取游戏服务并暂停游戏
+        service = _game_services.get(room_code)
+        if service:
+            try:
+                await service.pause_game(room_code)
+                # 广播游戏暂停事件
+                await sio.emit(
+                    "werewolf:game_paused",
+                    {
+                        "room_code": room_code,
+                        "message": "游戏已暂停",
+                        "paused_by": player_id,
+                    },
+                    room=room_code
+                )
+            except Exception as pause_err:
+                await sio.emit(
+                    "werewolf:error",
+                    {"message": str(pause_err)},
+                    room=sid
+                )
+        else:
+            await sio.emit(
+                "werewolf:error",
+                {"message": f"游戏服务不存在: {room_code}"},
+                room=sid
+            )
         
     except Exception as e:
         logger.error(f"Error handling werewolf pause game: {e}")
@@ -768,6 +785,8 @@ async def werewolf_resume_game(sid: str, data: dict):
         sid: Socket session ID
         data: {"room_code": str, "player_id": str}
     """
+    from src.api.werewolf_routes import _game_services
+    
     try:
         room_code = data.get("room_code")
         player_id = data.get("player_id")
@@ -782,18 +801,33 @@ async def werewolf_resume_game(sid: str, data: dict):
         
         logger.info(f"Resume game request received for room {room_code} from player {player_id}")
         
-        # 广播游戏继续事件
-        await sio.emit(
-            "werewolf:game_resumed",
-            {
-                "room_code": room_code,
-                "message": "游戏继续",
-                "resumed_by": player_id,
-            },
-            room=room_code
-        )
-        
-        # 实际的继续处理将由 WerewolfGameService.resume_game() 处理
+        # 获取游戏服务并继续游戏
+        service = _game_services.get(room_code)
+        if service:
+            try:
+                await service.resume_game(room_code)
+                # 广播游戏继续事件
+                await sio.emit(
+                    "werewolf:game_resumed",
+                    {
+                        "room_code": room_code,
+                        "message": "游戏继续",
+                        "resumed_by": player_id,
+                    },
+                    room=room_code
+                )
+            except Exception as resume_err:
+                await sio.emit(
+                    "werewolf:error",
+                    {"message": str(resume_err)},
+                    room=sid
+                )
+        else:
+            await sio.emit(
+                "werewolf:error",
+                {"message": f"游戏服务不存在: {room_code}"},
+                room=sid
+            )
         
     except Exception as e:
         logger.error(f"Error handling werewolf resume game: {e}")
@@ -802,6 +836,59 @@ async def werewolf_resume_game(sid: str, data: dict):
             {"message": f"继续游戏失败: {str(e)}"},
             room=sid
         )
+
+
+@sio.event
+async def werewolf_leave_room(sid: str, data: dict):
+    """
+    处理玩家离开房间事件，停止游戏并清理资源。
+    
+    Args:
+        sid: Socket session ID
+        data: {"room_code": str, "player_id": str}
+    """
+    from src.api.werewolf_routes import _game_services
+    
+    try:
+        room_code = data.get("room_code")
+        player_id = data.get("player_id")
+        
+        if not room_code:
+            logger.warning(f"Leave room request without room_code from sid {sid}")
+            return
+        
+        logger.info(f"Leave room request received for room {room_code} from player {player_id}")
+        
+        # 离开 Socket.IO 房间
+        sio.leave_room(sid, room_code)
+        
+        # 获取游戏服务并停止游戏
+        service = _game_services.get(room_code)
+        if service:
+            try:
+                await service.stop_game(room_code)
+                logger.info(f"Game stopped for room {room_code} due to player {player_id} leaving")
+                
+                # 清理游戏服务
+                _game_services.pop(room_code, None)
+                
+                # 广播游戏已停止事件
+                await sio.emit(
+                    "werewolf:game_stopped",
+                    {
+                        "room_code": room_code,
+                        "message": "游戏已停止",
+                        "reason": "player_left",
+                    },
+                    room=room_code
+                )
+            except Exception as stop_err:
+                logger.error(f"Error stopping game for room {room_code}: {stop_err}")
+        else:
+            logger.info(f"No game service found for room {room_code}, nothing to stop")
+        
+    except Exception as e:
+        logger.error(f"Error handling werewolf leave room: {e}")
 
 
 @sio.event

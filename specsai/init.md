@@ -162,19 +162,24 @@ frontend/
     │   │   ├── ErrorMessage.vue     # 错误信息组件
     │   │   ├── EmptyState.vue       # 空状态组件
     │   │   └── LoadingIndicator.vue # 加载指示器
-    │   ├── werewolf/                # 狼人杀专用组件
-    │   │   ├── SeatCircle.vue       # 座位圈组件
-    │   │   ├── PlayerSeat.vue       # 玩家座位组件
-    │   │   ├── RoleCard.vue         # 角色卡组件
-    │   │   ├── RoleSelector.vue     # 角色选择器
-    │   │   ├── VotePanel.vue        # 投票面板
-    │   │   ├── NightActionPanel.vue # 夜间行动面板
-    │   │   ├── GameLog.vue          # 游戏日志
-    │   │   ├── GamePhaseIndicator.vue # 游戏阶段指示器
-    │   │   ├── HostAnnouncement.vue # 主持人公告组件
-    │   │   ├── WerewolfModeDialog.vue # 狼人杀模式选择对话框
-    │   │   ├── ParticipantList.vue  # 参与者列表
-    │   │   └── WerewolfGameCard.vue # 狼人杀游戏卡片
+│   │   ├── werewolf/                # 狼人杀专用组件
+│   │   │   ├── SeatCircle.vue       # 座位圈组件
+│   │   │   ├── PlayerSeat.vue       # 玩家座位组件
+│   │   │   ├── RoleCard.vue         # 角色卡组件
+│   │   │   ├── RoleSelector.vue     # 角色选择器
+│   │   │   ├── VotePanel.vue        # 投票面板
+│   │   │   ├── NightActionPanel.vue # 夜间行动面板
+│   │   │   ├── PlayerInputPanel.vue # 玩家输入面板
+│   │   │   ├── SpeechBubble.vue     # 发言气泡组件
+│   │   │   ├── GameLog.vue          # 游戏日志
+│   │   │   ├── GameControlBar.vue   # 游戏控制栏
+│   │   │   ├── GamePhaseIndicator.vue # 游戏阶段指示器
+│   │   │   ├── LogLevelSwitch.vue   # 日志级别切换
+│   │   │   ├── HostAnnouncement.vue # 主持人公告组件
+│   │   │   ├── HostAnnouncementPanel.vue # 主持人公告面板
+│   │   │   ├── WerewolfModeDialog.vue # 狼人杀模式选择对话框
+│   │   │   ├── ParticipantList.vue  # 参与者列表
+│   │   │   └── WerewolfGameCard.vue # 狼人杀游戏卡片
     │   ├── lobby/                   # 大厅相关组件
     │   │   ├── JoinRoomForm.vue     # 加入房间表单
     │   │   └── AIAgentControls.vue  # AI 代理控制组件

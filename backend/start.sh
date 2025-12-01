@@ -219,6 +219,9 @@ start_dev() {
     log_info "Server: http://${host}:${port}"
     log_info "API Docs: http://localhost:${port}/docs"
     
+    # Create log directory
+    mkdir -p "${LOG_DIR}"
+    
     local cmd="uvicorn main:socket_app --host ${host} --port ${port}"
     
     if [[ "${reload}" == "true" ]]; then
@@ -230,10 +233,13 @@ start_dev() {
     export ENVIRONMENT="development"
     export LOG_LEVEL="${LOG_LEVEL:-DEBUG}"
     
+    log_info "Logs directory: ${LOG_DIR}"
+    log_info "Application log file: ${LOG_DIR}/app.log"
     log_info "Press Ctrl+C to stop the server"
     echo ""
     
-    exec ${cmd}
+    # Run uvicorn with both stdout/stderr redirected to app.log and console
+    exec ${cmd} 2>&1 | tee -a "${LOG_DIR}/app.log"
 }
 
 start_prod() {
@@ -265,10 +271,13 @@ start_prod() {
         --log-level info"
     
     log_info "Workers: ${workers}"
+    log_info "Logs directory: ${LOG_DIR}"
+    log_info "Application log file: ${LOG_DIR}/app.log"
     log_info "Press Ctrl+C to stop the server"
     echo ""
     
-    exec ${cmd}
+    # Run uvicorn with stdout/stderr redirected to app.log and console
+    exec ${cmd} 2>&1 | tee -a "${LOG_DIR}/app.log"
 }
 
 main() {
