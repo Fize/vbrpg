@@ -3,7 +3,9 @@
 
 import logging
 import random
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -75,6 +77,67 @@ class NightActions:
 
 
 @dataclass
+class GameLogEntry:
+    """Entry for game log tracking all game events."""
+
+    id: str
+    type: str  # speech, host_announcement, death, vote, skill
+    content: str
+    day: int
+    phase: str
+    time: datetime
+    player_id: Optional[str] = None
+    player_name: Optional[str] = None
+    seat_number: Optional[int] = None
+    metadata: Optional[Dict[str, Any]] = None
+    is_public: bool = True
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to dictionary."""
+        return {
+            "id": self.id,
+            "type": self.type,
+            "content": self.content,
+            "day": self.day,
+            "phase": self.phase,
+            "time": self.time.isoformat(),
+            "player_id": self.player_id,
+            "player_name": self.player_name,
+            "seat_number": self.seat_number,
+            "metadata": self.metadata,
+            "is_public": self.is_public,
+        }
+
+    @classmethod
+    def create(
+        cls,
+        log_type: str,
+        content: str,
+        day: int,
+        phase: str,
+        player_id: Optional[str] = None,
+        player_name: Optional[str] = None,
+        seat_number: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        is_public: bool = True,
+    ) -> "GameLogEntry":
+        """Factory method to create a new log entry with auto-generated id and timestamp."""
+        return cls(
+            id=str(uuid.uuid4()),
+            type=log_type,
+            content=content,
+            day=day,
+            phase=phase,
+            time=datetime.now(),
+            player_id=player_id,
+            player_name=player_name,
+            seat_number=seat_number,
+            metadata=metadata,
+            is_public=is_public,
+        )
+
+
+@dataclass
 class WerewolfGameState:
     """Complete state of a werewolf game."""
 
@@ -105,6 +168,16 @@ class WerewolfGameState:
     # User player info
     user_seat_number: Optional[int] = None
     is_spectator_mode: bool = False
+
+    # === 新增字段: 游戏控制 ===
+    is_paused: bool = False  # 是否暂停
+    is_started: bool = False  # 是否已开始
+    current_speaker_seat: Optional[int] = None  # 当前发言者座位
+    waiting_for_player_input: bool = False  # 是否等待玩家输入
+    speech_reminder_count: int = 0  # 发言提醒次数
+
+    # === 新增字段: 游戏日志 ===
+    game_logs: List[GameLogEntry] = field(default_factory=list)  # 完整日志列表
 
 
 class WerewolfEngine:
@@ -204,8 +277,85 @@ class WerewolfEngine:
         self.state.phase = WerewolfPhase.NIGHT
         self.state.sub_phase = NightSubPhase.WEREWOLF_ACTION.value
         self.state.current_night_actions = NightActions()
+        self.state.is_started = True  # 标记游戏已开始
 
         logger.info(f"Game started: entering Night 1")
+
+    def add_game_log(
+        self,
+        log_type: str,
+        content: str,
+        player_id: Optional[str] = None,
+        player_name: Optional[str] = None,
+        seat_number: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        is_public: bool = True,
+    ) -> GameLogEntry:
+        """
+        添加游戏日志条目。
+
+        :param log_type: 日志类型 (speech, host_announcement, death, vote, skill, system)
+        :param content: 日志内容
+        :param player_id: 玩家 ID（可选）
+        :param player_name: 玩家名称（可选）
+        :param seat_number: 座位号（可选）
+        :param metadata: 附加元数据（可选）
+        :param is_public: 是否公开日志（默认 True）
+        :return: 创建的日志条目
+        """
+        if not self.state:
+            raise RuntimeError("Game not initialized")
+
+        log_entry = GameLogEntry.create(
+            log_type=log_type,
+            content=content,
+            day=self.state.day_number,
+            phase=self.state.phase.value if self.state.phase else "unknown",
+            player_id=player_id,
+            player_name=player_name,
+            seat_number=seat_number,
+            metadata=metadata,
+            is_public=is_public,
+        )
+
+        self.state.game_logs.append(log_entry)
+        logger.debug(f"Game log added: {log_type} - {content[:50]}...")
+        return log_entry
+
+    def get_game_logs(
+        self,
+        log_type: Optional[str] = None,
+        player_id: Optional[str] = None,
+        day: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[GameLogEntry]:
+        """
+        获取游戏日志。
+
+        :param log_type: 按类型过滤（可选）
+        :param player_id: 按玩家过滤（可选）
+        :param day: 按天数过滤（可选）
+        :param limit: 返回条数限制（可选）
+        :return: 日志条目列表
+        """
+        if not self.state:
+            return []
+
+        logs = self.state.game_logs
+
+        if log_type:
+            logs = [log for log in logs if log.type == log_type]
+
+        if player_id:
+            logs = [log for log in logs if log.player_id == player_id]
+
+        if day is not None:
+            logs = [log for log in logs if log.day == day]
+
+        if limit:
+            logs = logs[-limit:]
+
+        return logs
 
     def get_alive_players(self) -> List[PlayerState]:
         """Get list of alive players."""

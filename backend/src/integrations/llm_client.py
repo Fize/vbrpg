@@ -72,6 +72,16 @@ class LLMClient:
             llm_kwargs["openai_api_base"] = self.api_base_url
             logger.info(f"Using custom API base URL: {self.api_base_url}")
 
+        # Log which API key is being used (explicit AI_API_KEY preferred, fallback to OPENAI_API_KEY)
+        if settings.AI_API_KEY:
+            key_source = "AI_API_KEY"
+        elif settings.OPENAI_API_KEY:
+            key_source = "OPENAI_API_KEY"
+        else:
+            key_source = "none (test fallback)"
+
+        logger.info(f"LLM client using API key from: {key_source}")
+
         self.llm = ChatOpenAI(**llm_kwargs)
 
         logger.info(

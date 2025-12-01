@@ -16,12 +16,12 @@
 - **OpenAI 1.10+** - LLM API 集成
 
 #### 前端
-- **Vue 3.4+** - 响应式前端框架
-- **Element Plus 2.5+** - UI 组件库
-- **Pinia 2.1+** - 状态管理
-- **Vue Router 4.2+** - 路由管理
-- **Socket.IO Client 4.6+** - WebSocket 客户端
-- **Axios 1.6+** - HTTP 请求库
+- **Vue 3.5+** - 响应式前端框架
+- **Element Plus 2.11+** - UI 组件库
+- **Pinia 3.0+** - 状态管理
+- **Vue Router 4.6+** - 路由管理
+- **Socket.IO Client 4.8+** - WebSocket 客户端
+- **Axios 1.13+** - HTTP 请求库
 
 ### 开发工具
 
@@ -35,11 +35,11 @@
 
 #### 前端
 - **pnpm / npm** - Node.js 包管理，推荐使用 pnpm
-- **Vite 5.0+** - 构建工具
-- **Vitest 1.2+** - 单元测试框架
-- **Playwright 1.41+** - E2E 测试框架
-- **ESLint 8.56+** - JavaScript 代码检查
-- **Prettier 3.2+** - 代码格式化
+- **Vite 7.0+** - 构建工具
+- **Vitest 4.0+** - 单元测试框架
+- **Playwright 1.57+** - E2E 测试框架
+- **ESLint 9.0+** - JavaScript 代码检查
+- **Prettier 3.7+** - 代码格式化
 
 ## 项目开发要求
 

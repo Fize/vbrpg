@@ -3,7 +3,6 @@
     <div class="controls-header">
       <h3>AI玩家管理</h3>
       <button
-        v-if="lobbyStore.isOwner"
         class="add-ai-button"
         :disabled="!lobbyStore.hasCapacity || isAddingAI"
         @click="handleAddAI"
@@ -27,7 +26,6 @@
       >
         <span class="ai-agent-name">{{ agent.name }}</span>
         <button
-          v-if="lobbyStore.isOwner"
           class="remove-ai-button"
           :disabled="isRemovingAI === agent.id"
           @click="handleRemoveAI(agent.id)"

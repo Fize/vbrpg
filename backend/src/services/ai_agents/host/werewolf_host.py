@@ -109,6 +109,8 @@ class WerewolfHost(BaseGameHost):
             "vote_result": self._format_vote_result_fallback(context),
             "hunter_shoot": f"猎人 {context.get('hunter_name', '?')} 开枪带走了 {context.get('target_name', '?')}！",
             "game_end": f"游戏结束！{context.get('winner_team', '?')}获胜！",
+            "request_speech": f"请{context.get('seat_number', '?')}号玩家{context.get('player_name', '')}发言。",
+            "speech_end_transition": f"请{context.get('next_seat_number', '?')}号玩家发言。",
         }
         return fallbacks.get(announcement_type, "游戏继续进行中...")
 
@@ -289,3 +291,65 @@ class WerewolfHost(BaseGameHost):
                 yield chunk
         else:
             yield await self.announce("game_end", context)
+
+    async def announce_request_speech(
+        self,
+        seat_number: int,
+        player_name: str,
+        is_human: bool = False,
+        stream: bool = True,
+    ) -> AsyncIterator[str]:
+        """
+        主持人点名玩家发言。
+
+        :param seat_number: 被点名玩家的座位号
+        :param player_name: 被点名玩家的名称
+        :param is_human: 是否为人类玩家
+        :param stream: 是否流式输出
+        :yields: 公告片段
+        """
+        context = {
+            "seat_number": seat_number,
+            "player_name": player_name,
+            "is_human": "是" if is_human else "否",
+        }
+
+        if stream:
+            async for chunk in self.announce_stream("request_speech", context):
+                yield chunk
+        else:
+            yield await self.announce("request_speech", context)
+
+    async def announce_player_speech_end(
+        self,
+        current_seat_number: int,
+        next_seat_number: Optional[int] = None,
+        next_player_name: Optional[str] = None,
+        stream: bool = False,
+    ) -> str:
+        """
+        主持人确认玩家发言结束，并过渡到下一位（简短）。
+
+        :param current_seat_number: 刚发言完的玩家座位号
+        :param next_seat_number: 下一位发言玩家的座位号（可选）
+        :param next_player_name: 下一位发言玩家的名称（可选）
+        :param stream: 是否流式输出（默认非流式，因为内容简短）
+        :return: 发言结束确认文本
+        """
+        # 如果没有下一位玩家，使用简单的确认语
+        if next_seat_number is None:
+            return f"{current_seat_number}号玩家发言结束。"
+
+        context = {
+            "current_seat_number": current_seat_number,
+            "next_seat_number": next_seat_number,
+            "next_player_name": next_player_name or f"玩家{next_seat_number}",
+        }
+
+        if stream:
+            result = ""
+            async for chunk in self.announce_stream("speech_end_transition", context):
+                result += chunk
+            return result
+        else:
+            return await self.announce("speech_end_transition", context)
