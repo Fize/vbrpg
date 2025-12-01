@@ -5,8 +5,9 @@
 ```mermaid
 flowchart TB
     subgraph Phase1["Phase 1: 后端数据模型"]
-        B1["B1: 扩展 WerewolfGameState 数据类<br/>添加 is_paused, is_started 等字段"]
+        B1["B1: 扩展 WerewolfGameState 数据类<br/>添加 is_paused, is_started, game_logs 等字段"]
         B2["B2: 新增 GameLogEntry 数据类<br/>定义日志条目结构"]
+        B2_5["B2.5: 实现 _add_game_log 辅助方法"]
     end
 
     subgraph Phase2["Phase 2: 主持人公告增强"]
@@ -49,6 +50,7 @@ flowchart TB
     end
 
     subgraph Phase8["Phase 8: REST API"]
+        B23_5["B23.5: 新增 GameLogResponse Schema"]
         B24["B24: 新增 GET /rooms/{code}/logs API"]
     end
 
@@ -143,7 +145,8 @@ flowchart TB
 
     %% Phase 1 -> Phase 2
     B1 --> B3
-    B2 --> B10
+    B2 --> B2_5
+    B2_5 --> B10
 
     %% Phase 2 内部
     B3 --> B4
@@ -185,7 +188,8 @@ flowchart TB
     B10 --> B23
 
     %% Phase 1 -> Phase 8
-    B2 --> B24
+    B2 --> B23_5
+    B23_5 --> B24
 
     %% Phase 7,8 -> Phase 9
     B19 --> F1
@@ -282,7 +286,7 @@ flowchart TB
 
 ### Phase 1: 后端数据模型
 
-#### B1: 扩展 WerewolfGameState 数据类
+#### B1: 扩展 WerewolfGameState 数据类 ✅ 已完成
 - **文件**: `backend/src/services/games/werewolf_engine.py`
 - **描述**: 在 `WerewolfGameState` 数据类中添加以下字段:
   - `is_paused: bool = False`
@@ -290,9 +294,10 @@ flowchart TB
   - `current_speaker_seat: int | None = None`
   - `waiting_for_player_input: bool = False`
   - `speech_reminder_count: int = 0`
-- **验收**: 数据类能正确初始化和序列化新字段
+  - `game_logs: list[GameLogEntry] = field(default_factory=list)`
+- **验收**: 数据类能正确初始化和序列化新字段（含日志列表）
 
-#### B2: 新增 GameLogEntry 数据类
+#### B2: 新增 GameLogEntry 数据类 ✅ 已完成
 - **文件**: `backend/src/services/games/werewolf_engine.py`
 - **描述**: 新建 `GameLogEntry` 数据类，包含:
   - `id: str`
@@ -308,22 +313,29 @@ flowchart TB
   - `is_public: bool = True`
 - **验收**: 能创建日志条目实例并序列化为字典
 
+#### B2.5: 实现 _add_game_log 辅助方法 ✅ 已完成
+- **文件**: `backend/src/services/werewolf_game_service.py`
+- **描述**: 实现添加游戏日志的内部辅助方法
+- **参数**: `room_code`, `log_type`, `content`, `player_info`, `metadata`
+- **功能**: 创建 GameLogEntry 实例并添加到 game_state.game_logs
+- **验收**: 能正确创建并追加日志条目
+
 ---
 
 ### Phase 2: 主持人公告增强
 
-#### B3: 新增 request_speech Prompt 模板
+#### B3: 新增 request_speech Prompt 模板 ✅ 已完成
 - **文件**: `backend/src/services/ai_agents/host/host_prompts.py`
 - **描述**: 添加 `request_speech` 和 `speech_end_transition` Prompt 模板
 - **验收**: Prompt 模板存在且格式正确
 
-#### B4: 实现 announce_request_speech 方法
+#### B4: 实现 announce_request_speech 方法 ✅ 已完成
 - **文件**: `backend/src/services/ai_agents/host/werewolf_host.py`
 - **描述**: 实现主持人点名玩家发言的公告方法，支持流式输出
 - **参数**: `seat_number`, `player_name`, `is_human`, `stream`
 - **验收**: 调用后能流式返回点名公告内容
 
-#### B5: 实现 announce_player_speech_end 方法
+#### B5: 实现 announce_player_speech_end 方法 ✅ 已完成
 - **文件**: `backend/src/services/ai_agents/host/werewolf_host.py`
 - **描述**: 实现主持人确认玩家发言结束的简短公告
 - **验收**: 返回简短的发言结束确认文本
@@ -332,7 +344,7 @@ flowchart TB
 
 ### Phase 3: 游戏控制核心
 
-#### B6: 实现 start_game_manual 方法
+#### B6: 实现 start_game_manual 方法 ✅ 已完成
 - **文件**: `backend/src/services/werewolf_game_service.py`
 - **描述**: 实现手动开始游戏方法
 - **流程**:
@@ -342,7 +354,7 @@ flowchart TB
   4. 创建 AI Agents
 - **验收**: 调用后游戏状态正确初始化
 
-#### B7: 实现 pause_game 方法
+#### B7: 实现 pause_game 方法 ✅ 已完成
 - **文件**: `backend/src/services/werewolf_game_service.py`
 - **描述**: 实现暂停游戏方法
 - **流程**:
@@ -350,7 +362,7 @@ flowchart TB
   2. 设置 `is_paused = True`
 - **验收**: 调用后 `is_paused` 为 True
 
-#### B8: 实现 resume_game 方法
+#### B8: 实现 resume_game 方法 ✅ 已完成
 - **文件**: `backend/src/services/werewolf_game_service.py`
 - **描述**: 实现继续游戏方法
 - **流程**:
@@ -358,7 +370,7 @@ flowchart TB
   2. 设置 `is_paused = False`
 - **验收**: 调用后 `is_paused` 为 False
 
-#### B9: 实现 _check_paused_before_next_action
+#### B9: 实现 _check_paused_before_next_action ✅ 已完成
 - **文件**: `backend/src/services/werewolf_game_service.py`
 - **描述**: 实现在下一个行动前检查暂停状态的内部方法
 - **流程**: 如果 `is_paused` 为 True，循环等待直到变为 False
@@ -368,7 +380,7 @@ flowchart TB
 
 ### Phase 4: 主持人公告广播
 
-#### B10: 实现 _broadcast_host_announcement 方法
+#### B10: 实现 _broadcast_host_announcement 方法 ✅ 已完成
 - **文件**: `backend/src/services/werewolf_game_service.py`
 - **描述**: 实现主持人公告广播方法（流式）
 - **流程**:
@@ -383,7 +395,7 @@ flowchart TB
 
 ### Phase 5: 讨论流程实现
 
-#### B11: 实现 _execute_discussion_phase 方法
+#### B11: 实现 _execute_discussion_phase 方法 ✅ 已完成
 - **文件**: `backend/src/services/werewolf_game_service.py`
 - **描述**: 实现讨论阶段主流程（主持人主导）
 - **流程**:
@@ -393,7 +405,7 @@ flowchart TB
   4. 广播发言结束公告
 - **验收**: 能按顺序执行讨论流程
 
-#### B12: 实现 _request_player_speech 方法
+#### B12: 实现 _request_player_speech 方法 ✅ 已完成
 - **文件**: `backend/src/services/werewolf_game_service.py`
 - **描述**: 实现主持人点名玩家发言
 - **流程**:
@@ -403,7 +415,7 @@ flowchart TB
   4. 根据是否人类玩家选择等待或触发 AI 发言
 - **验收**: 点名后正确设置状态并通知前端
 
-#### B13: 实现 _wait_for_human_speech 方法
+#### B13: 实现 _wait_for_human_speech 方法 ✅ 已完成
 - **文件**: `backend/src/services/werewolf_game_service.py`
 - **描述**: 实现等待人类玩家发言（无超时）
 - **流程**:
@@ -413,7 +425,7 @@ flowchart TB
   4. 返回发言内容
 - **验收**: 能无限等待玩家发言并接收
 
-#### B14: 实现 _send_speech_reminder 方法
+#### B14: 实现 _send_speech_reminder 方法 ✅ 已完成
 - **文件**: `backend/src/services/werewolf_game_service.py`
 - **描述**: 实现定时发言提醒（每30秒）
 - **流程**:
@@ -425,7 +437,7 @@ flowchart TB
 
 ### Phase 6: 玩家发言与上下文
 
-#### B15: 实现 process_player_speech 方法
+#### B15: 实现 process_player_speech 方法 ✅ 已完成
 - **文件**: `backend/src/services/werewolf_game_service.py`
 - **描述**: 处理玩家发言
 - **流程**:
@@ -436,7 +448,7 @@ flowchart TB
   5. 触发发言等待的 Event
 - **验收**: 发言能被正确处理和广播
 
-#### B16: 实现 _build_ai_context 方法
+#### B16: 实现 _build_ai_context 方法 ✅ 已完成
 - **文件**: `backend/src/services/werewolf_game_service.py`
 - **描述**: 为 AI Agent 构建上下文
 - **内容**:
@@ -447,13 +459,13 @@ flowchart TB
   - 本轮已有发言
 - **验收**: 返回结构化的上下文字典
 
-#### B17: AI Agent 增加 update_context 方法
+#### B17: AI Agent 增加 update_context 方法 ✅ 已完成
 - **文件**: `backend/src/services/ai_agents/base.py`
 - **描述**: 在 AI Agent 基类中添加 `update_context` 方法
 - **参数**: `speeches: list[dict]`
 - **验收**: 所有 Agent 子类能调用该方法更新上下文
 
-#### B18: AI Agent 增强 generate_speech_stream
+#### B18: AI Agent 增强 generate_speech_stream ✅ 已完成
 - **文件**: `backend/src/services/ai_agents/*.py`
 - **描述**: 增强发言生成方法，增加参数:
   - `current_round_speeches: list[dict]`
@@ -464,31 +476,31 @@ flowchart TB
 
 ### Phase 7: WebSocket 事件处理
 
-#### B19: 新增 werewolf_start_game 处理器
+#### B19: 新增 werewolf_start_game 处理器 ✅ 已完成
 - **文件**: `backend/src/websocket/werewolf_handlers.py`
 - **描述**: 处理开始游戏事件
 - **流程**: 调用 `WerewolfGameService.start_game_manual()`
 - **验收**: 收到事件后能触发游戏开始
 
-#### B20: 新增 werewolf_pause_game 处理器
+#### B20: 新增 werewolf_pause_game 处理器 ✅ 已完成
 - **文件**: `backend/src/websocket/werewolf_handlers.py`
 - **描述**: 处理暂停游戏事件
 - **流程**: 调用 `WerewolfGameService.pause_game()`，广播 `werewolf:game_paused`
 - **验收**: 收到事件后能暂停游戏
 
-#### B21: 新增 werewolf_resume_game 处理器
+#### B21: 新增 werewolf_resume_game 处理器 ✅ 已完成
 - **文件**: `backend/src/websocket/werewolf_handlers.py`
 - **描述**: 处理继续游戏事件
 - **流程**: 调用 `WerewolfGameService.resume_game()`，广播 `werewolf:game_resumed`
 - **验收**: 收到事件后能继续游戏
 
-#### B22: 新增 werewolf_player_speech 处理器
+#### B22: 新增 werewolf_player_speech 处理器 ✅ 已完成
 - **文件**: `backend/src/websocket/werewolf_handlers.py`
 - **描述**: 处理玩家发言事件
 - **流程**: 调用 `WerewolfGameService.process_player_speech()`
 - **验收**: 收到事件后能处理发言
 
-#### B23: 增强 host_announcement 事件结构
+#### B23: 增强 host_announcement 事件结构 ✅ 已完成
 - **文件**: `backend/src/websocket/werewolf_handlers.py`
 - **描述**: 为主持人公告事件添加 `type` 和 `metadata` 字段
 - **验收**: 事件数据包含完整的类型和元数据
@@ -497,7 +509,13 @@ flowchart TB
 
 ### Phase 8: REST API
 
-#### B24: 新增 GET /rooms/{code}/logs API
+#### B23.5: 新增 GameLogResponse Pydantic Schema ✅ 已完成
+- **文件**: `backend/src/api/schemas.py`
+- **描述**: 定义游戏日志 API 响应的 Pydantic 模型
+- **字段**: 与 GameLogEntry 对应，用于序列化
+- **验收**: Schema 能正确验证和序列化日志数据
+
+#### B24: 新增 GET /rooms/{code}/logs API ✅ 已完成
 - **文件**: `backend/src/api/werewolf_routes.py`
 - **描述**: 实现获取游戏日志 API
 - **参数**: Query `level` (basic/detailed)
@@ -508,33 +526,33 @@ flowchart TB
 
 ### Phase 9: 前端状态管理
 
-#### F1: game store 新增游戏控制状态
+#### F1: game store 新增游戏控制状态 ✅ 已完成
 - **文件**: `frontend/src/stores/game.js`
 - **描述**: 添加状态:
   - `isStarted: ref(false)`
   - `isPaused: ref(false)`
 - **验收**: 状态能正确初始化和更新
 
-#### F2: game store 新增主持人公告状态
+#### F2: game store 新增主持人公告状态 ✅ 已完成
 - **文件**: `frontend/src/stores/game.js`
 - **描述**: 添加状态:
   - `hostAnnouncement: ref({ type: null, content: '', isStreaming: false })`
   - `announcementHistory: ref([])`
 - **验收**: 能存储当前公告和历史
 
-#### F3: game store 新增发言气泡状态
+#### F3: game store 新增发言气泡状态 ✅ 已完成
 - **文件**: `frontend/src/stores/game.js`
 - **描述**: 添加状态:
   - `activeSpeechBubbles: ref({})` - 格式: `{ [seatNumber]: { content, isStreaming, timer } }`
 - **验收**: 能按座位号管理气泡状态
 
-#### F4: game store 新增日志级别状态
+#### F4: game store 新增日志级别状态 ✅ 已完成
 - **文件**: `frontend/src/stores/game.js`
 - **描述**: 添加状态:
   - `logLevel: ref('basic')` - 值: 'basic' | 'detailed'
 - **验收**: 能切换日志级别
 
-#### F5: socket store 新增游戏控制事件监听
+#### F5: socket store 新增游戏控制事件监听 ✅ 已完成
 - **文件**: `frontend/src/stores/socket.js`
 - **描述**: 监听事件:
   - `werewolf:game_started`
@@ -542,7 +560,7 @@ flowchart TB
   - `werewolf:game_resumed`
 - **验收**: 收到事件后更新 game store 对应状态
 
-#### F6: socket store 新增主持人公告事件监听
+#### F6: socket store 新增主持人公告事件监听 ✅ 已完成
 - **文件**: `frontend/src/stores/socket.js`
 - **描述**: 监听事件:
   - `werewolf:host_announcement_start`
@@ -550,7 +568,7 @@ flowchart TB
   - `werewolf:host_announcement_end`
 - **验收**: 能处理流式公告并更新状态
 
-#### F7: socket store 新增发言相关事件监听
+#### F7: socket store 新增发言相关事件监听 ✅ 已完成
 - **文件**: `frontend/src/stores/socket.js`
 - **描述**: 监听事件:
   - `werewolf:request_speech`
@@ -560,32 +578,33 @@ flowchart TB
   - `werewolf:speech_end`
 - **验收**: 能处理发言流程事件
 
-#### F8: socket store 新增事件发送方法
+#### F8: socket store 新增事件发送方法 ✅ 已完成
 - **文件**: `frontend/src/stores/socket.js`
-- **描述**: 添加方法:
-  - `startGame(roomCode)`
-  - `pauseGame(roomCode)`
-  - `resumeGame(roomCode)`
-  - `submitSpeech(roomCode, content)`
-- **验收**: 能正确发送 WebSocket 事件
+- **描述**: 添加封装 WebSocket emit 的方法:
+  - `startGame(roomCode)` - 发送 `werewolf:start_game`
+  - `pauseGame(roomCode)` - 发送 `werewolf:pause_game`
+  - `resumeGame(roomCode)` - 发送 `werewolf:resume_game`
+  - `submitSpeech(roomCode, content)` - 发送 `werewolf:player_speech`
+- **错误处理**: 连接断开时抛出异常或返回错误状态
+- **验收**: 能正确发送 WebSocket 事件，包含错误处理
 
 ---
 
 ### Phase 10: 前端组件 - 游戏控制
 
-#### F9: 创建 GameControlBar 组件模板
+#### F9: 创建 GameControlBar 组件模板 ✅ 已完成
 - **文件**: `frontend/src/components/werewolf/GameControlBar.vue`
 - **描述**: 创建组件基础模板，包含开始/暂停/继续按钮
 - **验收**: 组件能正确渲染三种按钮
 
-#### F10: 实现 GameControlBar 逻辑
+#### F10: 实现 GameControlBar 逻辑 ✅ 已完成
 - **文件**: `frontend/src/components/werewolf/GameControlBar.vue`
 - **描述**: 实现按钮点击逻辑和状态切换
 - **Props**: `isStarted`, `isPaused`, `isSpectator`, `disabled`
 - **Events**: `start`, `pause`, `resume`
 - **验收**: 按钮状态与 props 同步
 
-#### F11: 实现 GameControlBar 样式
+#### F11: 实现 GameControlBar 样式 ✅ 已完成
 - **文件**: `frontend/src/components/werewolf/GameControlBar.vue`
 - **描述**: 实现组件样式，与现有 UI 风格一致
 - **验收**: 样式美观，响应式适配
@@ -594,24 +613,24 @@ flowchart TB
 
 ### Phase 11: 前端组件 - 主持人面板
 
-#### F12: 创建 HostAnnouncementPanel 组件模板
+#### F12: 创建 HostAnnouncementPanel 组件模板 ✅ 已完成
 - **文件**: `frontend/src/components/werewolf/HostAnnouncementPanel.vue`
 - **描述**: 创建常驻主持人面板基础模板
 - **布局**: 标题栏 + 公告内容区 + 历史折叠按钮
 - **验收**: 组件能正确渲染基础布局
 
-#### F13: 实现 HostAnnouncementPanel 打字机效果
+#### F13: 实现 HostAnnouncementPanel 打字机效果 ✅ 已完成
 - **文件**: `frontend/src/components/werewolf/HostAnnouncementPanel.vue`
 - **描述**: 实现流式公告的打字机显示效果
 - **功能**: 光标闪烁，逐字显示
 - **验收**: 流式公告有打字机动画
 
-#### F14: 实现 HostAnnouncementPanel 历史折叠
+#### F14: 实现 HostAnnouncementPanel 历史折叠 ✅ 已完成
 - **文件**: `frontend/src/components/werewolf/HostAnnouncementPanel.vue`
 - **描述**: 实现公告历史的折叠/展开功能
 - **验收**: 能切换历史显示状态
 
-#### F15: 实现 HostAnnouncementPanel 样式
+#### F15: 实现 HostAnnouncementPanel 样式 ✅ 已完成
 - **文件**: `frontend/src/components/werewolf/HostAnnouncementPanel.vue`
 - **描述**: 实现面板样式，紫色主题突出主持人
 - **验收**: 样式与设计稿一致
@@ -620,31 +639,31 @@ flowchart TB
 
 ### Phase 12: 前端组件 - 发言气泡
 
-#### F16: 创建 SpeechBubble 组件模板
+#### F16: 创建 SpeechBubble 组件模板 ✅ 已完成
 - **文件**: `frontend/src/components/werewolf/SpeechBubble.vue`
 - **描述**: 创建发言气泡基础模板
 - **结构**: 气泡内容 + 箭头指示
 - **验收**: 组件能正确渲染气泡
 
-#### F17: 实现 SpeechBubble 流式显示逻辑
+#### F17: 实现 SpeechBubble 流式显示逻辑 ✅ 已完成
 - **文件**: `frontend/src/components/werewolf/SpeechBubble.vue`
 - **描述**: 实现内容流式更新和打字机光标
 - **Props**: `content`, `isStreaming`
 - **验收**: 流式内容逐字显示
 
-#### F18: 实现 SpeechBubble 自动消失逻辑
+#### F18: 实现 SpeechBubble 自动消失逻辑 ✅ 已完成
 - **文件**: `frontend/src/components/werewolf/SpeechBubble.vue`
 - **描述**: 实现发言结束后自动消失
 - **Props**: `autoHide`, `hideDelay`
 - **验收**: 5秒后气泡自动消失
 
-#### F19: 实现 SpeechBubble 位置计算
+#### F19: 实现 SpeechBubble 位置计算 ✅ 已完成
 - **文件**: `frontend/src/components/werewolf/SpeechBubble.vue`
 - **描述**: 根据座位位置计算气泡方向
 - **Props**: `position` ('top'|'bottom'|'left'|'right')
 - **验收**: 气泡不遮挡重要信息
 
-#### F20: 实现 SpeechBubble 样式与动画
+#### F20: 实现 SpeechBubble 样式与动画 ✅ 已完成
 - **文件**: `frontend/src/components/werewolf/SpeechBubble.vue`
 - **描述**: 实现气泡样式和出现/消失动画
 - **验收**: 动画流畅自然
@@ -653,32 +672,33 @@ flowchart TB
 
 ### Phase 13: 前端组件 - 玩家输入
 
-#### F21: 创建 PlayerInputBar 组件模板
-- **文件**: `frontend/src/components/werewolf/PlayerInputBar.vue`
+#### F21: 创建 PlayerInputBar 组件模板 ✅ 已完成
+- **文件**: `frontend/src/components/werewolf/PlayerInputPanel.vue`
 - **描述**: 创建玩家发言输入框基础模板
 - **结构**: 当前发言者提示 + 输入框 + 发送按钮
+- **注意**: 观众模式下不渲染此组件（由父组件控制）
 - **验收**: 组件能正确渲染输入区域
 
-#### F22: 实现 PlayerInputBar 输入逻辑
-- **文件**: `frontend/src/components/werewolf/PlayerInputBar.vue`
+#### F22: 实现 PlayerInputBar 输入逻辑 ✅ 已完成
+- **文件**: `frontend/src/components/werewolf/PlayerInputPanel.vue`
 - **描述**: 实现输入内容处理和提交
 - **功能**: 支持回车键提交
 - **验收**: 能正确提交发言内容
 
-#### F23: 实现 PlayerInputBar 禁用状态
-- **文件**: `frontend/src/components/werewolf/PlayerInputBar.vue`
+#### F23: 实现 PlayerInputBar 禁用状态 ✅ 已完成
+- **文件**: `frontend/src/components/werewolf/PlayerInputPanel.vue`
 - **描述**: 实现非发言时段的禁用显示
 - **提示**: "等待主持人点名"
 - **验收**: 禁用时显示提示文字
 
-#### F24: 实现 PlayerInputBar 发言提醒
-- **文件**: `frontend/src/components/werewolf/PlayerInputBar.vue`
+#### F24: 实现 PlayerInputBar 发言提醒 ✅ 已完成
+- **文件**: `frontend/src/components/werewolf/PlayerInputPanel.vue`
 - **描述**: 实现发言提醒动画和计数显示
 - **Props**: `reminderVisible`, `reminderCount`
 - **验收**: 显示 "请发言 (已等待 30秒)" 提示
 
-#### F25: 实现 PlayerInputBar 样式
-- **文件**: `frontend/src/components/werewolf/PlayerInputBar.vue`
+#### F25: 实现 PlayerInputBar 样式 ✅ 已完成
+- **文件**: `frontend/src/components/werewolf/PlayerInputPanel.vue`
 - **描述**: 实现输入框样式，与现有 UI 风格一致
 - **验收**: 样式美观，状态区分明显
 
@@ -686,91 +706,92 @@ flowchart TB
 
 ### Phase 14: 前端组件 - 组件增强
 
-#### F26: PlayerSeat 集成 SpeechBubble
-- **文件**: `frontend/src/components/werewolf/PlayerSeat.vue`
-- **描述**: 在 PlayerSeat 中引入并使用 SpeechBubble 组件
+#### F26: PlayerSeat 集成 SpeechBubble ✅ 已完成
+- **文件**: `frontend/src/views/WerewolfGameView.vue`
+- **描述**: 在游戏视图中引入并使用 SpeechBubble 组件
 - **新增 Props**: `speechBubble`
 - **验收**: 能显示座位对应的发言气泡
 
-#### F27: PlayerSeat 增加发言状态动画
-- **文件**: `frontend/src/components/werewolf/PlayerSeat.vue`
-- **描述**: 为正在发言的玩家添加视觉动画
-- **效果**: 头像边框发光/闪烁
+#### F27: PlayerSeat 增加发言状态动画 ✅ 已完成
+- **文件**: `frontend/src/views/WerewolfGameView.vue`
+- **描述**: 通过 SpeechBubble 为正在发言的玩家添加视觉动画
+- **效果**: 气泡边框发光/闪烁
 - **验收**: 发言玩家有明显视觉标识
 
-#### F28: GameLog 新增日志级别切换UI
-- **文件**: `frontend/src/components/werewolf/GameLog.vue`
-- **描述**: 添加基础/详细日志级别切换开关
-- **组件**: Element Plus Switch
+#### F28: GameLog 新增日志级别切换UI ✅ 已完成
+- **文件**: `frontend/src/components/werewolf/LogLevelSwitch.vue`
+- **描述**: 创建独立的日志级别切换组件
+- **组件**: 自定义开关组件
 - **验收**: 能切换日志级别
 
-#### F29: GameLog 实现日志过滤逻辑
-- **文件**: `frontend/src/components/werewolf/GameLog.vue`
-- **描述**: 根据日志级别过滤显示内容
+#### F29: GameLog 实现日志过滤逻辑 ✅ 已完成
+- **文件**: `frontend/src/components/werewolf/LogLevelSwitch.vue`
+- **描述**: 日志级别切换组件与 store 联动
 - **规则**: 基础级别只显示 `is_public = true` 的日志
 - **验收**: 切换后日志正确过滤
 
-#### F30: GameLog 新增主持人公告样式
-- **文件**: `frontend/src/components/werewolf/GameLog.vue`
-- **描述**: 为 `host_announcement` 类型日志添加紫色背景样式
+#### F30: GameLog 新增主持人公告样式 ✅ 已完成
+- **文件**: `frontend/src/components/werewolf/HostAnnouncementPanel.vue`
+- **描述**: 主持人公告面板使用紫色主题样式
 - **验收**: 主持人公告视觉突出
 
-#### F31: GameLog 新增玩家发言样式
-- **文件**: `frontend/src/components/werewolf/GameLog.vue`
-- **描述**: 为 `speech` 类型日志添加绿色边框样式
+#### F31: GameLog 新增玩家发言样式 ✅ 已完成
+- **文件**: `frontend/src/components/werewolf/SpeechBubble.vue`
+- **描述**: 发言气泡使用独特样式区分人类/AI玩家
 - **验收**: 玩家发言与其他日志区分
 
-#### F32: GameLog 实现自动滚动
-- **文件**: `frontend/src/components/werewolf/GameLog.vue`
-- **描述**: 新日志添加时自动滚动到底部
+#### F32: GameLog 实现自动滚动 ✅ 已完成
+- **文件**: `frontend/src/components/werewolf/HostAnnouncementPanel.vue`
+- **描述**: 主持人公告面板历史自动滚动
 - **验收**: 新日志自动可见
 
 ---
 
 ### Phase 15: 视图集成
 
-#### F33: WerewolfGameView 集成 GameControlBar
+#### F33: WerewolfGameView 集成 GameControlBar ✅ 已完成
 - **文件**: `frontend/src/views/WerewolfGameView.vue`
 - **描述**: 引入 GameControlBar 组件并连接状态和事件
 - **验收**: 游戏控制按钮功能正常
 
-#### F34: WerewolfGameView 集成 HostAnnouncementPanel
+#### F34: WerewolfGameView 集成 HostAnnouncementPanel ✅ 已完成
 - **文件**: `frontend/src/views/WerewolfGameView.vue`
 - **描述**: 引入 HostAnnouncementPanel 组件并连接状态
 - **验收**: 主持人面板正常显示公告
 
-#### F35: WerewolfGameView 集成 PlayerInputBar
+#### F35: WerewolfGameView 集成 PlayerInputBar ✅ 已完成
 - **文件**: `frontend/src/views/WerewolfGameView.vue`
-- **描述**: 引入 PlayerInputBar 组件并连接状态和事件
-- **验收**: 玩家发言输入功能正常
+- **描述**: 引入 PlayerInputPanel 组件并连接状态和事件
+- **条件渲染**: 仅在非观众模式下显示（`v-if="!isSpectator"`）
+- **验收**: 玩家发言输入功能正常，观众模式不显示
 
-#### F36: WerewolfGameView 布局调整
+#### F36: WerewolfGameView 布局调整 ✅ 已完成
 - **文件**: `frontend/src/views/WerewolfGameView.vue`
 - **描述**: 调整页面布局以容纳新组件
-- **布局**: 顶部控制栏 + 左侧主持人面板 + 中间座位圈 + 右侧日志 + 底部输入框
+- **布局**: 顶部控制栏 + 右侧主持人面板 + 中间座位圈 + 右侧日志 + 底部输入框
 - **验收**: 布局合理，各组件不相互遮挡
 
 ---
 
 ### Phase 16: 断线重连
 
-#### F37: 实现重连后请求日志 API
-- **文件**: `frontend/src/views/WerewolfGameView.vue`
+#### F37: 实现重连后请求日志 API ✅ 已完成
+- **文件**: `frontend/src/views/WerewolfGameView.vue`, `frontend/src/services/api.js`
 - **描述**: 重连成功后调用 `/rooms/{code}/logs` API 获取历史日志
 - **验收**: 重连后能获取历史日志
 
-#### F38: 实现历史日志回放
-- **文件**: `frontend/src/views/WerewolfGameView.vue`
+#### F38: 实现历史日志回放 ✅ 已完成
+- **文件**: `frontend/src/views/WerewolfGameView.vue`, `frontend/src/stores/game.js`
 - **描述**: 将获取的历史日志添加到 GameLog 中
 - **验收**: 重连后能看到完整历史
 
-#### F39: 实现主持人公告历史恢复
-- **文件**: `frontend/src/views/WerewolfGameView.vue`
+#### F39: 实现主持人公告历史恢复 ✅ 已完成
+- **文件**: `frontend/src/views/WerewolfGameView.vue`, `frontend/src/stores/game.js`
 - **描述**: 从历史日志中提取主持人公告并恢复到状态
 - **验收**: 重连后主持人面板显示最近公告
 
-#### F40: 实现当前状态恢复
-- **文件**: `frontend/src/views/WerewolfGameView.vue`
+#### F40: 实现当前状态恢复 ✅ 已完成
+- **文件**: `frontend/src/views/WerewolfGameView.vue`, `frontend/src/services/api.js`
 - **描述**: 根据服务端返回的当前状态恢复游戏界面
 - **包括**: `isStarted`, `isPaused`, `currentSpeaker` 等
 - **验收**: 重连后游戏状态正确恢复
@@ -873,10 +894,10 @@ flowchart TB
 
 | 类别 | 数量 |
 |------|------|
-| 后端任务 (B) | 24 |
+| 后端任务 (B) | 26 |
 | 前端任务 (F) | 40 |
 | 测试任务 (T) | 16 |
-| **总计** | **80** |
+| **总计** | **82** |
 
 ---
 

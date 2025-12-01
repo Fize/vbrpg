@@ -235,6 +235,29 @@ export const gamesApi = {
       params: { player_id: playerId }
     })
     return response.data
+  },
+
+  /**
+   * F37: 获取游戏日志
+   * @param {string} roomCode - 房间码
+   * @param {string} level - 日志级别 ('basic' | 'detailed')
+   * @returns {Promise<Object>} 日志列表
+   */
+  async getGameLogs(roomCode, level = 'detailed') {
+    const response = await apiClient.get(`/werewolf/rooms/${roomCode}/logs`, {
+      params: { level }
+    })
+    return response.data
+  },
+
+  /**
+   * F40: 获取当前游戏状态（用于重连恢复）
+   * @param {string} roomCode - 房间码
+   * @returns {Promise<Object>} 游戏状态
+   */
+  async getCurrentState(roomCode) {
+    const response = await apiClient.get(`/werewolf/rooms/${roomCode}/state`)
+    return response.data
   }
 }
 

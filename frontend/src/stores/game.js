@@ -20,6 +20,32 @@ export const useGameStore = defineStore('game', () => {
   const dayNumber = ref(1)
   const countdown = ref(0)
   
+  // ============ F1: 游戏控制状态 ============
+  const isStarted = ref(false)  // 游戏是否已开始
+  const isPaused = ref(false)   // 游戏是否暂停
+  
+  // ============ F2: 主持人公告状态 ============
+  const hostAnnouncement = ref({
+    type: null,       // 公告类型
+    content: '',      // 当前公告内容
+    isStreaming: false  // 是否正在流式输出
+  })
+  const announcementHistory = ref([])  // 历史公告列表
+  
+  // ============ F3: 发言气泡状态 ============
+  const activeSpeechBubbles = ref({})  // 格式: { [seatNumber]: { content, isStreaming, timer } }
+  
+  // ============ F4: 日志级别状态 ============
+  const logLevel = ref('basic')  // 值: 'basic' | 'detailed'
+  
+  // ============ F9: 当前发言者状态 ============
+  const currentSpeaker = ref({
+    seatNumber: null,
+    playerName: '',
+    isHuman: false
+  })
+  const waitingForInput = ref(false)  // 是否等待玩家输入
+  
   // ============ AI 状态 ============
   const isAiThinking = ref(false)
   const aiThinkingPlayer = ref(null)
@@ -408,6 +434,196 @@ export const useGameStore = defineStore('game', () => {
     countdown.value = seconds
   }
 
+  // ============ F1-F4, F9: 新增游戏控制 Actions ============
+  
+  /**
+   * F1: 设置游戏开始状态
+   */
+  function setGameStarted(started) {
+    isStarted.value = started
+    if (started) {
+      isPaused.value = false
+    }
+  }
+  
+  /**
+   * F1: 设置游戏暂停状态
+   */
+  function setGamePaused(paused) {
+    isPaused.value = paused
+  }
+  
+  /**
+   * F2: 开始流式公告
+   */
+  function startHostAnnouncement(type, metadata = {}) {
+    hostAnnouncement.value = {
+      type,
+      content: '',
+      isStreaming: true,
+      metadata
+    }
+  }
+  
+  /**
+   * F2: 追加流式公告内容
+   */
+  function appendHostAnnouncementChunk(chunk) {
+    if (hostAnnouncement.value.isStreaming) {
+      hostAnnouncement.value.content += chunk
+    }
+  }
+  
+  /**
+   * F2: 结束流式公告
+   */
+  function endHostAnnouncement(fullContent, metadata = {}) {
+    const announcement = {
+      type: hostAnnouncement.value.type,
+      content: fullContent || hostAnnouncement.value.content,
+      metadata: { ...hostAnnouncement.value.metadata, ...metadata },
+      time: new Date().toISOString(),
+      day: dayNumber.value
+    }
+    
+    // 添加到历史
+    announcementHistory.value.push(announcement)
+    
+    // 重置当前公告状态
+    hostAnnouncement.value = {
+      type: null,
+      content: '',
+      isStreaming: false
+    }
+    
+    return announcement
+  }
+  
+  /**
+   * F3: 开始发言气泡流式显示
+   */
+  function startSpeechBubble(seatNumber, playerName) {
+    activeSpeechBubbles.value[seatNumber] = {
+      content: '',
+      playerName,
+      isStreaming: true,
+      startTime: Date.now()
+    }
+  }
+  
+  /**
+   * F3: 追加发言气泡内容
+   */
+  function appendSpeechBubbleChunk(seatNumber, chunk) {
+    if (activeSpeechBubbles.value[seatNumber]) {
+      activeSpeechBubbles.value[seatNumber].content += chunk
+    }
+  }
+  
+  /**
+   * F3: 结束发言气泡流式显示
+   */
+  function endSpeechBubble(seatNumber, fullContent) {
+    if (activeSpeechBubbles.value[seatNumber]) {
+      activeSpeechBubbles.value[seatNumber].content = fullContent
+      activeSpeechBubbles.value[seatNumber].isStreaming = false
+      
+      // 设置定时器，5秒后自动消失
+      setTimeout(() => {
+        clearSpeechBubble(seatNumber)
+      }, 5000)
+    }
+  }
+  
+  /**
+   * F3: 清除发言气泡
+   */
+  function clearSpeechBubble(seatNumber) {
+    delete activeSpeechBubbles.value[seatNumber]
+  }
+  
+  /**
+   * F3: 清除所有发言气泡
+   */
+  function clearAllSpeechBubbles() {
+    activeSpeechBubbles.value = {}
+  }
+  
+  /**
+   * F4: 设置日志级别
+   */
+  function setLogLevel(level) {
+    if (level === 'basic' || level === 'detailed') {
+      logLevel.value = level
+    }
+  }
+  
+  /**
+   * F9: 设置当前发言者
+   */
+  function setCurrentSpeaker(seatNumber, playerName, isHuman = false) {
+    currentSpeaker.value = {
+      seatNumber,
+      playerName,
+      isHuman
+    }
+    waitingForInput.value = isHuman
+  }
+  
+  /**
+   * F9: 清除当前发言者
+   */
+  function clearCurrentSpeaker() {
+    currentSpeaker.value = {
+      seatNumber: null,
+      playerName: '',
+      isHuman: false
+    }
+    waitingForInput.value = false
+  }
+  
+  /**
+   * F9: 设置等待玩家输入状态
+   */
+  function setWaitingForInput(waiting) {
+    waitingForInput.value = waiting
+  }
+  
+  // ============ F37-F40: 断线重连辅助方法 ============
+  
+  /**
+   * F38: 清空游戏日志
+   */
+  function clearGameLogs() {
+    gameLogs.value = []
+  }
+  
+  /**
+   * F39: 清空公告历史
+   */
+  function clearAnnouncementHistory() {
+    announcementHistory.value = []
+  }
+  
+  /**
+   * F39: 添加到公告历史
+   */
+  function addToAnnouncementHistory(announcement) {
+    announcementHistory.value.push(announcement)
+  }
+  
+  /**
+   * F39: 设置当前主持人公告
+   */
+  function setHostAnnouncement(announcement) {
+    hostAnnouncement.value = {
+      type: announcement.type || null,
+      content: announcement.content || '',
+      isStreaming: announcement.isStreaming || false,
+      metadata: announcement.metadata || {}
+    }
+  }
+
   function setLoading(loading) {
     isLoading.value = loading
   }
@@ -446,6 +662,16 @@ export const useGameStore = defineStore('game', () => {
     speakingPlayerId.value = null
     mySkillTargets.value = []
     mySkillUsed.value = false
+    
+    // F1-F4, F9: 重置新增状态
+    isStarted.value = false
+    isPaused.value = false
+    hostAnnouncement.value = { type: null, content: '', isStreaming: false }
+    announcementHistory.value = []
+    activeSpeechBubbles.value = {}
+    logLevel.value = 'basic'
+    currentSpeaker.value = { seatNumber: null, playerName: '', isHuman: false }
+    waitingForInput.value = false
   }
 
   function reset() {
@@ -522,6 +748,16 @@ export const useGameStore = defineStore('game', () => {
     speakOrder,
     mySkillTargets,
     mySkillUsed,
+    
+    // F1-F4, F9: 新增状态
+    isStarted,
+    isPaused,
+    hostAnnouncement,
+    announcementHistory,
+    activeSpeechBubbles,
+    logLevel,
+    currentSpeaker,
+    waitingForInput,
 
     // Computed
     isInRoom,
@@ -578,6 +814,28 @@ export const useGameStore = defineStore('game', () => {
     reset,
     setMyTurn,
     addVote,
-    setAllPlayersInfo
+    setAllPlayersInfo,
+    
+    // F1-F4, F9: 新增 Actions
+    setGameStarted,
+    setGamePaused,
+    startHostAnnouncement,
+    appendHostAnnouncementChunk,
+    endHostAnnouncement,
+    startSpeechBubble,
+    appendSpeechBubbleChunk,
+    endSpeechBubble,
+    clearSpeechBubble,
+    clearAllSpeechBubbles,
+    setLogLevel,
+    setCurrentSpeaker,
+    clearCurrentSpeaker,
+    setWaitingForInput,
+    
+    // F37-F40: 断线重连辅助 Actions
+    clearGameLogs,
+    clearAnnouncementHistory,
+    addToAnnouncementHistory,
+    setHostAnnouncement
   }
 })

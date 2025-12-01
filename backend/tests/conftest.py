@@ -12,8 +12,9 @@ from src.models.game import GameRoom, GameRoomParticipant, GameState
 from src.constants import GAME_TYPES, get_game_type_by_slug
 
 
-# Set test API key for OpenAI
-os.environ["OPENAI_API_KEY"] = "sk-test-key-for-testing"
+# Set test API key for AI (prefer AI_API_KEY, fallback to OPENAI_API_KEY for compatibility)
+os.environ["AI_API_KEY"] = "sk-test-key-for-testing"
+os.environ["OPENAI_API_KEY"] = os.environ.get("OPENAI_API_KEY", "sk-test-key-for-testing")
 
 # Test database URL (in-memory SQLite)
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"

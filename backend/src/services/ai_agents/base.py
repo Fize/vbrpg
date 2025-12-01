@@ -44,6 +44,9 @@ class BaseWerewolfAgent(ABC):
         self.is_alive = True
         self.known_info: List[Dict[str, Any]] = []
         self.memory: List[Dict[str, Any]] = []
+        
+        # B17: 用于存储实时上下文更新
+        self._current_context: Dict[str, Any] = {}
 
     @property
     @abstractmethod
@@ -93,6 +96,50 @@ class BaseWerewolfAgent(ABC):
         :param event: Event dict with type, day, content, etc.
         """
         self.memory.append(event)
+
+    # =========================================================================
+    # B17: 上下文更新方法
+    # =========================================================================
+
+    def update_context(
+        self,
+        speeches: List[Dict[str, Any]],
+        host_context: Optional[str] = None,
+        game_state: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        更新 AI Agent 的实时上下文。
+
+        此方法用于在发言轮次中更新 AI 的上下文信息，
+        包括本轮已有的玩家发言、主持人公告等。
+
+        :param speeches: 本轮已有的发言列表，每项包含:
+            - seat_number: 发言者座位号
+            - player_name: 发言者名称
+            - content: 发言内容
+        :param host_context: 主持人上下文摘要（可选）
+        :param game_state: 完整游戏状态（可选）
+        """
+        self._current_context = {
+            "current_round_speeches": speeches or [],
+            "host_context": host_context,
+            "last_update_time": None,  # 可扩展添加时间戳
+        }
+
+        if game_state:
+            self._current_context["game_state"] = game_state
+
+        logger.debug(
+            f"[{self.player_name}] Context updated with {len(speeches)} speeches"
+        )
+
+    def get_current_context(self) -> Dict[str, Any]:
+        """
+        获取当前上下文。
+
+        :return: 当前上下文字典
+        """
+        return self._current_context.copy()
 
     def format_known_info(self) -> str:
         """Format known information for prompts."""
@@ -200,18 +247,35 @@ class BaseWerewolfAgent(ABC):
         self,
         game_state: Dict[str, Any],
         previous_speeches: List[Dict[str, Any]],
+        current_round_speeches: Optional[List[Dict[str, Any]]] = None,
+        host_context: Optional[str] = None,
     ) -> AsyncIterator[str]:
         """
         Generate a speech with streaming output.
 
+        B18 增强：增加了 current_round_speeches 和 host_context 参数，
+        使 AI 发言能考虑本轮其他玩家的发言上下文。
+
         :param game_state: Current game state.
-        :param previous_speeches: List of previous speeches.
+        :param previous_speeches: List of previous speeches (历史发言).
+        :param current_round_speeches: 本轮已有发言列表（可选）.
+        :param host_context: 主持人上下文摘要（可选）.
         :yields: Chunks of speech text.
         """
         from src.services.ai_agents.prompts.common_prompts import SPEECH_PROMPT
 
         formatted_state = self.format_game_state(game_state)
         prev_speeches_text = self._format_previous_speeches(previous_speeches)
+
+        # B18: 格式化本轮发言上下文
+        current_round_text = ""
+        if current_round_speeches:
+            current_round_text = self._format_current_round_speeches(current_round_speeches)
+
+        # B18: 添加主持人上下文到提示
+        host_info = ""
+        if host_context:
+            host_info = f"\n\n【主持人提示】\n{host_context}"
 
         prompt = SPEECH_PROMPT.format(
             role_name=self.role_name,
@@ -223,6 +287,13 @@ class BaseWerewolfAgent(ABC):
             previous_speeches=prev_speeches_text,
             known_info=formatted_state["known_info"],
         )
+
+        # B18: 如果有本轮发言，追加到提示中
+        if current_round_text:
+            prompt += f"\n\n【本轮已有发言】\n{current_round_text}"
+
+        if host_info:
+            prompt += host_info
 
         messages = [
             {"role": "system", "content": self.get_system_prompt(game_state)},
@@ -245,6 +316,28 @@ class BaseWerewolfAgent(ABC):
             logger.error(f"[{self.player_name}] Speech stream failed: {e}")
             fallback = f"我是{self.seat_number}号，我的发言就到这里。"
             yield fallback
+
+    def _format_current_round_speeches(
+        self,
+        speeches: List[Dict[str, Any]],
+    ) -> str:
+        """
+        格式化本轮发言列表。
+
+        :param speeches: 本轮发言列表
+        :return: 格式化的文本
+        """
+        if not speeches:
+            return "暂无本轮发言"
+
+        lines = []
+        for speech in speeches:
+            speaker = speech.get("player_name", "未知")
+            seat = speech.get("seat_number", "?")
+            content = speech.get("content", "")
+            lines.append(f"【{seat}号 {speaker}】：{content}")
+
+        return "\n\n".join(lines)
 
     async def decide_vote(
         self,

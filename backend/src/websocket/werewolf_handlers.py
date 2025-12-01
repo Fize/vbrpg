@@ -10,6 +10,27 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# 通用广播方法
+# ============================================================================
+
+async def broadcast_to_room(
+    room_code: str,
+    event: str,
+    data: dict,
+):
+    """
+    向房间广播通用事件。
+
+    Args:
+        room_code: 房间代码
+        event: 事件名称
+        data: 事件数据
+    """
+    await sio.emit(event, data, room=room_code)
+    logger.debug(f"Broadcast event '{event}' to room {room_code}")
+
+
+# ============================================================================
 # B30: 主持人公告广播事件
 # ============================================================================
 
@@ -562,6 +583,218 @@ async def werewolf_ready(sid: str, data: dict):
         await sio.emit(
             "werewolf:error",
             {"message": f"处理失败: {str(e)}"},
+            room=sid
+        )
+
+
+# ============================================================================
+# B19-B22: 游戏控制事件处理器
+# ============================================================================
+
+@sio.event
+async def werewolf_start_game(sid: str, data: dict):
+    """
+    B19: 处理开始游戏事件。
+    
+    Args:
+        sid: Socket session ID
+        data: {"room_code": str, "player_id": str}
+    """
+    try:
+        room_code = data.get("room_code")
+        player_id = data.get("player_id")
+        
+        if not room_code:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "缺少房间代码"},
+                room=sid
+            )
+            return
+        
+        logger.info(f"Start game request received for room {room_code} from player {player_id}")
+        
+        # 广播游戏开始事件
+        await sio.emit(
+            "werewolf:game_starting",
+            {
+                "room_code": room_code,
+                "message": "游戏即将开始...",
+            },
+            room=room_code
+        )
+        
+        # 实际的游戏启动将由 WerewolfGameService.start_game_manual() 处理
+        # 这里只发送通知事件
+        
+    except Exception as e:
+        logger.error(f"Error handling werewolf start game: {e}")
+        await sio.emit(
+            "werewolf:error",
+            {"message": f"开始游戏失败: {str(e)}"},
+            room=sid
+        )
+
+
+@sio.event
+async def werewolf_pause_game(sid: str, data: dict):
+    """
+    B20: 处理暂停游戏事件。
+    
+    Args:
+        sid: Socket session ID
+        data: {"room_code": str, "player_id": str}
+    """
+    try:
+        room_code = data.get("room_code")
+        player_id = data.get("player_id")
+        
+        if not room_code:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "缺少房间代码"},
+                room=sid
+            )
+            return
+        
+        logger.info(f"Pause game request received for room {room_code} from player {player_id}")
+        
+        # 广播游戏暂停事件
+        await sio.emit(
+            "werewolf:game_paused",
+            {
+                "room_code": room_code,
+                "message": "游戏已暂停",
+                "paused_by": player_id,
+            },
+            room=room_code
+        )
+        
+        # 实际的暂停处理将由 WerewolfGameService.pause_game() 处理
+        
+    except Exception as e:
+        logger.error(f"Error handling werewolf pause game: {e}")
+        await sio.emit(
+            "werewolf:error",
+            {"message": f"暂停游戏失败: {str(e)}"},
+            room=sid
+        )
+
+
+@sio.event
+async def werewolf_resume_game(sid: str, data: dict):
+    """
+    B21: 处理继续游戏事件。
+    
+    Args:
+        sid: Socket session ID
+        data: {"room_code": str, "player_id": str}
+    """
+    try:
+        room_code = data.get("room_code")
+        player_id = data.get("player_id")
+        
+        if not room_code:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "缺少房间代码"},
+                room=sid
+            )
+            return
+        
+        logger.info(f"Resume game request received for room {room_code} from player {player_id}")
+        
+        # 广播游戏继续事件
+        await sio.emit(
+            "werewolf:game_resumed",
+            {
+                "room_code": room_code,
+                "message": "游戏继续",
+                "resumed_by": player_id,
+            },
+            room=room_code
+        )
+        
+        # 实际的继续处理将由 WerewolfGameService.resume_game() 处理
+        
+    except Exception as e:
+        logger.error(f"Error handling werewolf resume game: {e}")
+        await sio.emit(
+            "werewolf:error",
+            {"message": f"继续游戏失败: {str(e)}"},
+            room=sid
+        )
+
+
+@sio.event
+async def werewolf_player_speech(sid: str, data: dict):
+    """
+    B22: 处理玩家发言事件。
+    
+    Args:
+        sid: Socket session ID
+        data: {
+            "room_code": str,
+            "player_id": str,
+            "seat_number": int,
+            "content": str
+        }
+    """
+    try:
+        room_code = data.get("room_code")
+        player_id = data.get("player_id")
+        seat_number = data.get("seat_number")
+        content = data.get("content")
+        
+        if not room_code or not player_id or seat_number is None:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "缺少必要参数"},
+                room=sid
+            )
+            return
+        
+        if not content or not content.strip():
+            await sio.emit(
+                "werewolf:error",
+                {"message": "发言内容不能为空"},
+                room=sid
+            )
+            return
+        
+        logger.info(
+            f"Player speech received: room={room_code}, seat={seat_number}, "
+            f"content length={len(content)}"
+        )
+        
+        # 发送确认
+        await sio.emit(
+            "werewolf:speech_received",
+            {
+                "seat_number": seat_number,
+                "message": "发言已收到",
+            },
+            room=sid
+        )
+        
+        # 广播发言内容到房间
+        await sio.emit(
+            "werewolf:player_speech",
+            {
+                "seat_number": seat_number,
+                "player_name": f"玩家{seat_number}",
+                "content": content.strip(),
+            },
+            room=room_code
+        )
+        
+        # 实际的发言处理将由 WerewolfGameService.process_player_speech() 处理
+        
+    except Exception as e:
+        logger.error(f"Error handling werewolf player speech: {e}")
+        await sio.emit(
+            "werewolf:error",
+            {"message": f"处理发言失败: {str(e)}"},
             room=sid
         )
 

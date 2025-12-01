@@ -171,6 +171,8 @@ frontend/
     │   │   ├── NightActionPanel.vue # 夜间行动面板
     │   │   ├── GameLog.vue          # 游戏日志
     │   │   ├── GamePhaseIndicator.vue # 游戏阶段指示器
+    │   │   ├── HostAnnouncement.vue # 主持人公告组件
+    │   │   ├── WerewolfModeDialog.vue # 狼人杀模式选择对话框
     │   │   ├── ParticipantList.vue  # 参与者列表
     │   │   └── WerewolfGameCard.vue # 狼人杀游戏卡片
     │   ├── lobby/                   # 大厅相关组件
@@ -212,52 +214,53 @@ scripts/
 - **LangChain 0.1+** - LLM 集成框架
 - **OpenAI 1.10+** - AI 决策生成
 - **Pydantic 2.5+** - 数据验证和序列化
-- **Vue 3.4+** - 前端响应式框架（Composition API）
-- **Element Plus 2.5+** - Vue 3 UI 组件库
-- **Pinia 2.1+** - Vue 状态管理
-- **Socket.IO Client 4.6+** - 前端 WebSocket 客户端
-- **Axios 1.6+** - HTTP 请求库
-- **Vue Router 4.2+** - 前端路由
+- **Vue 3.5+** - 前端响应式框架（Composition API）
+- **Element Plus 2.11+** - Vue 3 UI 组件库
+- **Pinia 3.0+** - Vue 状态管理
+- **Socket.IO Client 4.8+** - 前端 WebSocket 客户端
+- **Axios 1.13+** - HTTP 请求库
+- **Vue Router 4.6+** - 前端路由
 
 ### 开发工具
-- **uv / pip** - Python 依赖管理（推荐使用 uv）
+- **uv** - Python 依赖管理（**必须**使用 uv）
 - **pnpm / npm** - Node.js 包管理（推荐使用 pnpm）
-- **Vite 5.0+** - 前端构建工具和开发服务器
+- **Vite 7.0+** - 前端构建工具和开发服务器
 - **Docker + Docker Compose** - 容器化部署
 - **pytest 7.4+** - Python 测试框架
 - **pytest-asyncio 0.23+** - 异步测试支持
 - **pytest-cov 4.1+** - 测试覆盖率
-- **Vitest 1.2+** - 前端单元测试
-- **Playwright 1.41+** - E2E 端到端测试
+- **Vitest 4.0+** - 前端单元测试
+- **Playwright 1.57+** - E2E 端到端测试
 - **Ruff 0.1+** - Python 代码检查和格式化
-- **ESLint + Prettier** - JavaScript/Vue 代码检查和格式化
+- **ESLint 9.0+ + Prettier 3.7+** - JavaScript/Vue 代码检查和格式化
 - **Alembic 1.13+** - 数据库迁移工具
 
 ## 开发和使用指南
 
 ### 环境配置
 ```bash
-# 后端依赖安装（推荐使用 uv）
+# 后端依赖安装（必须使用 uv）
 cd backend
 uv venv
 source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-# 或使用 pip
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
 # 前端依赖安装
 cd frontend
 pnpm install
 
-# 环境变量配置 (创建 .env 文件)
-OPENAI_API_KEY=your-api-key
+# 后端环境变量配置 (创建 backend/.env 文件)
+AI_API_KEY=your-api-key                  # 主要 API Key（支持 OpenAI 或兼容提供商如 Deepseek）
+AI_API_BASE_URL=                         # 可选：自定义 API 基础 URL
+OPENAI_API_KEY=your-openai-api-key       # 可选：向后兼容
 SECRET_KEY=your-secret-key
 DATABASE_URL=mysql+aiomysql://vbrpg:vbrpgpassword@localhost:3306/vbrpg
 CORS_ORIGINS=http://localhost:5173
 LOG_LEVEL=INFO
+
+# 前端环境变量配置 (创建 frontend/.env.local 文件)
+VITE_API_URL=http://localhost:8000
+VITE_WS_URL=http://localhost:8000
 ```
 
 ### 构建和运行
