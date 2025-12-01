@@ -9,6 +9,7 @@ def __getattr__(name):
     
     # Import werewolf handlers functions
     werewolf_funcs = [
+        "broadcast_to_room",
         "broadcast_host_announcement",
         "stream_host_announcement",
         "broadcast_game_state_update",
@@ -33,6 +34,7 @@ def __getattr__(name):
 
 __all__ = [
     "sio",
+    "broadcast_to_room",
     "broadcast_host_announcement",
     "stream_host_announcement",
     "broadcast_game_state_update",

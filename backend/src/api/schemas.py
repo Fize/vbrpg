@@ -179,3 +179,45 @@ class WerewolfActionResponse(BaseModel):
     message: str
     result: dict | None = None  # 如预言家查验结果
 
+
+# =============================================================================
+# B23.5: Game Log Schemas (游戏日志)
+# =============================================================================
+
+class GameLogEntryResponse(BaseModel):
+    """游戏日志条目响应模型。
+    
+    与 GameLogEntry dataclass 对应，用于 API 序列化。
+    """
+    id: str
+    type: str  # speech, host_announcement, death, vote, skill
+    content: str
+    day: int
+    phase: str
+    time: datetime
+    player_id: str | None = None
+    player_name: str | None = None
+    seat_number: int | None = None
+    metadata: dict | None = None
+    is_public: bool = True
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GameLogListResponse(BaseModel):
+    """游戏日志列表响应模型。"""
+    room_code: str
+    day_number: int
+    phase: str
+    logs: list[GameLogEntryResponse]
+    total: int
+    level: str  # basic | detailed
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GameControlRequest(BaseModel):
+    """游戏控制请求（开始/暂停/继续）。"""
+    action: str  # start, pause, resume
+    player_id: str | None = None
+

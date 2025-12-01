@@ -16,6 +16,7 @@ from src.services.games.werewolf_engine import (
     WerewolfPhase,
     WerewolfGameState,
     PlayerState,
+    GameLogEntry,
 )
 from src.services.ai_agents import (
     WerewolfAgent,
@@ -968,10 +969,930 @@ class WerewolfGameService:
         # Clear AI agents for this game
         # Note: In production, agents should be scoped per game
         self._ai_agents.clear()
+
+    # =========================================================================
+    # 游戏控制方法 (Phase 3: B6, B7, B8, B9)
+    # =========================================================================
+
+    async def start_game_manual(self, room_code: str) -> bool:
+        """手动开始游戏（由用户触发）。
+
+        Args:
+            room_code: 房间代码
+
+        Returns:
+            是否成功开始游戏
+
+        Raises:
+            NotFoundError: 游戏状态不存在
+            BadRequestError: 游戏已开始
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            raise NotFoundError(f"游戏状态不存在: {room_code}")
+
+        if game_state.is_started:
+            raise BadRequestError("游戏已经开始")
+
+        # 设置游戏已开始
+        game_state.is_started = True
+        game_state.is_paused = False
+
+        logger.info(f"Game manually started in room {room_code}")
+
+        # 记录日志
+        self._add_game_log(
+            room_code=room_code,
+            log_type="system",
+            content="游戏开始",
+            metadata={"triggered_by": "manual"},
+        )
+
+        return True
+
+    async def pause_game(self, room_code: str) -> bool:
+        """暂停游戏，等待当前行动完成后生效。
+
+        Args:
+            room_code: 房间代码
+
+        Returns:
+            是否成功暂停
+
+        Raises:
+            NotFoundError: 游戏状态不存在
+            BadRequestError: 游戏未开始或已暂停
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            raise NotFoundError(f"游戏状态不存在: {room_code}")
+
+        if not game_state.is_started:
+            raise BadRequestError("游戏尚未开始")
+
+        if game_state.is_paused:
+            raise BadRequestError("游戏已经暂停")
+
+        # 标记暂停（当前行动完成后生效）
+        game_state.is_paused = True
+
+        logger.info(f"Game paused in room {room_code}")
+
+        # 记录日志
+        self._add_game_log(
+            room_code=room_code,
+            log_type="system",
+            content="游戏暂停",
+        )
+
+        return True
+
+    async def resume_game(self, room_code: str) -> bool:
+        """继续游戏。
+
+        Args:
+            room_code: 房间代码
+
+        Returns:
+            是否成功继续
+
+        Raises:
+            NotFoundError: 游戏状态不存在
+            BadRequestError: 游戏未暂停
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            raise NotFoundError(f"游戏状态不存在: {room_code}")
+
+        if not game_state.is_paused:
+            raise BadRequestError("游戏未暂停")
+
+        # 取消暂停
+        game_state.is_paused = False
+
+        logger.info(f"Game resumed in room {room_code}")
+
+        # 记录日志
+        self._add_game_log(
+            room_code=room_code,
+            log_type="system",
+            content="游戏继续",
+        )
+
+        return True
+
+    async def _check_paused_before_next_action(self, room_code: str) -> bool:
+        """在执行下一个行动前检查是否暂停。
+
+        如果游戏暂停，此方法会阻塞直到游戏继续。
+
+        Args:
+            room_code: 房间代码
+
+        Returns:
+            True 表示可以继续执行，False 表示游戏状态不存在
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return False
+
+        # 如果暂停，等待继续
+        while game_state.is_paused:
+            await asyncio.sleep(0.5)
+            # 重新获取状态，以防游戏被清理
+            game_state = self._game_states.get(room_code)
+            if not game_state:
+                return False
+
+        return True
+
+    # =========================================================================
+    # 主持人公告广播 (Phase 4: B10)
+    # =========================================================================
+
+    async def _broadcast_host_announcement(
+        self,
+        room_code: str,
+        announcement_type: str,
+        metadata: dict | None = None,
+    ) -> str:
+        """广播主持人公告（流式）。
+
+        流程：
+        1. 调用 WerewolfHost 生成公告
+        2. 发送 announcement_start 事件
+        3. 循环发送 announcement_chunk 事件
+        4. 发送 announcement_end 事件
+        5. 记录到游戏日志
+
+        Args:
+            room_code: 房间代码
+            announcement_type: 公告类型
+            metadata: 额外元数据
+
+        Returns:
+            完整的公告内容
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            logger.warning(f"Cannot broadcast announcement: game state not found for {room_code}")
+            return ""
+
+        # 构建公告上下文
+        context = self._build_announcement_context(game_state, announcement_type, metadata)
+
+        # 使用流式输出广播公告
+        content_stream = self.host.announce_stream(announcement_type, context)
+
+        full_content = await stream_host_announcement(
+            room_code=room_code,
+            announcement_type=announcement_type,
+            content_stream=content_stream,
+            metadata=metadata,
+        )
+
+        # 记录到游戏日志
+        self._add_game_log(
+            room_code=room_code,
+            log_type="host_announcement",
+            content=full_content,
+            metadata={
+                "announcement_type": announcement_type,
+                **(metadata or {}),
+            },
+            is_public=True,
+        )
+
+        return full_content
+
+    def _build_announcement_context(
+        self,
+        game_state: WerewolfGameState,
+        announcement_type: str,
+        metadata: dict | None = None,
+    ) -> dict:
+        """为主持人公告构建上下文。
+
+        Args:
+            game_state: 游戏状态
+            announcement_type: 公告类型
+            metadata: 额外元数据
+
+        Returns:
+            上下文字典
+        """
+        base_context = {
+            "day_number": game_state.day_number,
+            "alive_count": len([p for p in game_state.players.values() if p.is_alive]),
+        }
+
+        # 根据公告类型添加特定上下文
+        if announcement_type == "game_start":
+            werewolf_count = len([
+                p for p in game_state.players.values() if p.role == "werewolf"
+            ])
+            base_context.update({
+                "player_count": len(game_state.players),
+                "role_config": f"3狼人、1预言家、1女巫、1猎人、4村民",
+            })
+
+        elif announcement_type == "night_start":
+            pass  # 基础上下文已足够
+
+        elif announcement_type == "dawn":
+            # 从 metadata 获取死亡信息
+            dead_players = metadata.get("dead_players", []) if metadata else []
+            dead_text = ", ".join([
+                f"{p['seat_number']}号"
+                for p in dead_players
+            ]) if dead_players else "无"
+
+            base_context.update({
+                "dead_players": dead_text,
+                "death_reasons": metadata.get("death_reasons", "无") if metadata else "无",
+            })
+
+        elif announcement_type == "discussion_start":
+            alive_players = [
+                p for p in game_state.players.values() if p.is_alive
+            ]
+            base_context.update({
+                "alive_players": ", ".join([f"{p.seat_number}号" for p in alive_players]),
+                "speaking_order": ", ".join([str(p.seat_number) for p in sorted(alive_players, key=lambda x: x.seat_number)]),
+            })
+
+        elif announcement_type == "vote_start":
+            alive_players = [
+                p for p in game_state.players.values() if p.is_alive
+            ]
+            base_context.update({
+                "voters": ", ".join([f"{p.seat_number}号" for p in alive_players]),
+                "candidates": ", ".join([f"{p.seat_number}号" for p in alive_players]),
+            })
+
+        elif announcement_type == "vote_result":
+            if metadata:
+                vote_counts = metadata.get("vote_counts", {})
+                base_context.update({
+                    "vote_counts": ", ".join([f"{k}号: {v}票" for k, v in vote_counts.items()]),
+                    "highest_vote_player": metadata.get("eliminated_name", "无"),
+                    "is_tie": metadata.get("is_tie", False),
+                })
+
+        elif announcement_type == "request_speech":
+            if metadata:
+                base_context.update({
+                    "seat_number": metadata.get("seat_number"),
+                    "player_name": metadata.get("player_name", ""),
+                    "is_human": metadata.get("is_human", False),
+                })
+
+        elif announcement_type == "game_end":
+            if metadata:
+                base_context.update({
+                    "winner_team": "狼人阵营" if metadata.get("winner") == "werewolf" else "好人阵营",
+                    "werewolf_players": metadata.get("werewolf_players", ""),
+                    "good_players": metadata.get("good_players", ""),
+                    "total_days": game_state.day_number,
+                })
+
+        return base_context
     
+    # =========================================================================
+    # 讨论流程实现 (Phase 5: B11, B12, B13, B14)
+    # =========================================================================
+
+    async def _execute_discussion_phase(self, room_code: str) -> None:
+        """执行讨论阶段主流程（主持人主导）。
+
+        流程：
+        1. 广播讨论开始公告
+        2. 获取存活玩家列表（按座位号排序）
+        3. 依次调用 _request_player_speech
+        4. 广播发言结束公告
+
+        Args:
+            room_code: 房间代码
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            logger.warning(f"Cannot execute discussion: game state not found for {room_code}")
+            return
+
+        # 更新阶段
+        old_phase = game_state.phase
+        game_state.phase = WerewolfPhase.DAY_DISCUSSION
+
+        await broadcast_phase_change(
+            room_code=room_code,
+            from_phase=old_phase.value if old_phase else "unknown",
+            to_phase=game_state.phase.value,
+            day_number=game_state.day_number,
+        )
+
+        # 1. 广播讨论开始公告
+        await self._broadcast_host_announcement(
+            room_code=room_code,
+            announcement_type="discussion_start",
+            metadata={"day_number": game_state.day_number},
+        )
+
+        # 2. 获取存活玩家列表（按座位号排序）
+        alive_players = sorted(
+            [p for p in game_state.players.values() if p.is_alive],
+            key=lambda p: p.seat_number,
+        )
+
+        # 3. 依次调用 _request_player_speech
+        for player in alive_players:
+            # 检查暂停状态
+            if not await self._check_paused_before_next_action(room_code):
+                return
+
+            # 点名发言
+            await self._request_player_speech(room_code, player)
+
+        # 4. 广播发言结束公告
+        await self._broadcast_host_announcement(
+            room_code=room_code,
+            announcement_type="discussion_end",
+            metadata={"day_number": game_state.day_number},
+        )
+
+        logger.info(f"Discussion phase completed in room {room_code}")
+
+    async def _request_player_speech(
+        self,
+        room_code: str,
+        player: PlayerState,
+    ) -> None:
+        """主持人点名玩家发言。
+
+        流程：
+        1. 广播点名公告（使用 AI Host）
+        2. 发送 werewolf:request_speech 事件
+        3. 设置 current_speaker_seat
+        4. 根据是否人类玩家选择等待或触发 AI 发言
+
+        Args:
+            room_code: 房间代码
+            player: 玩家状态
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return
+
+        is_human = player.seat_number not in self._ai_agents
+        player_name = f"玩家{player.seat_number}"
+
+        # 1. 广播点名公告
+        announcement_content = await self.host.announce_request_speech(
+            seat_number=player.seat_number,
+            player_name=player_name,
+            is_human=is_human,
+            stream=False,
+        )
+
+        # 2. 发送 request_speech 事件（通过 WebSocket 广播）
+        from src.websocket import broadcast_to_room
+
+        await broadcast_to_room(
+            room_code=room_code,
+            event="werewolf:request_speech",
+            data={
+                "seat_number": player.seat_number,
+                "player_name": player_name,
+                "is_human": is_human,
+                "announcement": announcement_content,
+            },
+        )
+
+        # 3. 设置 current_speaker_seat
+        game_state.current_speaker_seat = player.seat_number
+
+        # 记录日志
+        self._add_game_log(
+            room_code=room_code,
+            log_type="host_announcement",
+            content=announcement_content,
+            metadata={
+                "announcement_type": "request_speech",
+                "seat_number": player.seat_number,
+                "is_human": is_human,
+            },
+            is_public=True,
+        )
+
+        # 4. 根据是否人类玩家选择处理方式
+        if is_human:
+            # 人类玩家：等待发言
+            speech_content = await self._wait_for_human_speech(room_code, player)
+
+            if speech_content:
+                # 记录人类发言
+                self._add_game_log(
+                    room_code=room_code,
+                    log_type="speech",
+                    content=speech_content,
+                    player_id=player.player_id,
+                    player_name=player_name,
+                    seat_number=player.seat_number,
+                    is_public=True,
+                )
+        else:
+            # AI 玩家：触发 AI 发言
+            await self._execute_ai_speech(room_code, player)
+
+        # 发言结束处理
+        await self._handle_speech_end(room_code, player)
+
+    async def _wait_for_human_speech(
+        self,
+        room_code: str,
+        player: PlayerState,
+    ) -> str | None:
+        """等待人类玩家发言（无超时，无限等待）。
+
+        流程：
+        1. 设置 waiting_for_player_input = True
+        2. 启动提醒任务（每30秒）
+        3. 使用 asyncio.Event 等待发言
+        4. 返回发言内容
+
+        Args:
+            room_code: 房间代码
+            player: 玩家状态
+
+        Returns:
+            发言内容，如果超时或取消则返回 None
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return None
+
+        # 1. 设置等待状态
+        game_state.waiting_for_player_input = True
+        game_state.speech_reminder_count = 0
+
+        # 创建等待事件
+        speech_event = asyncio.Event()
+        speech_content: list[str] = []  # 使用列表来存储发言内容
+
+        # 存储事件引用，供 process_player_speech 使用
+        if not hasattr(game_state, "_speech_events"):
+            game_state._speech_events = {}
+        game_state._speech_events[player.seat_number] = {
+            "event": speech_event,
+            "content": speech_content,
+        }
+
+        # 2. 启动提醒任务
+        reminder_task = asyncio.create_task(
+            self._speech_reminder_loop(room_code, player)
+        )
+
+        try:
+            # 3. 等待发言
+            await speech_event.wait()
+
+            # 4. 返回发言内容
+            return speech_content[0] if speech_content else None
+
+        finally:
+            # 清理
+            reminder_task.cancel()
+            try:
+                await reminder_task
+            except asyncio.CancelledError:
+                pass
+
+            game_state.waiting_for_player_input = False
+            if hasattr(game_state, "_speech_events"):
+                game_state._speech_events.pop(player.seat_number, None)
+
+    async def _speech_reminder_loop(
+        self,
+        room_code: str,
+        player: PlayerState,
+    ) -> None:
+        """发言提醒循环（每30秒提醒一次）。
+
+        Args:
+            room_code: 房间代码
+            player: 玩家状态
+        """
+        while True:
+            await asyncio.sleep(30)  # 每30秒提醒一次
+            await self._send_speech_reminder(room_code, player)
+
+    async def _send_speech_reminder(
+        self,
+        room_code: str,
+        player: PlayerState,
+    ) -> None:
+        """发送发言提醒（每30秒）。
+
+        流程：
+        1. 递增 speech_reminder_count
+        2. 发送 werewolf:speech_reminder 事件
+
+        Args:
+            room_code: 房间代码
+            player: 玩家状态
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return
+
+        # 1. 递增提醒计数
+        game_state.speech_reminder_count += 1
+
+        # 2. 发送提醒事件
+        from src.websocket import broadcast_to_room
+
+        await broadcast_to_room(
+            room_code=room_code,
+            event="werewolf:speech_reminder",
+            data={
+                "seat_number": player.seat_number,
+                "player_name": f"玩家{player.seat_number}",
+                "reminder_count": game_state.speech_reminder_count,
+                "message": f"请{player.seat_number}号玩家尽快发言，已等待{game_state.speech_reminder_count * 30}秒",
+            },
+        )
+
+        logger.info(
+            f"Sent speech reminder #{game_state.speech_reminder_count} to room {room_code} for player {player.seat_number}"
+        )
+
+    async def _execute_ai_speech(
+        self,
+        room_code: str,
+        player: PlayerState,
+    ) -> None:
+        """执行 AI 玩家发言。
+
+        Args:
+            room_code: 房间代码
+            player: AI 玩家状态
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return
+
+        agent = self._ai_agents.get(player.seat_number)
+        if not agent:
+            logger.warning(f"No AI agent found for seat {player.seat_number}")
+            return
+
+        alive_players = [p for p in game_state.players.values() if p.is_alive]
+
+        # B16/B18: 构建 AI 上下文
+        ai_context = self._build_ai_context(room_code, current_seat=player.seat_number)
+
+        # 更新 Agent 上下文
+        agent.update_context(
+            speeches=ai_context.get("current_round_speeches", []),
+            host_context=ai_context.get("host_context"),
+            game_state=ai_context,
+        )
+
+        # B18: 生成流式发言（使用增强的参数）
+        speech_stream = agent.generate_speech_stream(
+            game_state=ai_context,
+            previous_speeches=ai_context.get("today_speeches", []),
+            current_round_speeches=ai_context.get("current_round_speeches", []),
+            host_context=ai_context.get("host_context"),
+        )
+
+        # 流式广播发言
+        speech_content = await stream_ai_speech(
+            room_code=room_code,
+            speaker_seat=player.seat_number,
+            speaker_name=f"玩家{player.seat_number}",
+            speech_stream=speech_stream,
+        )
+
+        # 记录发言日志
+        self._add_game_log(
+            room_code=room_code,
+            log_type="speech",
+            content=speech_content,
+            player_name=f"玩家{player.seat_number}",
+            seat_number=player.seat_number,
+            is_public=True,
+        )
+
+        logger.debug(f"AI player {player.seat_number} speech completed in room {room_code}")
+
+    async def _handle_speech_end(
+        self,
+        room_code: str,
+        player: PlayerState,
+    ) -> None:
+        """处理发言结束（发送过渡公告）。
+
+        Args:
+            room_code: 房间代码
+            player: 刚完成发言的玩家
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return
+
+        player_name = f"玩家{player.seat_number}"
+
+        # 使用 AI Host 生成发言结束过渡公告
+        transition_content = await self.host.announce_player_speech_end(
+            seat_number=player.seat_number,
+            player_name=player_name,
+            stream=False,
+        )
+
+        # 广播发言结束事件
+        from src.websocket import broadcast_to_room
+
+        await broadcast_to_room(
+            room_code=room_code,
+            event="werewolf:speech_end",
+            data={
+                "seat_number": player.seat_number,
+                "player_name": player_name,
+                "announcement": transition_content,
+            },
+        )
+
+        # 清除当前发言者
+        game_state.current_speaker_seat = None
+
+        logger.debug(f"Speech end handled for player {player.seat_number} in room {room_code}")
+
+    # =========================================================================
+    # 玩家发言与上下文 (Phase 6: B15, B16)
+    # =========================================================================
+
+    async def process_player_speech(
+        self,
+        room_code: str,
+        player_id: str,
+        seat_number: int,
+        content: str,
+    ) -> bool:
+        """处理玩家发言。
+
+        流程：
+        1. 验证是否轮到该玩家发言
+        2. 创建 GameLogEntry 记录发言
+        3. 广播 werewolf:player_speech 事件
+        4. 设置 waiting_for_player_input = False
+        5. 触发发言等待的 Event
+
+        Args:
+            room_code: 房间代码
+            player_id: 玩家ID
+            seat_number: 玩家座位号
+            content: 发言内容
+
+        Returns:
+            是否成功处理发言
+
+        Raises:
+            NotFoundError: 游戏状态不存在
+            BadRequestError: 未轮到该玩家发言
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            raise NotFoundError(f"游戏状态不存在: {room_code}")
+
+        # 1. 验证是否轮到该玩家发言
+        if game_state.current_speaker_seat != seat_number:
+            raise BadRequestError(
+                f"当前不是{seat_number}号玩家的发言时间，当前发言者: {game_state.current_speaker_seat}"
+            )
+
+        if not game_state.waiting_for_player_input:
+            raise BadRequestError("系统未处于等待玩家发言状态")
+
+        # 2. 创建 GameLogEntry 记录发言
+        player_name = f"玩家{seat_number}"
+        self._add_game_log(
+            room_code=room_code,
+            log_type="speech",
+            content=content,
+            player_id=player_id,
+            player_name=player_name,
+            seat_number=seat_number,
+            is_public=True,
+        )
+
+        # 3. 广播 werewolf:player_speech 事件
+        from src.websocket import broadcast_to_room
+
+        await broadcast_to_room(
+            room_code=room_code,
+            event="werewolf:player_speech",
+            data={
+                "seat_number": seat_number,
+                "player_name": player_name,
+                "content": content,
+            },
+        )
+
+        # 4. 设置 waiting_for_player_input = False
+        game_state.waiting_for_player_input = False
+
+        # 5. 触发发言等待的 Event
+        if hasattr(game_state, "_speech_events"):
+            speech_event_data = game_state._speech_events.get(seat_number)
+            if speech_event_data:
+                # 存储发言内容
+                speech_event_data["content"].append(content)
+                # 触发事件
+                speech_event_data["event"].set()
+
+        logger.info(f"Processed speech from player {seat_number} in room {room_code}")
+
+        return True
+
+    def _build_ai_context(
+        self,
+        room_code: str,
+        current_seat: int | None = None,
+    ) -> dict:
+        """为 AI Agent 构建上下文。
+
+        内容包括：
+        - 游戏历史日志
+        - 当天所有公开发言
+        - 主持人公告摘要
+        - 存活玩家信息
+        - 本轮已有发言
+
+        Args:
+            room_code: 房间代码
+            current_seat: 当前请求上下文的玩家座位号（可选）
+
+        Returns:
+            结构化的上下文字典
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return {}
+
+        # 获取当天的公开发言
+        today_speeches = []
+        for log in game_state.game_logs:
+            if log.day == game_state.day_number and log.type == "speech" and log.is_public:
+                today_speeches.append({
+                    "seat_number": log.seat_number,
+                    "player_name": log.player_name or f"玩家{log.seat_number}",
+                    "content": log.content,
+                })
+
+        # 获取主持人公告摘要
+        host_announcements = []
+        for log in game_state.game_logs:
+            if log.type == "host_announcement" and log.is_public:
+                announcement_type = log.metadata.get("announcement_type", "") if log.metadata else ""
+                host_announcements.append({
+                    "type": announcement_type,
+                    "content": log.content[:100] + "..." if len(log.content) > 100 else log.content,
+                    "day": log.day,
+                })
+
+        # 获取存活玩家信息
+        alive_players = [
+            {
+                "seat_number": p.seat_number,
+                "player_name": f"玩家{p.seat_number}",
+            }
+            for p in game_state.players.values()
+            if p.is_alive
+        ]
+
+        # 获取死亡玩家信息
+        dead_players = [
+            {
+                "seat_number": p.seat_number,
+                "player_name": f"玩家{p.seat_number}",
+                "death_day": p.death_day,
+                "death_reason": p.death_reason,
+            }
+            for p in game_state.players.values()
+            if not p.is_alive
+        ]
+
+        # 获取本轮已有发言（当前座位号之前的）
+        current_round_speeches = []
+        if current_seat is not None:
+            for speech in today_speeches:
+                if speech["seat_number"] and speech["seat_number"] < current_seat:
+                    current_round_speeches.append(speech)
+
+        # 构建完整历史日志（用于AI决策）
+        game_history = []
+        for log in game_state.game_logs:
+            if log.is_public:
+                game_history.append({
+                    "day": log.day,
+                    "phase": log.phase,
+                    "type": log.type,
+                    "content": log.content,
+                    "seat_number": log.seat_number,
+                    "player_name": log.player_name,
+                })
+
+        return {
+            "day_number": game_state.day_number,
+            "phase": game_state.phase.value if game_state.phase else "unknown",
+            "alive_count": len(alive_players),
+            "alive_players": alive_players,
+            "dead_players": dead_players,
+            "today_speeches": today_speeches,
+            "current_round_speeches": current_round_speeches,
+            "host_announcements": host_announcements,
+            "game_history": game_history,
+            "host_context": self._build_host_context_summary(game_state),
+        }
+
+    def _build_host_context_summary(self, game_state: WerewolfGameState) -> str:
+        """构建主持人上下文摘要。
+
+        Args:
+            game_state: 游戏状态
+
+        Returns:
+            主持人上下文摘要文本
+        """
+        summary_parts = [
+            f"当前是第{game_state.day_number}天，{game_state.phase.value if game_state.phase else '未知'}阶段。",
+        ]
+
+        # 添加存活信息
+        alive_count = len([p for p in game_state.players.values() if p.is_alive])
+        summary_parts.append(f"场上还有{alive_count}名玩家存活。")
+
+        # 添加死亡信息
+        dead_players = [p for p in game_state.players.values() if not p.is_alive]
+        if dead_players:
+            dead_info = ", ".join([
+                f"{p.seat_number}号({p.death_reason or '未知原因'})"
+                for p in dead_players
+            ])
+            summary_parts.append(f"已出局玩家: {dead_info}。")
+
+        return " ".join(summary_parts)
+
     # =========================================================================
     # 辅助方法
     # =========================================================================
+
+    def _add_game_log(
+        self,
+        room_code: str,
+        log_type: str,
+        content: str,
+        player_id: str | None = None,
+        player_name: str | None = None,
+        seat_number: int | None = None,
+        metadata: dict | None = None,
+        is_public: bool = True,
+    ) -> GameLogEntry | None:
+        """添加游戏日志条目。
+
+        Args:
+            room_code: 房间代码
+            log_type: 日志类型 (speech, host_announcement, death, vote, skill)
+            content: 日志内容
+            player_id: 玩家ID（可选）
+            player_name: 玩家名称（可选）
+            seat_number: 座位号（可选）
+            metadata: 额外元数据（可选）
+            is_public: 是否公开（用于日志级别过滤）
+
+        Returns:
+            创建的日志条目，如果游戏状态不存在则返回 None
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return None
+
+        log_entry = GameLogEntry.create(
+            log_type=log_type,
+            content=content,
+            day=game_state.day_number,
+            phase=game_state.phase.value if game_state.phase else "unknown",
+            player_id=player_id,
+            player_name=player_name,
+            seat_number=seat_number,
+            metadata=metadata,
+            is_public=is_public,
+        )
+
+        game_state.game_logs.append(log_entry)
+        logger.debug(f"Added game log: [{log_type}] {content[:50]}...")
+
+        return log_entry
     
     def get_game_state(self, room_code: str) -> WerewolfGameState | None:
         """Get current game state."""

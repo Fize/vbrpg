@@ -10,19 +10,29 @@
         </el-tag>
       </div>
       <div class="game-controls">
-        <el-button v-if="isHost && !isPaused" size="small" text @click="handlePauseGame">
-          <el-icon><VideoPause /></el-icon>
-        </el-button>
-        <el-button v-if="isHost && isPaused" size="small" text @click="handleResumeGame">
-          <el-icon><VideoPlay /></el-icon>
-        </el-button>
+        <!-- 日志级别切换 -->
+        <LogLevelSwitch :show-label="true" />
+        
+        <!-- 游戏控制栏（房主可见） -->
+        <GameControlBar
+          v-if="isHost"
+          :is-started="gameStore.isStarted"
+          :is-paused="gameStore.isPaused"
+          :show-start="!gameStore.isStarted"
+          :show-pause="gameStore.isStarted && !gameStore.isPaused"
+          :show-resume="gameStore.isStarted && gameStore.isPaused"
+          @start="handleStartGame"
+          @pause="handlePauseGame"
+          @resume="handleResumeGame"
+        />
+        
         <el-button size="small" text @click="handleShowSettings">
           <el-icon><Setting /></el-icon>
         </el-button>
       </div>
     </div>
     
-    <!-- 主持人发言悬浮层 -->
+    <!-- 主持人发言悬浮层（保留原有组件） -->
     <div class="host-announcement-overlay" v-if="showHostAnnouncement">
       <HostAnnouncement
         :content="hostAnnouncementContent"
@@ -31,6 +41,16 @@
         :visible="showHostAnnouncement"
         :closable="!isHostStreaming"
         @close="handleCloseAnnouncement"
+      />
+    </div>
+    
+    <!-- 新增：持久主持人发言面板 -->
+    <div class="host-panel-container">
+      <HostAnnouncementPanel
+        :current-announcement="gameStore.hostAnnouncement?.content || ''"
+        :is-streaming="gameStore.hostAnnouncement?.isStreaming || false"
+        :announcement-history="gameStore.announcementHistory"
+        :visible="!!gameStore.hostAnnouncement?.content || gameStore.announcementHistory.length > 0"
       />
     </div>
     
@@ -108,11 +128,36 @@
             </div>
           </template>
         </SeatCircle>
+        
+        <!-- 新增：玩家发言气泡 -->
+        <SpeechBubble
+          v-for="bubble in gameStore.activeSpeechBubbles"
+          :key="bubble.seatNumber"
+          :seat-number="bubble.seatNumber"
+          :player-name="bubble.playerName"
+          :content="bubble.content"
+          :is-streaming="bubble.isStreaming"
+          :is-human="bubble.isHuman"
+          :visible="bubble.visible"
+          :position="calculateBubblePosition(bubble.seatNumber)"
+        />
       </div>
       
       <!-- 右侧日志面板 -->
       <div class="right-panel">
         <GameLog :logs="gameLogs" />
+        
+        <!-- 新增：玩家发言输入面板 -->
+        <PlayerInputPanel
+          v-if="!isSpectator"
+          :visible="showPlayerInput"
+          :is-my-turn="isMyTurnToSpeak"
+          :is-submitting="isSubmittingSpeech"
+          :allow-skip="false"
+          :max-length="500"
+          @submit="handleSubmitSpeech"
+          @skip="handleSkipSpeech"
+        />
       </div>
     </div>
     
@@ -155,6 +200,12 @@ import GameLog from '@/components/werewolf/GameLog.vue'
 import NightActionPanel from '@/components/werewolf/NightActionPanel.vue'
 import VotePanel from '@/components/werewolf/VotePanel.vue'
 import HostAnnouncement from '@/components/werewolf/HostAnnouncement.vue'
+// 新增组件
+import GameControlBar from '@/components/werewolf/GameControlBar.vue'
+import HostAnnouncementPanel from '@/components/werewolf/HostAnnouncementPanel.vue'
+import SpeechBubble from '@/components/werewolf/SpeechBubble.vue'
+import PlayerInputPanel from '@/components/werewolf/PlayerInputPanel.vue'
+import LogLevelSwitch from '@/components/werewolf/LogLevelSwitch.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -163,7 +214,6 @@ const socketStore = useSocketStore()
 
 // 状态
 const loading = ref(true)
-const isPaused = ref(false)
 const selectedPlayerId = ref(null)
 const showResultDialog = ref(false)
 
@@ -177,6 +227,10 @@ const isHostStreaming = ref(false)
 const voteCountdown = ref(0)
 const voteDisabled = ref(false)
 let voteCountdownTimer = null
+
+// 新增：发言状态
+const isSubmittingSpeech = ref(false)
+const showPlayerInput = ref(true)
 
 // 游戏模式
 const mode = computed(() => route.query.mode || 'player')
@@ -260,6 +314,14 @@ const canSelectPlayer = computed(() => {
 // 是否显示角色（单人模式始终显示，因为用户是观战者）
 const showRoles = computed(() => true)
 
+// 新增：是否轮到当前玩家发言
+const isMyTurnToSpeak = computed(() => {
+  const activeBubble = gameStore.activeSpeechBubbles.find(
+    b => b.seatNumber === gameStore.mySeatNumber && b.isHuman
+  )
+  return !!activeBubble?.awaitingInput
+})
+
 // 获取阵营名称
 function getTeamName(team) {
   switch (team) {
@@ -267,6 +329,30 @@ function getTeamName(team) {
     case 'villager': return '村民阵营'
     case 'god': return '神职阵营'
     default: return ''
+  }
+}
+
+// 新增：计算发言气泡位置（基于座位号）
+function calculateBubblePosition(seatNumber) {
+  // 10人局：座位1-10均匀分布在圆环上
+  const totalSeats = 10
+  const anglePerSeat = 360 / totalSeats
+  // 座位1在顶部，顺时针排列
+  const angle = (seatNumber - 1) * anglePerSeat - 90 // -90度使座位1在顶部
+  const radians = (angle * Math.PI) / 180
+  
+  // 气泡偏移量（相对于圆心）
+  const radius = 200 // 根据实际圆环大小调整
+  const bubbleOffset = 120 // 气泡距离座位的偏移
+  
+  const x = Math.cos(radians) * (radius + bubbleOffset)
+  const y = Math.sin(radians) * (radius + bubbleOffset)
+  
+  // 返回CSS位置
+  return {
+    top: `calc(50% + ${y}px)`,
+    left: `calc(50% + ${x}px)`,
+    transform: 'translate(-50%, -50%)'
   }
 }
 
@@ -477,10 +563,19 @@ function handleAbstain() {
   gameStore.setVote(null)
 }
 
+// 新增：开始游戏
+async function handleStartGame() {
+  try {
+    socketStore.startGame(roomCode.value)
+    ElMessage.success('游戏开始')
+  } catch (err) {
+    ElMessage.error('开始失败')
+  }
+}
+
 async function handlePauseGame() {
   try {
-    await roomsApi.pauseGame(roomCode.value)
-    isPaused.value = true
+    socketStore.pauseGame(roomCode.value)
     ElMessage.success('游戏已暂停')
   } catch (err) {
     ElMessage.error('暂停失败')
@@ -489,8 +584,7 @@ async function handlePauseGame() {
 
 async function handleResumeGame() {
   try {
-    await roomsApi.resumeGame(roomCode.value)
-    isPaused.value = false
+    socketStore.resumeGame(roomCode.value)
     ElMessage.success('游戏已恢复')
   } catch (err) {
     ElMessage.error('恢复失败')
@@ -502,8 +596,185 @@ function handleShowSettings() {
   ElMessage.info('设置功能开发中')
 }
 
+// 新增：提交发言
+async function handleSubmitSpeech(content) {
+  if (!content || isSubmittingSpeech.value) return
+  
+  isSubmittingSpeech.value = true
+  try {
+    socketStore.submitSpeech(roomCode.value, content)
+    ElMessage.success('发言已提交')
+  } catch (err) {
+    ElMessage.error('发言提交失败')
+  } finally {
+    isSubmittingSpeech.value = false
+  }
+}
+
+// 新增：跳过发言
+function handleSkipSpeech() {
+  socketStore.submitSpeech(roomCode.value, '')
+  ElMessage.info('已跳过发言')
+}
+
 function handleBackToLobby() {
   router.push('/lobby')
+}
+
+// ============ F37-F40: 断线重连恢复功能 ============
+
+/**
+ * F37: 重连后请求历史日志
+ */
+async function fetchHistoryLogs() {
+  try {
+    const response = await gamesApi.getGameLogs(roomCode.value, gameStore.logLevel)
+    return response.logs || []
+  } catch (err) {
+    console.error('获取历史日志失败:', err)
+    return []
+  }
+}
+
+/**
+ * F38: 历史日志回放到 store
+ */
+function replayHistoryLogs(logs) {
+  if (!logs || logs.length === 0) return
+  
+  // 清空当前日志
+  gameStore.clearGameLogs()
+  
+  // 按时间顺序添加历史日志
+  logs.forEach(log => {
+    gameStore.addGameLog({
+      id: log.id,
+      type: log.type,
+      content: log.content,
+      player_id: log.player_id,
+      player_name: log.player_name,
+      seat_number: log.seat_number,
+      day: log.day,
+      phase: log.phase,
+      time: log.time,
+      metadata: log.metadata,
+      is_public: log.is_public
+    })
+  })
+}
+
+/**
+ * F39: 从历史日志中恢复主持人公告
+ */
+function restoreHostAnnouncements(logs) {
+  if (!logs || logs.length === 0) return
+  
+  // 清空当前公告历史
+  gameStore.clearAnnouncementHistory()
+  
+  // 筛选主持人公告并恢复
+  const hostAnnouncements = logs.filter(log => log.type === 'host_announcement')
+  
+  hostAnnouncements.forEach(announcement => {
+    gameStore.addToAnnouncementHistory({
+      type: announcement.metadata?.announcement_type || 'general',
+      content: announcement.content,
+      time: announcement.time
+    })
+  })
+  
+  // 设置最新公告为当前公告（如果有）
+  if (hostAnnouncements.length > 0) {
+    const latest = hostAnnouncements[hostAnnouncements.length - 1]
+    gameStore.setHostAnnouncement({
+      type: latest.metadata?.announcement_type || 'general',
+      content: latest.content,
+      isStreaming: false
+    })
+  }
+}
+
+/**
+ * F40: 恢复当前游戏状态
+ */
+async function restoreCurrentState() {
+  try {
+    const state = await gamesApi.getCurrentState(roomCode.value)
+    
+    // 恢复游戏控制状态
+    if (state.is_started !== undefined) {
+      gameStore.setGameStarted(state.is_started)
+    }
+    if (state.is_paused !== undefined) {
+      gameStore.setGamePaused(state.is_paused)
+    }
+    
+    // 恢复游戏阶段
+    if (state.current_phase) {
+      gameStore.setCurrentPhase(state.current_phase)
+    }
+    if (state.day_number !== undefined) {
+      gameStore.setTurnNumber(state.day_number)
+    }
+    
+    // 恢复当前发言者
+    if (state.current_speaker_seat) {
+      gameStore.setCurrentSpeaker(
+        state.current_speaker_seat,
+        state.current_speaker_name,
+        state.waiting_for_human_input
+      )
+    }
+    
+    // 恢复玩家状态
+    if (state.players) {
+      const playerStates = {}
+      state.players.forEach(p => {
+        playerStates[p.id] = {
+          is_alive: p.is_alive,
+          role_name: p.role_name,
+          role_type: p.role_type,
+          role_revealed: p.role_revealed,
+          vote_count: p.vote_count || 0
+        }
+      })
+      gameStore.setPlayerStates(playerStates)
+    }
+    
+    return true
+  } catch (err) {
+    console.error('恢复游戏状态失败:', err)
+    return false
+  }
+}
+
+/**
+ * 处理重连事件
+ */
+async function handleReconnect() {
+  console.log('检测到重连，正在恢复游戏状态...')
+  
+  loading.value = true
+  try {
+    // F40: 先恢复当前状态
+    await restoreCurrentState()
+    
+    // F37: 获取历史日志
+    const logs = await fetchHistoryLogs()
+    
+    // F38: 回放历史日志
+    replayHistoryLogs(logs)
+    
+    // F39: 恢复主持人公告
+    restoreHostAnnouncements(logs)
+    
+    ElMessage.success('游戏状态已恢复')
+  } catch (err) {
+    console.error('重连恢复失败:', err)
+    ElMessage.warning('部分游戏状态恢复失败，请刷新页面')
+  } finally {
+    loading.value = false
+  }
 }
 
 // 监听游戏结束
@@ -520,6 +791,9 @@ onMounted(() => {
   if (!socketStore.isConnected) {
     socketStore.connect()
   }
+  
+  // F37-F40: 监听重连事件
+  socketStore.on('reconnect', handleReconnect)
 })
 
 onUnmounted(() => {
@@ -531,6 +805,7 @@ onUnmounted(() => {
   socketStore.off('game_state_update', handleGameStateUpdate)
   socketStore.off('game_ended', handleGameEnded)
   socketStore.off('game_log', handleGameLog)
+  socketStore.off('reconnect', handleReconnect)
   
   // 清理倒计时
   if (voteCountdownTimer) {
@@ -656,6 +931,16 @@ onUnmounted(() => {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }
+}
+
+/* 新增：持久主持人面板容器 */
+.host-panel-container {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  z-index: 900;
+  max-width: 360px;
+  width: 100%;
 }
 
 .game-main {

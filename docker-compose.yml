@@ -28,6 +28,8 @@ services:
     environment:
       - DATABASE_URL=mysql+aiomysql://vbrpg:${MYSQL_PASSWORD:-vbrpgpassword}@mysql:3306/vbrpg
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - AI_API_KEY=${AI_API_KEY}
+      - AI_API_BASE_URL=${AI_API_BASE_URL}
       - SECRET_KEY=${SECRET_KEY:-default-secret-key-change-in-production}
       - ENVIRONMENT=development
       - LOG_LEVEL=DEBUG
