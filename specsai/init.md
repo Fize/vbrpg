@@ -71,6 +71,7 @@ backend/
     │   ├── __init__.py
     │   ├── game_routes.py           # 游戏和房间 API 路由
     │   ├── user_routes.py           # 玩家和会话 API 路由
+    │   ├── werewolf_routes.py       # 狼人杀专用 API 路由
     │   ├── monitoring.py            # 监控和健康检查 API
     │   └── schemas.py               # Pydantic 请求/响应模型
     ├── constants/
@@ -84,15 +85,28 @@ backend/
     │   └── user.py                  # 用户相关模型 (Player, Session, etc.)
     ├── services/
     │   ├── __init__.py
-    │   ├── ai_service.py            # AI 代理服务与调度器（合并模块）
+    │   ├── ai_service.py            # AI 代理服务与调度器
     │   ├── game_room_service.py     # 游戏房间管理服务
     │   ├── game_state_service.py    # 游戏状态管理服务
     │   ├── player_service.py        # 玩家管理服务
+    │   ├── werewolf_game_service.py # 狼人杀游戏服务（流程控制与状态管理）
+    │   ├── ai_agents/               # AI 代理实现目录
+    │   │   ├── __init__.py
+    │   │   ├── base.py              # AI 代理基类
+    │   │   ├── werewolf_agent.py    # 狼人 AI 代理
+    │   │   ├── seer_agent.py        # 预言家 AI 代理
+    │   │   ├── witch_agent.py       # 女巫 AI 代理
+    │   │   ├── hunter_agent.py      # 猎人 AI 代理
+    │   │   ├── villager_agent.py    # 村民 AI 代理
+    │   │   ├── host/                # 主持人 AI 模块
+    │   │   └── prompts/             # AI Prompt 模板
     │   └── games/
     │       ├── __init__.py
-    │       └── crime_scene_engine.py # 犯罪现场游戏引擎
+    │       ├── crime_scene_engine.py # 犯罪现场游戏引擎
+    │       └── werewolf_engine.py    # 狼人杀游戏引擎（规则与状态机）
     ├── utils/
     │   ├── __init__.py
+    │   ├── ai_logger.py             # AI 专用日志工具
     │   ├── config.py                # 应用配置和中间件
     │   ├── errors.py                # 自定义异常类层次
     │   ├── helpers.py               # 房间码和用户名生成工具
@@ -106,7 +120,9 @@ backend/
     └── websocket/
         ├── __init__.py
         ├── server.py                # Socket.IO 服务器实例
-        └── handlers.py              # WebSocket 事件处理器
+        ├── sessions.py              # WebSocket 会话管理
+        ├── handlers.py              # 通用 WebSocket 事件处理器
+        └── werewolf_handlers.py     # 狼人杀专用 WebSocket 事件处理器
 
 frontend/
 ├── index.html                       # HTML 入口
@@ -178,6 +194,11 @@ frontend/
             ├── transitions.css      # 过渡动画
             ├── typography.css       # 排版样式
             └── interactive.css      # 交互样式
+
+scripts/
+├── deploy.sh                        # 部署脚本
+├── run-phase7-tests.sh              # Phase7 测试脚本
+└── smoke-tests.sh                   # 冒烟测试脚本
 ```
 
 ## 技术栈
@@ -186,38 +207,46 @@ frontend/
 - **Python 3.11+** - 后端主要语言
 - **FastAPI 0.109+** - 异步 Web 框架，提供 RESTful API
 - **SQLAlchemy 2.0+** - 异步 ORM，配合 aiomysql 使用 MySQL
-- **MySQL 8.0** - 关系型数据库
+- **MySQL 8.0** - 关系型数据库，用于持久化游戏状态和用户数据
 - **python-socketio 5.11+** - WebSocket 实时通信
-- **LangChain + OpenAI** - AI 决策生成
+- **LangChain 0.1+** - LLM 集成框架
+- **OpenAI 1.10+** - AI 决策生成
 - **Pydantic 2.5+** - 数据验证和序列化
-- **Vue 3.4+** - 前端响应式框架
+- **Vue 3.4+** - 前端响应式框架（Composition API）
 - **Element Plus 2.5+** - Vue 3 UI 组件库
 - **Pinia 2.1+** - Vue 状态管理
 - **Socket.IO Client 4.6+** - 前端 WebSocket 客户端
 - **Axios 1.6+** - HTTP 请求库
+- **Vue Router 4.2+** - 前端路由
 
 ### 开发工具
-- **uv / pip** - Python 依赖管理
-- **pnpm / npm** - Node.js 包管理
-- **Vite 5.0+** - 前端构建工具
+- **uv / pip** - Python 依赖管理（推荐使用 uv）
+- **pnpm / npm** - Node.js 包管理（推荐使用 pnpm）
+- **Vite 5.0+** - 前端构建工具和开发服务器
+- **Docker + Docker Compose** - 容器化部署
 - **pytest 7.4+** - Python 测试框架
-- **pytest-asyncio** - 异步测试支持
-- **pytest-cov** - 测试覆盖率
+- **pytest-asyncio 0.23+** - 异步测试支持
+- **pytest-cov 4.1+** - 测试覆盖率
 - **Vitest 1.2+** - 前端单元测试
-- **Playwright 1.41+** - E2E 测试
+- **Playwright 1.41+** - E2E 端到端测试
 - **Ruff 0.1+** - Python 代码检查和格式化
-- **ESLint + Prettier** - JavaScript 代码检查和格式化
+- **ESLint + Prettier** - JavaScript/Vue 代码检查和格式化
 - **Alembic 1.13+** - 数据库迁移工具
 
 ## 开发和使用指南
 
 ### 环境配置
 ```bash
-# 后端依赖安装
+# 后端依赖安装（推荐使用 uv）
 cd backend
 uv venv
 source .venv/bin/activate
 uv pip install -e ".[dev]"
+
+# 或使用 pip
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
 # 前端依赖安装
 cd frontend
@@ -228,6 +257,7 @@ OPENAI_API_KEY=your-api-key
 SECRET_KEY=your-secret-key
 DATABASE_URL=mysql+aiomysql://vbrpg:vbrpgpassword@localhost:3306/vbrpg
 CORS_ORIGINS=http://localhost:5173
+LOG_LEVEL=INFO
 ```
 
 ### 构建和运行
@@ -240,12 +270,16 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 cd frontend
 pnpm dev
 
-# Docker 一键启动
+# Docker 一键启动（推荐）
 docker-compose up -d
 
 # 数据库迁移
 cd backend
 alembic upgrade head
+
+# 前端构建生产版本
+cd frontend
+pnpm build
 ```
 
 ### 测试命令
@@ -267,16 +301,18 @@ pnpm test:coverage             # 带覆盖率报告
 ## 项目架构特点
 
 ### 设计模式
-- **分层架构**: API 层 → 服务层 → 数据访问层
+- **分层架构**: API 层 → 服务层 → 数据访问层，职责清晰分离
 - **服务模式**: 业务逻辑封装在 Service 类中，保持 API 路由简洁
 - **策略模式**: 游戏引擎可扩展支持多种桌游（犯罪现场、狼人杀等）
 - **观察者模式**: WebSocket 事件驱动的实时通信
 - **单例模式**: Socket.IO 服务器和 LLM 客户端实例
+- **工厂模式**: AI 代理根据角色类型动态创建
 
 ### 数据流设计
 - **请求流**: HTTP/WebSocket → 路由 → 服务 → 数据库
 - **状态管理**: 前端 Pinia 存储 + 后端 GameState 模型
 - **实时同步**: WebSocket 事件广播游戏状态变更
+- **流式输出**: AI 发言和主持人公告支持打字机效果
 - **缓存策略**: 内存回合锁防止并发冲突
 
 ### 错误处理
@@ -287,25 +323,29 @@ pnpm test:coverage             # 带覆盖率报告
 
 ## 安全考虑
 - **会话管理**: 基于 Session Middleware 的会话认证
-- **输入验证**: 输入清理（input_processing.py）防止注入攻击
+- **输入验证**: Pydantic 模型验证 + 输入清理（input_processing.py）防止注入攻击
 - **CORS 配置**: 限制跨域请求来源
-- **速率限制**: API 调用频率控制
+- **速率限制**: API 调用频率控制（rate_limiter.py）
+- **环境变量**: 敏感配置通过环境变量管理，不提交至代码库
 
 ## 性能优化
-- **异步 I/O**: 全异步数据库操作和 HTTP 处理
+- **异步 I/O**: 全异步数据库操作和 HTTP 处理（asyncio + aiomysql）
 - **连接池**: SQLAlchemy 异步会话管理
-- **WebSocket 复用**: 单连接多事件复用
+- **WebSocket 复用**: 单连接多事件复用，减少连接开销
+- **流式响应**: AI 生成内容流式输出，提升用户体验
 - **回合锁**: 防止游戏状态并发修改
 
 ## 扩展性设计
 - **游戏引擎插件**: 可添加新游戏引擎到 services/games/
+- **AI 代理扩展**: 可添加新角色代理到 services/ai_agents/
 - **静态数据配置**: 游戏类型和角色定义在 constants/ 目录，易于扩展
 - **AI 性格扩展**: 新增 AI 性格类型和决策策略
 - **多数据库支持**: 当前使用 MySQL，可通过 SQLAlchemy 切换到 PostgreSQL 等
 
 ## 部署和运维
-- **容器化**: Docker + Docker Compose 部署
+- **容器化**: Docker + Docker Compose 部署，支持一键启动
 - **环境分离**: 开发/生产环境变量配置
-- **数据持久化**: Docker Volume 存储数据库文件
+- **数据持久化**: Docker Volume 存储 MySQL 数据
 - **日志管理**: 结构化日志输出，支持日志收集
 - **健康检查**: /api/v1/health 端点供负载均衡器探测
+- **数据库迁移**: Alembic 管理数据库版本
