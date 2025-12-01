@@ -1,6 +1,6 @@
 /**
  * Pinia store for lobby/room state management
- * Handles room join/leave, participant updates, and ownership transfer
+ * 单人模式：管理房间状态和 AI 参与者
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
@@ -9,7 +9,6 @@ export const useLobbyStore = defineStore('lobby', () => {
   // State
   const currentRoom = ref(null)
   const participants = ref([])
-  const isOwner = ref(false)
 
   // Getters
   const participantCount = computed(() => {
@@ -29,11 +28,7 @@ export const useLobbyStore = defineStore('lobby', () => {
   })
 
   const aiAgents = computed(() => {
-    return participants.value.filter(p => p.participant_type === 'ai')
-  })
-
-  const humanPlayers = computed(() => {
-    return participants.value.filter(p => p.participant_type === 'human')
+    return participants.value.filter(p => p.participant_type === 'ai' || p.is_ai)
   })
 
   const roomCode = computed(() => {
@@ -52,13 +47,11 @@ export const useLobbyStore = defineStore('lobby', () => {
   function joinRoom(roomData) {
     currentRoom.value = roomData.room
     participants.value = roomData.participants || []
-    isOwner.value = roomData.is_owner || false
   }
 
   function leaveRoom() {
     currentRoom.value = null
     participants.value = []
-    isOwner.value = false
   }
 
   function addParticipant(participant) {
@@ -93,23 +86,6 @@ export const useLobbyStore = defineStore('lobby', () => {
     }
   }
 
-  function transferOwnership(newOwnerId, currentPlayerId = null) {
-    // Update all participants' is_owner flags
-    participants.value.forEach(p => {
-      p.is_owner = (p.id === newOwnerId)
-    })
-
-    // Update room owner_id if room exists
-    if (currentRoom.value) {
-      currentRoom.value.owner_id = newOwnerId
-    }
-
-    // Update isOwner flag if this affects current player
-    if (currentPlayerId) {
-      isOwner.value = (newOwnerId === currentPlayerId)
-    }
-  }
-
   function updateRoomStatus(status) {
     if (currentRoom.value) {
       currentRoom.value.status = status
@@ -128,14 +104,12 @@ export const useLobbyStore = defineStore('lobby', () => {
     // State
     currentRoom,
     participants,
-    isOwner,
     
     // Getters
     participantCount,
     hasCapacity,
     sortedParticipants,
     aiAgents,
-    humanPlayers,
     roomCode,
     isWaiting,
     isInProgress,
@@ -146,7 +120,6 @@ export const useLobbyStore = defineStore('lobby', () => {
     addParticipant,
     removeParticipant,
     updateParticipant,
-    transferOwnership,
     updateRoomStatus,
     setRoomData,
     setParticipants

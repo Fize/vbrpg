@@ -146,6 +146,79 @@ export const useSocketStore = defineStore('socket', () => {
     socket.value.emit(event, data)
   }
 
+  // ============ F8: 封装的游戏控制 emit 方法 ============
+
+  /**
+   * F8: 发送开始游戏事件
+   * @param {string} roomCode - 房间代码
+   * @param {string} playerId - 玩家ID（可选）
+   * @throws {Error} 连接断开时抛出异常
+   */
+  function startGame(roomCode, playerId = null) {
+    if (!socket.value?.connected) {
+      throw new Error('WebSocket 未连接，无法开始游戏')
+    }
+    socket.value.emit('werewolf_start_game', {
+      room_code: roomCode,
+      player_id: playerId
+    })
+  }
+
+  /**
+   * F8: 发送暂停游戏事件
+   * @param {string} roomCode - 房间代码
+   * @param {string} playerId - 玩家ID（可选）
+   * @throws {Error} 连接断开时抛出异常
+   */
+  function pauseGame(roomCode, playerId = null) {
+    if (!socket.value?.connected) {
+      throw new Error('WebSocket 未连接，无法暂停游戏')
+    }
+    socket.value.emit('werewolf_pause_game', {
+      room_code: roomCode,
+      player_id: playerId
+    })
+  }
+
+  /**
+   * F8: 发送继续游戏事件
+   * @param {string} roomCode - 房间代码
+   * @param {string} playerId - 玩家ID（可选）
+   * @throws {Error} 连接断开时抛出异常
+   */
+  function resumeGame(roomCode, playerId = null) {
+    if (!socket.value?.connected) {
+      throw new Error('WebSocket 未连接，无法继续游戏')
+    }
+    socket.value.emit('werewolf_resume_game', {
+      room_code: roomCode,
+      player_id: playerId
+    })
+  }
+
+  /**
+   * F8: 发送玩家发言事件
+   * @param {string} roomCode - 房间代码
+   * @param {string} playerId - 玩家ID
+   * @param {number} seatNumber - 座位号
+   * @param {string} content - 发言内容
+   * @throws {Error} 连接断开时或发言为空时抛出异常
+   */
+  function submitSpeech(roomCode, playerId, seatNumber, content) {
+    if (!socket.value?.connected) {
+      throw new Error('WebSocket 未连接，无法提交发言')
+    }
+    if (!content || !content.trim()) {
+      throw new Error('发言内容不能为空')
+    }
+    socket.value.emit('werewolf_player_speech', {
+      room_code: roomCode,
+      player_id: playerId,
+      seat_number: seatNumber,
+      content: content.trim()
+    })
+  }
+
   // Register event listener
   function on(event, callback) {
     if (!socket.value) {
@@ -212,8 +285,9 @@ export const useSocketStore = defineStore('socket', () => {
       })
     })
     
-    // 主持人发言开始
+    // 主持人发言开始 (F6: 流式公告)
     on('werewolf:host_announcement_start', (data) => {
+      gameStore.startHostAnnouncement(data.type, data.metadata || {})
       gameStore.addStreamingLog({
         type: 'host_announcement',
         player_id: 'host',
@@ -223,14 +297,129 @@ export const useSocketStore = defineStore('socket', () => {
       })
     })
     
-    // 主持人发言片段
+    // 主持人发言片段 (F6: 流式公告)
     on('werewolf:host_announcement_chunk', (data) => {
-      gameStore.updateStreamingLog('host', data.chunk)
+      gameStore.appendHostAnnouncementChunk(data.chunk)
+      gameStore.updateStreamingLog('host', gameStore.hostAnnouncement.content)
     })
     
-    // 主持人发言结束
+    // 主持人发言结束 (F6: 流式公告)
     on('werewolf:host_announcement_end', (data) => {
+      gameStore.endHostAnnouncement(data.content, data.metadata || {})
       gameStore.finalizeStreamingLog('host', data.content)
+    })
+  }
+
+  /**
+   * F5: 设置游戏控制相关的 WebSocket 事件监听
+   * @param {Object} gameStore - 游戏 store 实例
+   */
+  function setupGameControlHandlers(gameStore) {
+    // 游戏开始
+    on('werewolf:game_starting', (data) => {
+      console.log('Game starting:', data)
+    })
+    
+    on('werewolf:game_started', (data) => {
+      gameStore.setGameStarted(true)
+      gameStore.addGameLog({
+        type: 'system',
+        content: '游戏已开始',
+        announcement_type: 'game_start'
+      })
+    })
+    
+    // 游戏暂停
+    on('werewolf:game_paused', (data) => {
+      gameStore.setGamePaused(true)
+      gameStore.addGameLog({
+        type: 'system',
+        content: data.message || '游戏已暂停',
+        announcement_type: 'game_paused'
+      })
+    })
+    
+    // 游戏继续
+    on('werewolf:game_resumed', (data) => {
+      gameStore.setGamePaused(false)
+      gameStore.addGameLog({
+        type: 'system',
+        content: data.message || '游戏继续',
+        announcement_type: 'game_resumed'
+      })
+    })
+  }
+
+  /**
+   * F7: 设置发言相关的 WebSocket 事件监听
+   * @param {Object} gameStore - 游戏 store 实例
+   */
+  function setupSpeechHandlers(gameStore) {
+    // 点名发言 (F8: request_speech)
+    on('werewolf:request_speech', (data) => {
+      gameStore.setCurrentSpeaker(data.seat_number, data.player_name, data.is_human)
+      
+      // 如果是人类玩家被点名，设置等待输入状态
+      if (data.is_human) {
+        gameStore.setWaitingForInput(true)
+      }
+      
+      // 开始发言气泡
+      gameStore.startSpeechBubble(data.seat_number, data.player_name)
+      
+      gameStore.addGameLog({
+        type: 'host_announcement',
+        content: data.announcement,
+        announcement_type: 'request_speech',
+        metadata: { seat_number: data.seat_number }
+      })
+    })
+    
+    // 发言提醒 (F8: speech_reminder)
+    on('werewolf:speech_reminder', (data) => {
+      gameStore.addGameLog({
+        type: 'system',
+        content: data.message,
+        announcement_type: 'speech_reminder',
+        metadata: { 
+          seat_number: data.seat_number,
+          reminder_count: data.reminder_count 
+        }
+      })
+    })
+    
+    // 发言已收到确认
+    on('werewolf:speech_received', (data) => {
+      gameStore.setWaitingForInput(false)
+    })
+    
+    // 玩家发言 (广播)
+    on('werewolf:player_speech', (data) => {
+      // 更新发言气泡
+      if (gameStore.activeSpeechBubbles[data.seat_number]) {
+        gameStore.endSpeechBubble(data.seat_number, data.content)
+      }
+      
+      gameStore.addGameLog({
+        type: 'speech',
+        player_id: `seat_${data.seat_number}`,
+        player_name: data.player_name,
+        content: data.content
+      })
+    })
+    
+    // 发言结束 (F8: speech_end)
+    on('werewolf:speech_end', (data) => {
+      gameStore.clearCurrentSpeaker()
+      gameStore.clearSpeechBubble(data.seat_number)
+      
+      if (data.announcement) {
+        gameStore.addGameLog({
+          type: 'host_announcement',
+          content: data.announcement,
+          announcement_type: 'speech_end_transition'
+        })
+      }
     })
   }
 
@@ -250,11 +439,15 @@ export const useSocketStore = defineStore('socket', () => {
       if (data.day_number !== undefined) {
         gameStore.updateGameState({ dayNumber: data.day_number })
       }
+      // 阶段变化时清除所有发言气泡
+      gameStore.clearAllSpeechBubbles()
     })
     
-    // 玩家发言开始
+    // AI 玩家发言开始 (F7: 发言气泡)
     on('werewolf:speech_start', (data) => {
       gameStore.setSpeakingPlayer(data.speaker_seat)
+      // 开始发言气泡流式显示
+      gameStore.startSpeechBubble(data.speaker_seat, data.speaker_name)
       gameStore.addStreamingLog({
         type: 'speech',
         player_id: `seat_${data.speaker_seat}`,
@@ -263,13 +456,18 @@ export const useSocketStore = defineStore('socket', () => {
       })
     })
     
-    // 玩家发言片段
+    // AI 玩家发言片段 (F7: 发言气泡)
     on('werewolf:speech_chunk', (data) => {
-      gameStore.updateStreamingLog(`seat_${data.speaker_seat}`, data.chunk)
+      // 更新发言气泡内容
+      gameStore.appendSpeechBubbleChunk(data.speaker_seat, data.chunk)
+      gameStore.updateStreamingLog(`seat_${data.speaker_seat}`, 
+        gameStore.activeSpeechBubbles[data.speaker_seat]?.content || data.chunk)
     })
     
-    // 玩家发言结束
+    // AI 玩家发言结束 (F7: 发言气泡)
     on('werewolf:speech_end', (data) => {
+      // 结束发言气泡（5秒后自动消失）
+      gameStore.endSpeechBubble(data.speaker_seat, data.content)
       gameStore.finalizeStreamingLog(`seat_${data.speaker_seat}`, data.content)
       gameStore.setSpeakingPlayer(null)
     })
@@ -370,7 +568,15 @@ export const useSocketStore = defineStore('socket', () => {
     off,
     clearListeners,
     setupHostHandlers,
+    setupGameControlHandlers,  // F5: 游戏控制事件
+    setupSpeechHandlers,       // F7-F8: 发言相关事件
     setupWerewolfHandlers,
-    reset
+    reset,
+    
+    // F8: 封装的游戏控制方法
+    startGame,
+    pauseGame,
+    resumeGame,
+    submitSpeech
   }
 })

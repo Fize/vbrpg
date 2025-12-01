@@ -134,6 +134,21 @@ A multiplayer web-based platform for playing Crime Scene tabletop games with fri
 ### Project Structure
 
 ```
+
+### Quick connectivity test (Deepseek / OpenAI-compatible providers)
+
+From the `backend/` directory you can run a quick connectivity check to verify your configured API key and base URL:
+
+```bash
+# set (or export) these in your environment / .env
+export AI_API_KEY="sk-your-deepseek-key"
+export AI_API_BASE_URL="https://api.deepseek.example"
+
+# run the connectivity test script
+python3 scripts/test_deepseek_llm.py
+```
+
+The script will send a trivial prompt and print the response. If it fails, check your `AI_API_KEY` and `AI_API_BASE_URL` values.
 vbrpg/
 ├── backend/
 │   ├── src/
@@ -241,7 +256,11 @@ Create `backend/.env`:
 
 ```env
 # LLM Configuration
-OPENAI_API_KEY=your_openai_api_key_here
+# Preferred (new) settings for AI provider: use AI_API_KEY and AI_API_BASE_URL
+# AI_API_KEY is the primary key used by the backend; it falls back to OPENAI_API_KEY for compatibility.
+AI_API_KEY=your_openai_or_deepseek_api_key_here
+AI_API_BASE_URL=            # Optional: custom API base URL for OpenAI-compatible providers (e.g. Deepseek)
+OPENAI_API_KEY=your_openai_api_key_here  # optional fallback for backward compatibility
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 LLM_PROVIDER=openai  # or "anthropic"
 LLM_MODEL=gpt-4      # or "claude-3-opus-20240229"

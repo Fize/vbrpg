@@ -21,6 +21,12 @@ disconnected_players: dict[str, dict[str, Any]] = {}
 # Reconnection grace period (5 minutes)
 RECONNECTION_GRACE_PERIOD = timedelta(minutes=5)
 
+# Room connection tracking: {room_code: {"connections": set[sid], "cleanup_task": asyncio.Task | None}}
+room_connections: dict[str, dict[str, Any]] = {}
+
+# Room idle timeout (5 minutes) - cleanup room if no connections
+ROOM_IDLE_TIMEOUT = timedelta(minutes=5)
+
 
 @sio.event
 async def connect(sid: str, environ: dict, auth: dict | None = None):
@@ -51,6 +57,9 @@ async def connect(sid: str, environ: dict, auth: dict | None = None):
 
                 # Rejoin room
                 await sio.enter_room(sid, room_code)
+                
+                # Track room connection (cancels cleanup if pending)
+                track_room_connection(room_code, sid)
 
                 # Notify successful reconnection
                 await sio.emit(
@@ -90,7 +99,7 @@ async def connect(sid: str, environ: dict, auth: dict | None = None):
                 await sio.emit(
                     "reconnection_failed",
                     {
-                        "message": "重连超时，您已被AI替代",
+                        "message": "重连超时，房间可能已被清理",
                         "reason": "timeout"
                     },
                     room=sid
@@ -106,6 +115,9 @@ async def disconnect(sid: str):
 
     # Get player info before cleanup
     player_id = user_sessions.get(sid)
+    
+    # Track which rooms this sid was connected to (for room cleanup)
+    rooms_to_untrack = []
 
     if player_id:
         # Find which room(s) the player was in
@@ -128,6 +140,7 @@ async def disconnect(sid: str):
                 # Start reconnection grace period for each active game
                 for participant, room in participants_rooms:
                     room_code = room.code
+                    rooms_to_untrack.append(room_code)
 
                     # Cancel any existing timeout task
                     if player_id in disconnected_players:
@@ -173,12 +186,25 @@ async def disconnect(sid: str):
         # Clean up session
         user_sessions.pop(sid, None)
         logger.info(f"User {player_id} session cleaned up")
+    
+    # Untrack room connections for all rooms this sid was in
+    # This will start cleanup timers if no connections remain
+    for room_code in rooms_to_untrack:
+        untrack_room_connection(room_code, sid)
+    
+    # Also check all tracked rooms for this sid (in case player joined via join_room/join_lobby)
+    for room_code, room_info in list(room_connections.items()):
+        if sid in room_info.get("connections", set()):
+            untrack_room_connection(room_code, sid)
 
 
 async def handle_reconnection_timeout(player_id: str, room_code: str):
     """
     Handle timeout after reconnection grace period expires.
-    Replace player with AI if they don't reconnect within 5 minutes.
+    
+    Note: We no longer replace players with AI. Instead, we just clean up
+    the disconnection record. Room cleanup is handled separately by
+    handle_room_idle_timeout when no connections remain.
     """
     try:
         # Wait for grace period
@@ -189,46 +215,141 @@ async def handle_reconnection_timeout(player_id: str, room_code: str):
             logger.info(f"Player {player_id} reconnected before timeout")
             return
 
-        logger.warning(
+        logger.info(
             f"Player {player_id} did not reconnect to room {room_code}. "
-            f"Replacing with AI..."
+            f"Player disconnection record cleaned up."
         )
 
-        # Replace player with AI
-        from src.database import get_db
-
-        async for db in get_db():
-            try:
-                game_room_service = GameRoomService(db)
-
-                # Replace player with AI
-                await game_room_service.replace_player_with_ai(room_code, player_id)
-
-                # Broadcast replacement
-                await sio.emit(
-                    "player_replaced_by_ai",
-                    {
-                        "player_id": player_id,
-                        "room_code": room_code,
-                        "message": "玩家长时间未重连，已被AI替代"
-                    },
-                    room=room_code
-                )
-
-                logger.info(f"Player {player_id} replaced with AI in room {room_code}")
-
-            except Exception as e:
-                logger.error(f"Error replacing player {player_id} with AI: {e}")
-            finally:
-                break
-
-        # Clean up disconnection record
+        # Clean up disconnection record (no AI replacement)
         disconnected_players.pop(player_id, None)
 
     except asyncio.CancelledError:
         logger.info(f"Reconnection timeout cancelled for player {player_id}")
     except Exception as e:
         logger.error(f"Error in reconnection timeout handler: {e}")
+
+
+async def handle_room_idle_timeout(room_code: str):
+    """
+    Handle room idle timeout.
+    
+    If no connections remain in the room after 5 minutes, clean up the room data.
+    This includes:
+    - Removing the game service from memory (_game_services)
+    - Optionally updating database room status
+    - Broadcasting room_dissolved event (in case of any remaining listeners)
+    """
+    try:
+        # Wait for idle timeout
+        await asyncio.sleep(ROOM_IDLE_TIMEOUT.total_seconds())
+
+        # Check if room still has no connections
+        room_info = room_connections.get(room_code)
+        if room_info and len(room_info.get("connections", set())) > 0:
+            logger.info(f"Room {room_code} has active connections, skipping cleanup")
+            return
+
+        logger.info(f"Room {room_code} idle timeout expired, cleaning up room data...")
+
+        # Clean up werewolf game service (in-memory)
+        try:
+            from src.api.werewolf_routes import _game_services
+            if room_code in _game_services:
+                service = _game_services.pop(room_code)
+                # Call cleanup if available
+                if hasattr(service, '_cleanup_game'):
+                    service._cleanup_game(room_code)
+                logger.info(f"Removed game service for room {room_code}")
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.error(f"Error cleaning up game service for room {room_code}: {e}")
+
+        # Update database room status
+        from src.database import get_db
+
+        async for db in get_db():
+            try:
+                result = await db.execute(
+                    select(GameRoom).where(GameRoom.code == room_code)
+                )
+                room = result.scalar_one_or_none()
+
+                if room and room.status not in ("Completed", "Abandoned"):
+                    room.status = "Abandoned"
+                    room.completed_at = datetime.utcnow()
+                    await db.commit()
+                    logger.info(f"Room {room_code} marked as Abandoned in database")
+
+            except Exception as e:
+                logger.error(f"Error updating room {room_code} status: {e}")
+            finally:
+                break
+
+        # Broadcast room dissolved (for any remaining listeners)
+        await broadcast_room_dissolved(
+            room_code=room_code,
+            reason="房间空闲超时，已自动清理"
+        )
+
+        # Clean up room connection tracking
+        room_connections.pop(room_code, None)
+
+        logger.info(f"Room {room_code} cleanup completed")
+
+    except asyncio.CancelledError:
+        logger.info(f"Room idle timeout cancelled for room {room_code}")
+    except Exception as e:
+        logger.error(f"Error in room idle timeout handler for {room_code}: {e}")
+
+
+def track_room_connection(room_code: str, sid: str):
+    """
+    Track a new connection to a room.
+    Cancels any pending cleanup task.
+    """
+    if room_code not in room_connections:
+        room_connections[room_code] = {"connections": set(), "cleanup_task": None}
+    
+    room_info = room_connections[room_code]
+    room_info["connections"].add(sid)
+    
+    # Cancel any pending cleanup task
+    cleanup_task = room_info.get("cleanup_task")
+    if cleanup_task and not cleanup_task.done():
+        cleanup_task.cancel()
+        room_info["cleanup_task"] = None
+        logger.info(f"Cancelled cleanup task for room {room_code} due to new connection")
+
+
+def untrack_room_connection(room_code: str, sid: str):
+    """
+    Remove a connection from room tracking.
+    Starts cleanup task if no connections remain.
+    """
+    room_info = room_connections.get(room_code)
+    if not room_info:
+        return
+    
+    room_info["connections"].discard(sid)
+    
+    # If no connections remain, start cleanup timer
+    if len(room_info["connections"]) == 0:
+        # Cancel any existing cleanup task
+        old_task = room_info.get("cleanup_task")
+        if old_task and not old_task.done():
+            old_task.cancel()
+        
+        # Start new cleanup task
+        cleanup_task = asyncio.create_task(
+            handle_room_idle_timeout(room_code)
+        )
+        room_info["cleanup_task"] = cleanup_task
+        
+        logger.info(
+            f"Room {room_code} has no connections. "
+            f"Cleanup scheduled in {ROOM_IDLE_TIMEOUT.total_seconds()} seconds"
+        )
 
 
 @sio.event
@@ -238,27 +359,31 @@ async def join_room(sid: str, data: dict, callback=None):
     
     Args:
         sid: Socket session ID
-        data: {"room_code": str, "player_id": str}
+        data: {"room_code": str, "player_id": str (optional for spectators)}
         callback: Optional callback function
     """
     try:
         room_code = data.get("room_code")
         player_id = data.get("player_id")
 
-        if not room_code or not player_id:
+        if not room_code:
             await sio.emit(
                 "error",
-                {"message": "room_code and player_id are required"},
+                {"message": "room_code is required"},
                 room=sid
             )
             return
 
-        # Store player session
-        user_sessions[sid] = player_id
+        # Store player session (use sid as fallback for spectators)
+        user_sessions[sid] = player_id or f"spectator_{sid}"
 
         # Add socket to room
         await sio.enter_room(sid, room_code)
-        logger.info(f"Player {player_id} joined WebSocket room {room_code}")
+        
+        # Track room connection (cancels cleanup if pending)
+        track_room_connection(room_code, sid)
+        
+        logger.info(f"Client {player_id or 'spectator'} joined WebSocket room {room_code}")
 
         # Send confirmation to the player
         await sio.emit(
@@ -344,6 +469,10 @@ async def join_lobby(sid: str, data: dict, callback=None):
 
                 # Subscribe to lobby room
                 await sio.enter_room(sid, room_code)
+                
+                # Track room connection (cancels cleanup if pending)
+                track_room_connection(room_code, sid)
+                
                 logger.info(f"Player {player_id} subscribed to lobby:{room_code}")
 
                 # Send confirmation
@@ -400,6 +529,10 @@ async def leave_room(sid: str, data: dict, callback=None):
 
         # Remove socket from room
         await sio.leave_room(sid, room_code)
+        
+        # Untrack room connection (may start cleanup timer)
+        untrack_room_connection(room_code, sid)
+        
         logger.info(f"Player {player_id} left WebSocket room {room_code}")
 
         # Clean up session if this was their last room
@@ -451,6 +584,10 @@ async def leave_lobby(sid: str, data: dict, callback=None):
 
         # Unsubscribe from lobby room
         await sio.leave_room(sid, room_code)
+        
+        # Untrack room connection (may start cleanup timer)
+        untrack_room_connection(room_code, sid)
+        
         logger.info(f"Player {player_id} unsubscribed from lobby:{room_code}")
 
         # Send confirmation

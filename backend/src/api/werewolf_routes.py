@@ -17,6 +17,10 @@ from src.api.schemas import (
     WerewolfActionRequest,
     WerewolfActionResponse,
     WerewolfPlayerInfo,
+    GameLogEntryResponse,
+    GameLogListResponse,
+    GameControlRequest,
+    GameControlResponse,
 )
 from src.database import get_db
 from src.services.werewolf_game_service import WerewolfGameService
@@ -58,9 +62,64 @@ async def quick_start_game(
     Returns:
         初始游戏状态
     """
+    from src.models.game import GameRoom, GameRoomParticipant
+    from src.models.user import Player
+    
     try:
         # Generate a unique room code
         room_code = f"WW-{str(uuid4())[:8].upper()}"
+        
+        # 创建数据库房间记录
+        room = GameRoom(
+            code=room_code,
+            game_type_id="werewolf",
+            status="Waiting",
+            max_players=10,
+            min_players=10,
+            user_role="spectator" if request.preferred_role is None else "player",
+            is_spectator_mode=request.preferred_role is None,
+        )
+        db.add(room)
+        await db.flush()
+        
+        # 创建人类玩家记录
+        human_player = Player(
+            id=request.player_id,
+            username=f"玩家_{request.player_id[:8]}",
+            is_guest=True,
+        )
+        db.add(human_player)
+        await db.flush()
+        
+        # 创建人类参与者记录
+        human_participant = GameRoomParticipant(
+            game_room_id=room.id,
+            player_id=human_player.id,
+            is_ai_agent=False,
+            is_owner=True,  # 单人模式下，唯一的人类玩家就是房主
+        )
+        db.add(human_participant)
+        
+        # 创建 9 个 AI 参与者记录
+        for i in range(9):
+            ai_player = Player(
+                username=f"AI玩家{i + 1}",
+                is_guest=True,
+            )
+            db.add(ai_player)
+            await db.flush()
+            
+            ai_participant = GameRoomParticipant(
+                game_room_id=room.id,
+                player_id=ai_player.id,
+                is_ai_agent=True,
+                ai_personality="balanced",
+            )
+            db.add(ai_participant)
+        
+        room.current_participant_count = 10
+        await db.commit()
+        await db.refresh(room, ["participants"])
         
         # Create service and start game
         service = WerewolfGameService(db)
@@ -284,4 +343,135 @@ async def get_player_role(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Error getting player role: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# B24: 游戏日志 API
+# =============================================================================
+
+@router.get("/rooms/{room_code}/logs", response_model=GameLogListResponse)
+async def get_game_logs(
+    room_code: str,
+    level: str = "basic",
+    db: AsyncSession = Depends(get_db)
+):
+    """获取游戏日志。
+    
+    返回游戏过程中的所有日志条目，支持按级别过滤。
+    
+    Args:
+        room_code: 房间代码
+        level: 日志级别 (basic | detailed)
+            - basic: 仅返回公开日志（发言、主持人公告、死亡）
+            - detailed: 返回所有日志（包括系统日志和私密信息）
+        
+    Returns:
+        日志列表
+    """
+    try:
+        service = _game_services.get(room_code)
+        if not service:
+            raise NotFoundError(f"Game not found for room {room_code}")
+        
+        game_state = service.get_game_state(room_code)
+        if not game_state:
+            raise NotFoundError(f"Game state not found for room {room_code}")
+        
+        # 获取日志
+        all_logs = game_state.game_logs if hasattr(game_state, "game_logs") else []
+        
+        # 根据级别过滤
+        if level == "basic":
+            # 仅返回公开日志
+            filtered_logs = [log for log in all_logs if log.is_public]
+        else:
+            # 返回所有日志
+            filtered_logs = all_logs
+        
+        # 转换为响应格式
+        log_entries = [
+            GameLogEntryResponse(
+                id=log.id,
+                type=log.type,
+                content=log.content,
+                day=log.day,
+                phase=log.phase,
+                time=log.time,
+                player_id=log.player_id,
+                player_name=log.player_name,
+                seat_number=log.seat_number,
+                metadata=log.metadata,
+                is_public=log.is_public,
+            )
+            for log in filtered_logs
+        ]
+        
+        return GameLogListResponse(
+            room_code=room_code,
+            day_number=game_state.day_number,
+            phase=game_state.phase.value if game_state.phase else "unknown",
+            logs=log_entries,
+            total=len(log_entries),
+            level=level,
+        )
+        
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting game logs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/rooms/{room_code}/control", response_model=GameControlResponse)
+async def control_game(
+    room_code: str,
+    request: GameControlRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """游戏控制（开始/暂停/继续）。
+    
+    Args:
+        room_code: 房间代码
+        request: 控制请求
+            - action: start | pause | resume
+            - player_id: 操作玩家ID（可选）
+        
+    Returns:
+        控制结果
+    """
+    try:
+        service = _game_services.get(room_code)
+        if not service:
+            raise NotFoundError(f"Game not found for room {room_code}")
+        
+        action = request.action.lower()
+        
+        if action == "start":
+            await service.start_game_manual(room_code)
+            message = "游戏已开始"
+        elif action == "pause":
+            await service.pause_game(room_code)
+            message = "游戏已暂停"
+        elif action == "resume":
+            await service.resume_game(room_code)
+            message = "游戏已继续"
+        else:
+            raise BadRequestError(f"未知的操作: {action}")
+        
+        game_state = service.get_game_state(room_code)
+        status = "paused" if (game_state and game_state.is_paused) else "running"
+        
+        return GameControlResponse(
+            room_code=room_code,
+            status=status,
+            message=message,
+        )
+        
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except BadRequestError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error controlling game: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
