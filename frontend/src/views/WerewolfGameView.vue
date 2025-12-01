@@ -18,9 +18,7 @@
           v-if="isHost"
           :is-started="gameStore.isStarted"
           :is-paused="gameStore.isPaused"
-          :show-start="!gameStore.isStarted"
-          :show-pause="gameStore.isStarted && !gameStore.isPaused"
-          :show-resume="gameStore.isStarted && gameStore.isPaused"
+          :is-spectator="isSpectator"
           @start="handleStartGame"
           @pause="handlePauseGame"
           @resume="handleResumeGame"
@@ -240,7 +238,14 @@ const roomCode = computed(() => route.params.code)
 const myPlayerId = computed(() => gameStore.myPlayerId)
 const myRole = computed(() => gameStore.myRole)
 const isSpectator = computed(() => gameStore.isSpectator || mode.value === 'spectator')
-const isHost = computed(() => gameStore.isHost)
+// 单人模式下，玩家始终是房主
+const isHost = computed(() => gameStore.isHost || isSinglePlayerMode.value)
+const isSinglePlayerMode = computed(() => {
+  // 单人模式：所有其他玩家都是AI
+  const participants = gameStore.participants || []
+  const humanCount = participants.filter(p => !p.is_ai).length
+  return humanCount <= 1
+})
 const currentPhase = computed(() => gameStore.currentPhase || 'night')
 const subPhase = computed(() => gameStore.subPhase)
 const dayNumber = computed(() => gameStore.dayNumber)
@@ -378,11 +383,17 @@ async function loadGameState() {
     const room = await roomsApi.getRoom(roomCode.value)
     gameStore.setCurrentRoom(room)
     
-    // 检查游戏状态
-    if (room.status !== 'In Progress') {
-      ElMessage.warning('游戏尚未开始或已结束')
+    // 检查游戏状态 - 允许 Waiting 和 In Progress 状态
+    if (room.status === 'Completed' || room.status === 'Dissolved') {
+      ElMessage.warning('游戏已结束')
       router.push(`/room/${roomCode.value}`)
       return
+    }
+    
+    // 如果游戏尚未开始，设置初始状态但不跳转
+    if (room.status === 'Waiting') {
+      gameStore.setGameStarted(false)
+      // 继续加载，允许用户在此页面开始游戏
     }
     
     // 设置观战模式
