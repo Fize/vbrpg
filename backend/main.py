@@ -10,6 +10,9 @@ from src.utils.config import settings, HealthResponse
 from src.utils.logging_config import setup_logging
 from src.websocket.server import sio
 
+# Initialize logging immediately on import
+setup_logging()
+
 # Import all models to ensure relationships are properly configured
 import src.models  # noqa: F401
 
@@ -18,7 +21,6 @@ import src.models  # noqa: F401
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
-    setup_logging()
     await init_db()
     yield
     # Shutdown

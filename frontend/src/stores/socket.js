@@ -197,6 +197,23 @@ export const useSocketStore = defineStore('socket', () => {
   }
 
   /**
+   * 发送离开狼人杀房间事件，停止游戏并清理资源
+   * @param {string} roomCode - 房间代码
+   * @param {string} playerId - 玩家ID（可选）
+   */
+  function leaveWerewolfRoom(roomCode, playerId = null) {
+    if (!socket.value?.connected) {
+      console.warn('WebSocket 未连接，无法发送离开房间事件')
+      return
+    }
+    socket.value.emit('werewolf_leave_room', {
+      room_code: roomCode,
+      player_id: playerId
+    })
+    console.log('Sent werewolf_leave_room event for room:', roomCode)
+  }
+
+  /**
    * F8: 发送玩家发言事件
    * @param {string} roomCode - 房间代码
    * @param {string} playerId - 玩家ID
@@ -283,6 +300,11 @@ export const useSocketStore = defineStore('socket', () => {
         content: data.content,
         announcement_type: data.type
       })
+      
+      // 处理死亡公告
+      if (data.type === 'death' && data.metadata && data.metadata.seat_number) {
+        gameStore.setPlayerDeadBySeat(data.metadata.seat_number)
+      }
     })
     
     // 主持人发言开始 (F6: 流式公告)
@@ -307,6 +329,13 @@ export const useSocketStore = defineStore('socket', () => {
     on('werewolf:host_announcement_end', (data) => {
       gameStore.endHostAnnouncement(data.content, data.metadata || {})
       gameStore.finalizeStreamingLog('host', data.content)
+      
+      // 处理死亡玩家信息（从dawn公告的metadata中获取）
+      if (data.metadata && data.metadata.dead_players) {
+        data.metadata.dead_players.forEach(p => {
+          gameStore.setPlayerDeadBySeat(p.seat_number)
+        })
+      }
     })
   }
 
@@ -431,6 +460,12 @@ export const useSocketStore = defineStore('socket', () => {
     // 游戏状态更新
     on('werewolf:game_state', (data) => {
       gameStore.updateGameState(data)
+      // 更新死亡玩家状态
+      if (data.dead_players && data.dead_players.length > 0) {
+        data.dead_players.forEach(p => {
+          gameStore.setPlayerDeadBySeat(p.seat_number)
+        })
+      }
     })
     
     // 游戏阶段变化
@@ -502,6 +537,8 @@ export const useSocketStore = defineStore('socket', () => {
     on('werewolf:vote_result', (data) => {
       gameStore.updateVoteResults(data.vote_counts)
       if (data.eliminated_seat) {
+        // 标记被放逐玩家为死亡状态
+        gameStore.setPlayerDeadBySeat(data.eliminated_seat)
         gameStore.addGameLog({
           type: 'vote_result',
           eliminated_seat: data.eliminated_seat,
@@ -577,6 +614,7 @@ export const useSocketStore = defineStore('socket', () => {
     startGame,
     pauseGame,
     resumeGame,
+    leaveWerewolfRoom,
     submitSpeech
   }
 })

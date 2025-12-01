@@ -30,18 +30,6 @@
       </div>
     </div>
     
-    <!-- 主持人发言悬浮层（保留原有组件） -->
-    <div class="host-announcement-overlay" v-if="showHostAnnouncement">
-      <HostAnnouncement
-        :content="hostAnnouncementContent"
-        :is-streaming="isHostStreaming"
-        :announcement-type="hostAnnouncementType"
-        :visible="showHostAnnouncement"
-        :closable="!isHostStreaming"
-        @close="handleCloseAnnouncement"
-      />
-    </div>
-    
     <!-- 主游戏区域 -->
     <div class="game-main" v-loading="loading">
       <!-- 左侧面板 -->
@@ -123,19 +111,6 @@
             </div>
           </template>
         </SeatCircle>
-        
-        <!-- 新增：玩家发言气泡 -->
-        <SpeechBubble
-          v-for="bubble in gameStore.activeSpeechBubbles"
-          :key="bubble.seatNumber"
-          :seat-number="bubble.seatNumber"
-          :player-name="bubble.playerName"
-          :content="bubble.content"
-          :is-streaming="bubble.isStreaming"
-          :is-human="bubble.isHuman"
-          :visible="bubble.visible"
-          :position="calculateBubblePosition(bubble.seatNumber)"
-        />
       </div>
       
       <!-- 右侧日志面板 -->
@@ -194,11 +169,10 @@ import SeatCircle from '@/components/werewolf/SeatCircle.vue'
 import GameLog from '@/components/werewolf/GameLog.vue'
 import NightActionPanel from '@/components/werewolf/NightActionPanel.vue'
 import VotePanel from '@/components/werewolf/VotePanel.vue'
-import HostAnnouncement from '@/components/werewolf/HostAnnouncement.vue'
 // 新增组件
 import GameControlBar from '@/components/werewolf/GameControlBar.vue'
 import HostAnnouncementPanel from '@/components/werewolf/HostAnnouncementPanel.vue'
-import SpeechBubble from '@/components/werewolf/SpeechBubble.vue'
+// SpeechBubble 已移除，使用日志面板显示发言
 import PlayerInputPanel from '@/components/werewolf/PlayerInputPanel.vue'
 import LogLevelSwitch from '@/components/werewolf/LogLevelSwitch.vue'
 
@@ -211,12 +185,6 @@ const socketStore = useSocketStore()
 const loading = ref(true)
 const selectedPlayerId = ref(null)
 const showResultDialog = ref(false)
-
-// 主持人发言状态
-const showHostAnnouncement = ref(false)
-const hostAnnouncementContent = ref('')
-const hostAnnouncementType = ref('')
-const isHostStreaming = ref(false)
 
 // 投票状态
 const voteCountdown = ref(0)
@@ -257,8 +225,24 @@ const skillUsed = computed(() => gameStore.mySkillUsed)
 // 是否夜晚阶段
 const isNightPhase = computed(() => currentPhase.value === 'night')
 
+// 带状态的玩家列表
+const playersWithState = computed(() => {
+  const players = gameStore.players.map((player, index) => {
+    const state = gameStore.playerStates[player.id] || {}
+    const seatNumber = state.seat_number || player.seat_number || index + 1
+    return {
+      ...player,
+      ...state,
+      seat_number: seatNumber,
+      display_name: state.display_name || player.name || player.username,
+      is_online: true // TODO: 从 socket 获取
+    }
+  })
+  return players.sort((a, b) => (a.seat_number || 0) - (b.seat_number || 0))
+})
+
 // 存活人数
-const aliveCount = computed(() => gameStore.alivePlayers.length)
+const aliveCount = computed(() => playersWithState.value.filter(p => p.is_alive !== false).length)
 
 // 胜利文本
 const winnerText = computed(() => {
@@ -270,18 +254,9 @@ const winnerText = computed(() => {
   }
 })
 
-// 带状态的玩家列表
-const playersWithState = computed(() => {
-  return gameStore.players.map(player => ({
-    ...player,
-    ...gameStore.playerStates[player.id],
-    is_online: true // TODO: 从 socket 获取
-  }))
-})
-
 // 可投票玩家
 const voteablePlayers = computed(() => {
-  return gameStore.alivePlayers.filter(p => p.id !== myPlayerId.value)
+  return playersWithState.value.filter(p => p.is_alive !== false && p.id !== myPlayerId.value)
 })
 
 // 可用技能目标
@@ -329,30 +304,6 @@ function getTeamName(team) {
   }
 }
 
-// 新增：计算发言气泡位置（基于座位号）
-function calculateBubblePosition(seatNumber) {
-  // 10人局：座位1-10均匀分布在圆环上
-  const totalSeats = 10
-  const anglePerSeat = 360 / totalSeats
-  // 座位1在顶部，顺时针排列
-  const angle = (seatNumber - 1) * anglePerSeat - 90 // -90度使座位1在顶部
-  const radians = (angle * Math.PI) / 180
-  
-  // 气泡偏移量（相对于圆心）
-  const radius = 200 // 根据实际圆环大小调整
-  const bubbleOffset = 120 // 气泡距离座位的偏移
-  
-  const x = Math.cos(radians) * (radius + bubbleOffset)
-  const y = Math.sin(radians) * (radius + bubbleOffset)
-  
-  // 返回CSS位置
-  return {
-    top: `calc(50% + ${y}px)`,
-    left: `calc(50% + ${x}px)`,
-    transform: 'translate(-50%, -50%)'
-  }
-}
-
 // 标准10人局角色配置
 const ROLE_CONFIG = [
   { role_name: '狼人', role_type: 'werewolf' },
@@ -372,7 +323,17 @@ async function loadGameState() {
   loading.value = true
   try {
     const room = await roomsApi.getRoom(roomCode.value)
-    gameStore.setCurrentRoom(room)
+    const participantsWithSeats = (room.participants || []).map((participant, index) => {
+      const seatNumber = participant.seat_number ?? index + 1
+      return {
+        ...participant,
+        seat_number: seatNumber,
+        name: participant.name || participant.player?.username || `玩家${seatNumber}`,
+        is_alive: participant.is_alive ?? true
+      }
+    })
+    const normalizedRoom = { ...room, participants: participantsWithSeats }
+    gameStore.setCurrentRoom(normalizedRoom)
     
     // 检查游戏状态 - 允许 Waiting 和 In Progress 状态
     if (room.status === 'Completed' || room.status === 'Dissolved') {
@@ -394,14 +355,16 @@ async function loadGameState() {
     
     // 单人模式：为所有玩家分配角色（洗牌后分配）
     const shuffledRoles = [...ROLE_CONFIG].sort(() => Math.random() - 0.5)
-    const participants = room.participants || []
+    const participants = participantsWithSeats
     
     // 初始化玩家状态（包含角色信息）
     const playerStates = {}
     participants.forEach((p, index) => {
-      const playerId = p.id || p.player_id
+      const playerId = p.id || p.player_id || `seat_${p.seat_number}`
       const role = shuffledRoles[index] || { role_name: '村民', role_type: 'villager' }
       playerStates[playerId] = {
+        seat_number: p.seat_number,
+        display_name: p.name || p.player?.username || `玩家${p.seat_number}`,
         is_alive: true,
         role_name: role.role_name,
         role_type: role.role_type,
@@ -437,14 +400,10 @@ async function loadGameState() {
 
 // WebSocket 事件处理
 function setupSocketListeners() {
-  // 使用新的统一事件处理器
+  // 使用统一事件处理器（已包含主持人发言处理）
   socketStore.setupHostHandlers(gameStore)
   socketStore.setupWerewolfHandlers(gameStore)
-  
-  // 本地主持人发言监听（用于UI展示）
-  socketStore.on('werewolf:host_announcement_start', handleHostAnnouncementStart)
-  socketStore.on('werewolf:host_announcement_chunk', handleHostAnnouncementChunk)
-  socketStore.on('werewolf:host_announcement_end', handleHostAnnouncementEnd)
+  socketStore.setupGameControlHandlers(gameStore)  // 游戏控制事件（暂停/继续）
   
   // 投票倒计时
   socketStore.on('werewolf:vote_countdown', handleVoteCountdown)
@@ -453,39 +412,6 @@ function setupSocketListeners() {
   socketStore.on('game_state_update', handleGameStateUpdate)
   socketStore.on('game_ended', handleGameEnded)
   socketStore.on('game_log', handleGameLog)
-}
-
-// 主持人发言开始
-function handleHostAnnouncementStart(data) {
-  showHostAnnouncement.value = true
-  hostAnnouncementContent.value = ''
-  hostAnnouncementType.value = data.announcement_type || ''
-  isHostStreaming.value = true
-}
-
-// 主持人发言片段
-function handleHostAnnouncementChunk(data) {
-  hostAnnouncementContent.value = data.accumulated || ''
-}
-
-// 主持人发言结束
-function handleHostAnnouncementEnd(data) {
-  hostAnnouncementContent.value = data.full_content || ''
-  isHostStreaming.value = false
-  
-  // 3秒后自动关闭（如果不是重要公告）
-  if (!['game_end', 'vote_result'].includes(hostAnnouncementType.value)) {
-    setTimeout(() => {
-      if (!isHostStreaming.value) {
-        showHostAnnouncement.value = false
-      }
-    }, 3000)
-  }
-}
-
-// 关闭主持人发言
-function handleCloseAnnouncement() {
-  showHostAnnouncement.value = false
 }
 
 // 投票倒计时
@@ -741,12 +667,16 @@ async function restoreCurrentState() {
     // 恢复玩家状态
     if (state.players) {
       const playerStates = {}
-      state.players.forEach(p => {
-        playerStates[p.id] = {
+      state.players.forEach((p, index) => {
+        const seatNumber = p.seat_number ?? index + 1
+        const playerId = p.id || p.player_id || `seat_${seatNumber}`
+        playerStates[playerId] = {
+          seat_number: seatNumber,
+          display_name: p.display_name || `玩家${seatNumber}`,
           is_alive: p.is_alive,
-          role_name: p.role_name,
-          role_type: p.role_type,
-          role_revealed: p.role_revealed,
+          role_name: p.role || p.role_name,
+          role_type: p.team || p.role_type,
+          role_revealed: Boolean(p.role || p.role_name),
           vote_count: p.vote_count || 0
         }
       })
@@ -816,10 +746,12 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  // 离开狼人杀房间，停止游戏
+  if (roomCode.value) {
+    socketStore.leaveWerewolfRoom(roomCode.value, myPlayerId.value)
+  }
+  
   // 清理事件监听
-  socketStore.off('werewolf:host_announcement_start', handleHostAnnouncementStart)
-  socketStore.off('werewolf:host_announcement_chunk', handleHostAnnouncementChunk)
-  socketStore.off('werewolf:host_announcement_end', handleHostAnnouncementEnd)
   socketStore.off('werewolf:vote_countdown', handleVoteCountdown)
   socketStore.off('game_state_update', handleGameStateUpdate)
   socketStore.off('game_ended', handleGameEnded)

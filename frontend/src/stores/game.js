@@ -64,6 +64,7 @@ export const useGameStore = defineStore('game', () => {
   
   // ============ 玩家存活状态 ============
   const playerStates = ref({}) // { [playerId]: { is_alive, role_revealed, role_name, vote_count } }
+  const seatPlayerMap = ref({}) // { [seatNumber]: playerId }
   
   // ============ 投票状态 ============
   const voteResults = ref({}) // { [targetId]: count }
@@ -157,18 +158,33 @@ export const useGameStore = defineStore('game', () => {
   function setCurrentRoom(room) {
     currentRoom.value = room
     if (room) {
-      participants.value = room.participants || []
-      // 初始化玩家状态
-      participants.value.forEach(p => {
-        if (!playerStates.value[p.id]) {
-          playerStates.value[p.id] = {
-            is_alive: true,
+      const normalizedParticipants = (room.participants || []).map((participant, index) => {
+        const seatNumber = participant.seat_number ?? index + 1
+        const participantId = participant.id || participant.player_id || `seat_${seatNumber}`
+        const displayName = participant.name || participant.player?.username || `玩家${seatNumber}`
+        seatPlayerMap.value[seatNumber] = participantId
+        if (!playerStates.value[participantId]) {
+          playerStates.value[participantId] = {
+            is_alive: participant.is_alive ?? true,
             role_revealed: false,
             role_name: null,
-            vote_count: 0
+            role_type: null,
+            vote_count: 0,
+            seat_number: seatNumber,
+            display_name: displayName
           }
+        } else if (!playerStates.value[participantId].seat_number) {
+          playerStates.value[participantId].seat_number = seatNumber
+        }
+        return {
+          ...participant,
+          id: participantId,
+          seat_number: seatNumber,
+          name: displayName,
+          is_alive: participant.is_alive ?? true
         }
       })
+      participants.value = normalizedParticipants
     }
   }
 
@@ -182,7 +198,30 @@ export const useGameStore = defineStore('game', () => {
   }
 
   function setParticipants(participantsList) {
-    participants.value = participantsList
+    const normalizedParticipants = participantsList.map((participant, index) => {
+      const seatNumber = participant.seat_number ?? index + 1
+      const participantId = participant.id || participant.player_id || `seat_${seatNumber}`
+      const displayName = participant.name || participant.player?.username || `玩家${seatNumber}`
+      seatPlayerMap.value[seatNumber] = participantId
+      if (!playerStates.value[participantId]) {
+        playerStates.value[participantId] = {
+          is_alive: true,
+          role_revealed: false,
+          role_name: null,
+          role_type: null,
+          vote_count: 0,
+          seat_number: seatNumber,
+          display_name: displayName
+        }
+      }
+      return {
+        ...participant,
+        id: participantId,
+        seat_number: seatNumber,
+        name: displayName
+      }
+    })
+    participants.value = normalizedParticipants
   }
 
   function addParticipant(participant) {
@@ -266,7 +305,38 @@ export const useGameStore = defineStore('game', () => {
   }
   
   function setPlayerStates(states) {
-    playerStates.value = states
+    const nextSeatMap = {}
+    const nextStates = {}
+    Object.entries(states).forEach(([playerId, state]) => {
+      const seatNumber = state.seat_number ?? state.seatNumber
+      if (seatNumber !== undefined) {
+        nextSeatMap[Number(seatNumber)] = playerId
+      }
+      nextStates[playerId] = {
+        ...state,
+        seat_number: seatNumber
+      }
+    })
+    playerStates.value = nextStates
+    if (Object.keys(nextSeatMap).length > 0) {
+      seatPlayerMap.value = nextSeatMap
+    }
+    participants.value = participants.value.map((participant, index) => {
+      const state = nextStates[participant.id]
+      if (state && state.seat_number !== undefined) {
+        return {
+          ...participant,
+          seat_number: state.seat_number
+        }
+      }
+      if (participant.seat_number !== undefined) {
+        return participant
+      }
+      return {
+        ...participant,
+        seat_number: index + 1
+      }
+    })
   }
   
   function setCurrentPhase(phase) {
@@ -319,6 +389,22 @@ export const useGameStore = defineStore('game', () => {
         playerStates.value[playerId].role_revealed = true
         playerStates.value[playerId].role_name = roleName
       }
+    }
+  }
+
+  // 根据座位号标记玩家死亡
+  function setPlayerDeadBySeat(seatNumber, roleName = null) {
+    if (seatNumber === undefined || seatNumber === null) {
+      return
+    }
+    const normalizedSeat = Number(seatNumber)
+    const playerId = seatPlayerMap.value[normalizedSeat]
+    if (playerId) {
+      setPlayerDead(playerId, roleName)
+    }
+    const idx = participants.value.findIndex(p => Number(p.seat_number) === normalizedSeat)
+    if (idx !== -1) {
+      participants.value[idx].is_alive = false
     }
   }
   
@@ -659,6 +745,7 @@ export const useGameStore = defineStore('game', () => {
     speakingPlayerId.value = null
     mySkillTargets.value = []
     mySkillUsed.value = false
+    seatPlayerMap.value = {}
     
     // F1-F4, F9: 重置新增状态
     isStarted.value = false
@@ -737,6 +824,7 @@ export const useGameStore = defineStore('game', () => {
     myRole,
     isSpectator,
     playerStates,
+    seatPlayerMap,
     voteResults,
     myVote,
     hasVoted,
@@ -793,6 +881,7 @@ export const useGameStore = defineStore('game', () => {
     setAiThinking,
     setGameEnded,
     setPlayerDead,
+    setPlayerDeadBySeat,
     setVote,
     updateVoteResults,
     addGameLog,

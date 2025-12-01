@@ -177,7 +177,7 @@ class WerewolfGameService:
                 # Set teammates for werewolves
                 if player.role == "werewolf":
                     teammates = [
-                        (p.seat_number, f"玩家{p.seat_number}")
+                        {"seat_number": p.seat_number, "name": f"玩家{p.seat_number}"}
                         for p in game_state.players.values()
                         if p.role == "werewolf" and p.seat_number != player.seat_number
                     ]
@@ -257,6 +257,10 @@ class WerewolfGameService:
     
     async def _start_night_phase(self, room_code: str):
         """Start the night phase."""
+        # 检查是否暂停或停止
+        if not await self._check_paused_or_stopped(room_code):
+            return
+        
         game_state = self._game_states.get(room_code)
         if not game_state:
             return
@@ -292,6 +296,10 @@ class WerewolfGameService:
     
     async def _execute_werewolf_action(self, room_code: str):
         """Execute werewolf kill action (AI only, human waits)."""
+        # 检查是否暂停或停止
+        if not await self._check_paused_or_stopped(room_code):
+            return
+        
         game_state = self._game_states.get(room_code)
         if not game_state:
             return
@@ -331,23 +339,46 @@ class WerewolfGameService:
             # Use first werewolf's agent to make decision
             wolf_agent = self._ai_agents.get(ai_werewolves[0].seat_number)
             if wolf_agent:
-                game_history = game_state.game_log
-                alive_seats = [p.seat_number for p in game_state.players.values() if p.is_alive]
+                # Build game_state dict for agent
+                alive_players = [
+                    {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                    for p in game_state.players.values() if p.is_alive
+                ]
+                dead_players = [
+                    {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                    for p in game_state.players.values() if not p.is_alive
+                ]
+                agent_game_state = {
+                    "day_number": game_state.day_number,
+                    "alive_players": alive_players,
+                    "dead_players": dead_players,
+                }
+                # Build available targets (exclude werewolf teammates)
+                available_targets = [
+                    {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                    for p in game_state.players.values()
+                    if p.is_alive and p.role != "werewolf"
+                ]
                 
-                target_seat = await wolf_agent.decide_night_action(
-                    game_history=game_history,
-                    alive_players=alive_seats
+                result = await wolf_agent.decide_night_action(
+                    game_state=agent_game_state,
+                    available_targets=available_targets
                 )
+                target_seat = result.get("target") if isinstance(result, dict) else result
                 
                 # Process the kill
                 self.engine.process_werewolf_action(game_state, target_seat)
-                game_state.game_log.append(f"夜晚：狼人选择击杀{target_seat}号玩家" if target_seat else "夜晚：狼人选择空刀")
+                game_state.game_logs.append(f"夜晚：狼人选择击杀{target_seat}号玩家" if target_seat else "夜晚：狼人选择空刀")
         
         # Move to seer phase
         await self._execute_seer_action(room_code)
     
     async def _execute_seer_action(self, room_code: str):
         """Execute seer check action."""
+        # 检查是否暂停或停止
+        if not await self._check_paused_or_stopped(room_code):
+            return
+        
         game_state = self._game_states.get(room_code)
         if not game_state:
             return
@@ -374,18 +405,40 @@ class WerewolfGameService:
         if seer.seat_number in self._ai_agents:
             # AI seer
             seer_agent = self._ai_agents[seer.seat_number]
-            game_history = game_state.game_log
-            alive_seats = [p.seat_number for p in game_state.players.values() if p.is_alive]
+            # Build game_state dict for agent
+            alive_players = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values() if p.is_alive
+            ]
+            dead_players = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values() if not p.is_alive
+            ]
+            agent_game_state = {
+                "day_number": game_state.day_number,
+                "alive_players": alive_players,
+                "dead_players": dead_players,
+            }
+            # Build available targets (exclude self)
+            available_targets = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values()
+                if p.is_alive and p.seat_number != seer.seat_number
+            ]
             
-            target_seat = await seer_agent.decide_night_action(
-                game_history=game_history,
-                alive_players=alive_seats
+            result = await seer_agent.decide_night_action(
+                game_state=agent_game_state,
+                available_targets=available_targets
             )
+            target_seat = result.get("target") if isinstance(result, dict) else result
             
             if target_seat:
                 is_werewolf = self.engine.process_seer_action(game_state, target_seat)
-                seer_agent.record_check_result(target_seat, is_werewolf)
-                game_state.game_log.append(f"夜晚：预言家查验了{target_seat}号玩家，结果是{'狼人' if is_werewolf else '好人'}")
+                # 从 players 字典中获取目标玩家信息（key 是座位号，value 是 PlayerState）
+                target_player = game_state.players.get(target_seat)
+                target_name = target_player.player_name if target_player else f"玩家{target_seat}"
+                seer_agent.add_check_result(target_seat, target_name, is_werewolf, game_state.day_number)
+                game_state.game_logs.append(f"夜晚：预言家查验了{target_seat}号玩家，结果是{'狼人' if is_werewolf else '好人'}")
             
             # Move to witch
             await self._execute_witch_action(room_code)
@@ -400,6 +453,10 @@ class WerewolfGameService:
     
     async def _execute_witch_action(self, room_code: str):
         """Execute witch save/poison action."""
+        # 检查是否暂停或停止
+        if not await self._check_paused_or_stopped(room_code):
+            return
+        
         game_state = self._game_states.get(room_code)
         if not game_state:
             return
@@ -418,7 +475,7 @@ class WerewolfGameService:
             return
         
         # Get killed player info
-        killed_seat = game_state.werewolf_target
+        killed_seat = game_state.current_night_actions.werewolf_kill_target
         killed_player = None
         if killed_seat:
             killed_p = game_state.players.get(killed_seat)
@@ -429,9 +486,9 @@ class WerewolfGameService:
                 }
         
         # Check witch potions
-        has_antidote = game_state.witch_actions.get("has_antidote", True)
-        has_poison = game_state.witch_actions.get("has_poison", True)
-        can_self_save = game_state.day_number == 1  # First night can self-save
+        has_antidote = game_state.witch_has_antidote
+        has_poison = game_state.witch_has_poison
+        can_self_save = game_state.day_number == 0  # First night (day 0) can self-save
         
         targets = [
             {"seat_number": p.seat_number, "display_name": f"玩家{p.seat_number}"}
@@ -442,14 +499,44 @@ class WerewolfGameService:
         if witch.seat_number in self._ai_agents:
             # AI witch
             witch_agent = self._ai_agents[witch.seat_number]
+            # Build game_state dict for agent
+            alive_players = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values() if p.is_alive
+            ]
+            dead_players = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values() if not p.is_alive
+            ]
+            agent_game_state = {
+                "day_number": game_state.day_number,
+                "alive_players": alive_players,
+                "dead_players": dead_players,
+            }
+            # Build available targets (exclude self)
+            available_targets = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values()
+                if p.is_alive and p.seat_number != witch.seat_number
+            ]
+            # Build killed_player info
+            killed_player_info = None
+            if killed_seat:
+                killed_p = game_state.players.get(killed_seat)
+                if killed_p:
+                    killed_player_info = {
+                        "seat_number": killed_p.seat_number,
+                        "name": killed_p.player_name,
+                        "player_id": killed_p.player_id
+                    }
             
-            save_target, poison_target = await witch_agent.decide_night_action(
-                game_history=game_state.game_log,
-                alive_players=[p.seat_number for p in game_state.players.values() if p.is_alive],
-                killed_player=killed_seat,
-                can_save=has_antidote and (killed_seat is not None),
-                can_poison=has_poison
+            result = await witch_agent.decide_night_action(
+                game_state=agent_game_state,
+                available_targets=available_targets,
+                killed_player=killed_player_info
             )
+            save_target = result.get("save_target") if isinstance(result, dict) else None
+            poison_target = result.get("poison_target") if isinstance(result, dict) else None
             
             self.engine.process_witch_action(
                 game_state,
@@ -458,9 +545,9 @@ class WerewolfGameService:
             )
             
             if save_target:
-                game_state.game_log.append(f"夜晚：女巫救了{save_target}号玩家")
+                game_state.game_logs.append(f"夜晚：女巫救了{save_target}号玩家")
             if poison_target:
-                game_state.game_log.append(f"夜晚：女巫毒了{poison_target}号玩家")
+                game_state.game_logs.append(f"夜晚：女巫毒了{poison_target}号玩家")
             
             # End night
             await self._end_night_phase(room_code)
@@ -479,6 +566,10 @@ class WerewolfGameService:
     
     async def _end_night_phase(self, room_code: str):
         """End night phase and transition to day."""
+        # 检查是否暂停或停止
+        if not await self._check_paused_or_stopped(room_code):
+            return
+        
         game_state = self._game_states.get(room_code)
         if not game_state:
             return
@@ -488,13 +579,15 @@ class WerewolfGameService:
         
         # Announce dawn
         dead_info = [
-            {"seat_number": d, "display_name": f"玩家{d}"}
+            {"seat_number": d, "name": f"玩家{d}"}
             for d in deaths
-        ] if deaths else None
+        ] if deaths else []
+        death_reasons = ["killed"] * len(deaths) if deaths else []
         
-        announcement_stream = self.host.announce_dawn_stream(
-            day_number=game_state.day_number,
-            dead_players=dead_info
+        announcement_stream = self.host.announce_dawn(
+            dead_players=dead_info,
+            death_reasons=death_reasons,
+            stream=True
         )
         await stream_host_announcement(
             room_code=room_code,
@@ -525,6 +618,10 @@ class WerewolfGameService:
     
     async def _start_day_discussion(self, room_code: str):
         """Start day discussion phase."""
+        # 检查是否暂停或停止
+        if not await self._check_paused_or_stopped(room_code):
+            return
+        
         game_state = self._game_states.get(room_code)
         if not game_state:
             return
@@ -554,14 +651,36 @@ class WerewolfGameService:
         )
         
         for player in alive_players:
+            # 在每个玩家发言前检查是否暂停或停止
+            if not await self._check_paused_or_stopped(room_code):
+                return
+            
             if player.seat_number in self._ai_agents:
                 # AI speech with streaming
                 agent = self._ai_agents[player.seat_number]
                 
+                # Build game_state dict for agent
+                agent_alive_players = [
+                    {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                    for p in game_state.players.values() if p.is_alive
+                ]
+                agent_dead_players = [
+                    {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                    for p in game_state.players.values() if not p.is_alive
+                ]
+                agent_game_state = {
+                    "day_number": game_state.day_number,
+                    "alive_players": agent_alive_players,
+                    "dead_players": agent_dead_players,
+                }
+                # Convert game_logs to previous_speeches format
+                previous_speeches = [
+                    {"content": str(log)} for log in game_state.game_logs
+                ]
+                
                 speech_stream = agent.generate_speech_stream(
-                    game_history=game_state.game_log,
-                    alive_players=[p.seat_number for p in alive_players],
-                    day_number=game_state.day_number
+                    game_state=agent_game_state,
+                    previous_speeches=previous_speeches
                 )
                 
                 speech_content = await stream_ai_speech(
@@ -571,10 +690,10 @@ class WerewolfGameService:
                     speech_stream=speech_stream
                 )
                 
-                game_state.game_log.append(f"第{game_state.day_number}天 - {player.seat_number}号发言: {speech_content}")
+                game_state.game_logs.append(f"第{game_state.day_number}天 - {player.seat_number}号发言: {speech_content}")
                 
-                # Small delay between speeches
-                await asyncio.sleep(0.5)
+                # AI发言间隔：每个AI之间等待2秒
+                await asyncio.sleep(2)
             else:
                 # Human player - in single player mode, human can choose to skip or just listen
                 # For simplicity, we'll broadcast that it's human's turn
@@ -592,12 +711,16 @@ class WerewolfGameService:
     
     async def _start_voting(self, room_code: str):
         """Start voting phase."""
+        # 检查是否暂停或停止
+        if not await self._check_paused_or_stopped(room_code):
+            return
+        
         game_state = self._game_states.get(room_code)
         if not game_state:
             return
         
         game_state.phase = WerewolfPhase.DAY_VOTE
-        game_state.vote_results = {}
+        game_state.current_votes = {}  # Reset votes for this round
         
         # Announce voting
         await broadcast_host_announcement(
@@ -619,14 +742,44 @@ class WerewolfGameService:
         alive_seats = [p.seat_number for p in alive_players]
         
         for player in alive_players:
+            # 在每个玩家投票前检查是否暂停或停止
+            if not await self._check_paused_or_stopped(room_code):
+                return
+            
             if player.seat_number in self._ai_agents:
                 # AI vote
                 agent = self._ai_agents[player.seat_number]
                 
-                vote_target = await agent.decide_vote(
-                    game_history=game_state.game_log,
-                    alive_players=alive_seats
+                # Build game_state dict for agent
+                agent_alive_players = [
+                    {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                    for p in game_state.players.values() if p.is_alive
+                ]
+                agent_dead_players = [
+                    {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                    for p in game_state.players.values() if not p.is_alive
+                ]
+                agent_game_state = {
+                    "day_number": game_state.day_number,
+                    "alive_players": agent_alive_players,
+                    "dead_players": agent_dead_players,
+                }
+                # Build speech summary from game_logs
+                speech_logs = [str(log) for log in game_state.game_logs if "发言" in str(log)]
+                speech_summary = "\n".join(speech_logs[-10:]) if speech_logs else "暂无发言记录"
+                # Build voteable players
+                voteable_players = [
+                    {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                    for p in game_state.players.values()
+                    if p.is_alive and p.seat_number != player.seat_number
+                ]
+                
+                result = await agent.decide_vote(
+                    game_state=agent_game_state,
+                    speech_summary=speech_summary,
+                    voteable_players=voteable_players
                 )
+                vote_target = result.get("target") if isinstance(result, dict) else result
                 
                 self.engine.process_vote(game_state, player.seat_number, vote_target)
                 
@@ -640,7 +793,7 @@ class WerewolfGameService:
                     target_name=target_name
                 )
                 
-                game_state.game_log.append(
+                game_state.game_logs.append(
                     f"投票: {player.seat_number}号投给{vote_target}号" if vote_target 
                     else f"投票: {player.seat_number}号弃票"
                 )
@@ -680,20 +833,16 @@ class WerewolfGameService:
         )
         
         if eliminated:
-            game_state.game_log.append(f"投票结果: {eliminated}号玩家被放逐")
+            game_state.game_logs.append(f"投票结果: {eliminated}号玩家被放逐")
             
             # Announce death
             player = game_state.players.get(eliminated)
             if player:
-                announcement_stream = self.host.announce_death_stream(
-                    seat_number=eliminated,
-                    player_name=f"玩家{eliminated}",
-                    death_reason="vote"
-                )
-                await stream_host_announcement(
+                await broadcast_host_announcement(
                     room_code=room_code,
                     announcement_type="death",
-                    content_stream=announcement_stream
+                    content=f"{eliminated}号玩家被放逐出局，请发表遗言。",
+                    metadata={"seat_number": eliminated, "death_reason": "vote"}
                 )
                 
                 # Check for hunter
@@ -701,7 +850,7 @@ class WerewolfGameService:
                     await self._handle_hunter_shoot(room_code, eliminated)
                     return
         else:
-            game_state.game_log.append("投票结果: 平票，无人出局")
+            game_state.game_logs.append("投票结果: 平票，无人出局")
         
         # Check win condition
         winner = self.engine.check_winner(game_state)
@@ -774,7 +923,7 @@ class WerewolfGameService:
             raise BadRequestError("Not werewolf action phase")
         
         self.engine.process_werewolf_action(game_state, target_seat)
-        game_state.game_log.append(
+        game_state.game_logs.append(
             f"夜晚：狼人选择击杀{target_seat}号玩家" if target_seat else "夜晚：狼人选择空刀"
         )
         
@@ -797,7 +946,7 @@ class WerewolfGameService:
         
         if target_seat:
             is_werewolf = self.engine.process_seer_action(game_state, target_seat)
-            game_state.game_log.append(
+            game_state.game_logs.append(
                 f"夜晚：预言家查验了{target_seat}号玩家，结果是{'狼人' if is_werewolf else '好人'}"
             )
             
@@ -830,7 +979,7 @@ class WerewolfGameService:
         
         self.engine.process_witch_action(game_state, save_target=target_seat)
         if target_seat:
-            game_state.game_log.append(f"夜晚：女巫救了{target_seat}号玩家")
+            game_state.game_logs.append(f"夜晚：女巫救了{target_seat}号玩家")
     
     async def _handle_human_poison(
         self,
@@ -848,7 +997,7 @@ class WerewolfGameService:
         
         self.engine.process_witch_action(game_state, poison_target=target_seat)
         if target_seat:
-            game_state.game_log.append(f"夜晚：女巫毒了{target_seat}号玩家")
+            game_state.game_logs.append(f"夜晚：女巫毒了{target_seat}号玩家")
         
         # End night phase
         await self._end_night_phase(room_code)
@@ -867,7 +1016,7 @@ class WerewolfGameService:
         
         if target_seat:
             self.engine.process_hunter_shoot(game_state, target_seat)
-            game_state.game_log.append(f"猎人开枪带走了{target_seat}号玩家")
+            game_state.game_logs.append(f"猎人开枪带走了{target_seat}号玩家")
             
             # Announce hunter shoot
             await broadcast_host_announcement(
@@ -900,7 +1049,7 @@ class WerewolfGameService:
             raise BadRequestError("Not voting phase")
         
         self.engine.process_vote(game_state, player.seat_number, target_seat)
-        game_state.game_log.append(
+        game_state.game_logs.append(
             f"投票: {player.seat_number}号投给{target_seat}号" if target_seat 
             else f"投票: {player.seat_number}号弃票"
         )
@@ -932,14 +1081,39 @@ class WerewolfGameService:
             # AI hunter
             hunter_agent = self._ai_agents[hunter_seat]
             
-            shoot_target = await hunter_agent.decide_shoot(
-                game_history=game_state.game_log,
-                alive_players=[p.seat_number for p in game_state.players.values() if p.is_alive]
+            # Build game_state dict for agent
+            agent_alive_players = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values() if p.is_alive
+            ]
+            agent_dead_players = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values() if not p.is_alive
+            ]
+            agent_game_state = {
+                "day_number": game_state.day_number,
+                "alive_players": agent_alive_players,
+                "dead_players": agent_dead_players,
+            }
+            # Build available targets
+            available_targets = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values()
+                if p.is_alive and p.seat_number != hunter_seat
+            ]
+            # Determine death reason
+            death_reason = hunter.death_reason.value if hunter.death_reason else "unknown"
+            
+            result = await hunter_agent.decide_shoot(
+                game_state=agent_game_state,
+                death_reason=death_reason,
+                available_targets=available_targets
             )
+            shoot_target = result.get("target") if isinstance(result, dict) else result
             
             if shoot_target:
                 self.engine.process_hunter_shoot(game_state, shoot_target)
-                game_state.game_log.append(f"猎人开枪带走了{shoot_target}号玩家")
+                game_state.game_logs.append(f"猎人开枪带走了{shoot_target}号玩家")
                 
                 await broadcast_host_announcement(
                     room_code=room_code,
@@ -989,10 +1163,24 @@ class WerewolfGameService:
         winning_team = "werewolf" if winner == "werewolf" else "villager"
         winning_players = [p for p in all_players if p["team"] == winning_team]
         
+        # Build werewolf and good player lists for announcement
+        werewolf_players = [
+            {"seat_number": p["seat_number"], "name": p["display_name"]}
+            for p in all_players if p["role"] == "werewolf"
+        ]
+        good_players = [
+            {"seat_number": p["seat_number"], "name": p["display_name"]}
+            for p in all_players if p["team"] == "villager"
+        ]
+        
         # Announce game over
-        announcement_stream = self.host.announce_game_over_stream(
-            winner=winner,
-            day_number=game_state.day_number
+        winner_team_name = "狼人阵营" if winner == "werewolf" else "好人阵营"
+        announcement_stream = self.host.announce_game_end(
+            winner_team=winner_team_name,
+            werewolf_players=werewolf_players,
+            good_players=good_players,
+            total_days=game_state.day_number,
+            stream=True
         )
         await stream_host_announcement(
             room_code=room_code,
@@ -1009,7 +1197,7 @@ class WerewolfGameService:
             all_players=all_players
         )
         
-        game_state.game_log.append(f"游戏结束，{'狼人阵营' if winner == 'werewolf' else '好人阵营'}获胜！")
+        game_state.game_logs.append(f"游戏结束，{'狼人阵营' if winner == 'werewolf' else '好人阵营'}获胜！")
         
         logger.info(f"Game ended in room {room_code}: {winner} wins")
         
@@ -1133,6 +1321,70 @@ class WerewolfGameService:
             log_type="system",
             content="游戏继续",
         )
+
+        return True
+
+    async def stop_game(self, room_code: str) -> bool:
+        """停止游戏（用户离开房间时调用）。
+
+        此方法会立即停止游戏循环，不等待当前行动完成。
+
+        Args:
+            room_code: 房间代码
+
+        Returns:
+            是否成功停止
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            logger.info(f"Game state not found for stop_game: {room_code}")
+            return False
+
+        # 设置停止标志
+        game_state.is_stopped = True
+        game_state.is_paused = False  # 确保不会卡在暂停状态
+
+        logger.info(f"Game stopped in room {room_code}")
+
+        # 记录日志
+        self._add_game_log(
+            room_code=room_code,
+            log_type="system",
+            content="游戏已停止（用户离开）",
+        )
+
+        # 清理游戏资源
+        self._cleanup_game(room_code)
+
+        return True
+
+    async def _check_paused_or_stopped(self, room_code: str) -> bool:
+        """在执行下一个行动前检查是否暂停或停止。
+
+        如果游戏暂停，此方法会阻塞直到游戏继续。
+        如果游戏停止，此方法返回 False。
+
+        Args:
+            room_code: 房间代码
+
+        Returns:
+            True 表示可以继续执行，False 表示游戏已停止或状态不存在
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return False
+
+        # 如果已停止，直接返回 False
+        if game_state.is_stopped:
+            return False
+
+        # 如果暂停，等待继续
+        while game_state.is_paused:
+            await asyncio.sleep(0.5)
+            # 重新获取状态，以防游戏被清理或停止
+            game_state = self._game_states.get(room_code)
+            if not game_state or game_state.is_stopped:
+                return False
 
         return True
 
@@ -1796,7 +2048,7 @@ class WerewolfGameService:
 
         # 获取当天的公开发言
         today_speeches = []
-        for log in game_state.game_logs:
+        for log in game_state.game_logss:
             if log.day == game_state.day_number and log.type == "speech" and log.is_public:
                 today_speeches.append({
                     "seat_number": log.seat_number,
@@ -1806,7 +2058,7 @@ class WerewolfGameService:
 
         # 获取主持人公告摘要
         host_announcements = []
-        for log in game_state.game_logs:
+        for log in game_state.game_logss:
             if log.type == "host_announcement" and log.is_public:
                 announcement_type = log.metadata.get("announcement_type", "") if log.metadata else ""
                 host_announcements.append({
@@ -1846,7 +2098,7 @@ class WerewolfGameService:
 
         # 构建完整历史日志（用于AI决策）
         game_history = []
-        for log in game_state.game_logs:
+        for log in game_state.game_logss:
             if log.is_public:
                 game_history.append({
                     "day": log.day,

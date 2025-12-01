@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     
     # Logging
     LOG_LEVEL: str = "INFO"
+    LOG_FILE: str = "logs/app.log"  # Application log file path
     
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
