@@ -316,10 +316,11 @@ const showRoles = computed(() => true)
 
 // 新增：是否轮到当前玩家发言
 const isMyTurnToSpeak = computed(() => {
-  const activeBubble = gameStore.activeSpeechBubbles.find(
-    b => b.seatNumber === gameStore.mySeatNumber && b.isHuman
-  )
-  return !!activeBubble?.awaitingInput
+  // activeSpeechBubbles 是对象格式: { [seatNumber]: { content, isStreaming, ... } }
+  // 检查当前发言者是否是自己（真人玩家）
+  return gameStore.currentSpeaker?.isHuman && 
+         gameStore.currentSpeaker?.seatNumber === gameStore.user_seat_number &&
+         gameStore.waitingForInput
 })
 
 // 获取阵营名称
