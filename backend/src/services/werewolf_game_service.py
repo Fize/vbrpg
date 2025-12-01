@@ -81,6 +81,9 @@ class WerewolfGameService:
     ) -> WerewolfGameState:
         """Start a new werewolf game.
         
+        注意：此方法只初始化游戏状态，不执行游戏流程。
+        游戏流程需要通过 run_game() 方法启动，以便在 WebSocket 连接建立后执行。
+        
         Args:
             room_code: Room code for the game
             human_player_id: The human player's ID
@@ -89,13 +92,20 @@ class WerewolfGameService:
         Returns:
             Initialized game state
         """
-        logger.info(f"Starting werewolf game in room {room_code}")
+        logger.info(f"Initializing werewolf game in room {room_code}")
+        
+        # 生成10个玩家名称
+        player_names = [f"玩家{i}" for i in range(1, 11)]
+        
+        # 判断是否为观战模式（没有指定角色）
+        is_spectator = human_role is None
         
         # Initialize game state
         game_state = self.engine.initialize_game(
             room_code=room_code,
-            user_player_id=human_player_id,
-            user_preferred_role=human_role
+            player_names=player_names,
+            user_role=human_role,
+            is_spectator=is_spectator
         )
         
         # Store state
@@ -104,13 +114,44 @@ class WerewolfGameService:
         # Create AI agents for all non-human players
         await self._create_ai_agents(game_state, human_player_id)
         
+        logger.info(f"Game state initialized for room {room_code}, waiting for run_game()")
+        
+        return game_state
+    
+    async def run_game(self, room_code: str):
+        """运行游戏流程（在 WebSocket 连接建立后调用）。
+        
+        此方法执行：
+        - 广播游戏开始公告
+        - 启动第一个夜晚阶段
+        
+        Args:
+            room_code: 房间代码
+        """
+        print(f"[DEBUG] run_game called for room {room_code}")
+        
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            print(f"[DEBUG] run_game: state not found for {room_code}")
+            logger.error(f"Cannot run game: state not found for {room_code}")
+            return
+        
+        if game_state.is_started:
+            print(f"[DEBUG] run_game: game already started for {room_code}")
+            logger.warning(f"Game already started for {room_code}")
+            return
+        
+        game_state.is_started = True
+        print(f"[DEBUG] run_game: starting game for {room_code}")
+        logger.info(f"Running game for room {room_code}")
+        
         # Broadcast game start announcement
+        print(f"[DEBUG] run_game: calling _announce_game_start")
         await self._announce_game_start(room_code, game_state)
         
         # Start the first night
+        print(f"[DEBUG] run_game: calling _start_night_phase")
         await self._start_night_phase(room_code)
-        
-        return game_state
     
     async def _create_ai_agents(
         self,
@@ -126,7 +167,8 @@ class WerewolfGameService:
             agent = self._create_agent_for_role(
                 role=player.role,
                 seat_number=player.seat_number,
-                player_name=f"玩家{player.seat_number}"
+                player_name=f"玩家{player.seat_number}",
+                player_id=player.player_id
             )
             
             if agent:
@@ -147,34 +189,39 @@ class WerewolfGameService:
         self,
         role: str,
         seat_number: int,
-        player_name: str
+        player_name: str,
+        player_id: str
     ):
         """Create an AI agent for a specific role."""
         if role == "werewolf":
             return WerewolfAgent(
-                seat_number=seat_number,
-                player_name=player_name
+                player_id=player_id,
+                player_name=player_name,
+                seat_number=seat_number
             )
         elif role == "seer":
             return SeerAgent(
-                seat_number=seat_number,
-                player_name=player_name
+                player_id=player_id,
+                player_name=player_name,
+                seat_number=seat_number
             )
         elif role == "witch":
             return WitchAgent(
-                seat_number=seat_number,
+                player_id=player_id,
                 player_name=player_name,
-                can_self_save=True
+                seat_number=seat_number
             )
         elif role == "hunter":
             return HunterAgent(
-                seat_number=seat_number,
-                player_name=player_name
+                player_id=player_id,
+                player_name=player_name,
+                seat_number=seat_number
             )
         elif role == "villager":
             return VillagerAgent(
-                seat_number=seat_number,
-                player_name=player_name
+                player_id=player_id,
+                player_name=player_name,
+                seat_number=seat_number
             )
         return None
     
@@ -184,11 +231,14 @@ class WerewolfGameService:
         game_state: WerewolfGameState
     ):
         """Announce game start with role assignment."""
+        # 角色配置描述
+        role_config = "3狼人 + 1预言家 + 1女巫 + 1猎人 + 4村民"
+        
         # Stream host announcement
-        announcement_stream = self.host.announce_game_start_stream(
+        announcement_stream = self.host.announce_game_start(
             player_count=len(game_state.players),
-            werewolf_count=3,
-            special_roles=["预言家", "女巫", "猎人"]
+            role_config=role_config,
+            stream=True
         )
         
         await stream_host_announcement(
@@ -211,9 +261,14 @@ class WerewolfGameService:
         if not game_state:
             return
         
+        # 计算存活玩家数
+        alive_count = sum(1 for p in game_state.players.values() if p.is_alive)
+        
         # Announce night start
-        announcement_stream = self.host.announce_night_start_stream(
-            day_number=game_state.day_number
+        announcement_stream = self.host.announce_night(
+            day_number=game_state.day_number,
+            alive_count=alive_count,
+            stream=True
         )
         await stream_host_announcement(
             room_code=room_code,

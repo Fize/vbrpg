@@ -600,9 +600,17 @@ async def werewolf_start_game(sid: str, data: dict):
         sid: Socket session ID
         data: {"room_code": str, "player_id": str}
     """
+    from src.api.werewolf_routes import _game_services, WerewolfGameService
+    from src.database import get_db
+    from src.models.game import GameRoom
+    from sqlalchemy import select
+    
     try:
         room_code = data.get("room_code")
         player_id = data.get("player_id")
+        
+        print(f"[DEBUG] werewolf_start_game called with room_code={room_code}, player_id={player_id}")
+        print(f"[DEBUG] Available game services: {list(_game_services.keys())}")
         
         if not room_code:
             await sio.emit(
@@ -614,7 +622,77 @@ async def werewolf_start_game(sid: str, data: dict):
         
         logger.info(f"Start game request received for room {room_code} from player {player_id}")
         
-        # 广播游戏开始事件
+        # 获取游戏服务
+        service = _game_services.get(room_code)
+        
+        # 如果服务不存在（可能因为服务器重启），尝试重建
+        if not service:
+            print(f"[DEBUG] Game service not found for room {room_code}, attempting to recreate...")
+            
+            async for db in get_db():
+                # 检查房间是否存在
+                result = await db.execute(
+                    select(GameRoom).where(GameRoom.code == room_code)
+                )
+                room = result.scalar_one_or_none()
+                
+                if not room:
+                    await sio.emit(
+                        "werewolf:error",
+                        {"message": f"房间不存在: {room_code}"},
+                        room=sid
+                    )
+                    return
+                
+                # 显式加载关联数据以避免懒加载问题
+                await db.refresh(room, ["participants"])
+                
+                # 获取人类玩家ID（优先查找 is_owner=True，否则查找 is_ai_agent=False）
+                human_participant = None
+                for p in room.participants:
+                    print(f"[DEBUG] Participant: player_id={p.player_id}, is_ai_agent={p.is_ai_agent}, is_owner={p.is_owner}")
+                    if p.is_owner:
+                        human_participant = p
+                        break
+                    if not p.is_ai_agent and human_participant is None:
+                        human_participant = p
+                
+                # 如果是纯观战模式（没有人类玩家），使用第一个参与者作为"观察者视角"
+                if not human_participant and room.participants:
+                    human_participant = room.participants[0]
+                    print(f"[DEBUG] No human player found, using first participant as observer: {human_participant.player_id}")
+                
+                if not human_participant:
+                    await sio.emit(
+                        "werewolf:error",
+                        {"message": "房间没有参与者"},
+                        room=sid
+                    )
+                    return
+                
+                # 重新创建服务并初始化游戏
+                service = WerewolfGameService(db)
+                _game_services[room_code] = service
+                
+                # 对于观战模式，human_player_id 可以是任意一个玩家ID
+                await service.start_game(
+                    room_code=room_code,
+                    human_player_id=str(human_participant.player_id),
+                    human_role=None  # 观战模式不指定角色
+                )
+                
+                print(f"[DEBUG] Game service recreated for room {room_code}")
+                break
+        
+        if not service:
+            await sio.emit(
+                "werewolf:error",
+                {"message": f"无法创建游戏服务: {room_code}"},
+                room=sid
+            )
+            return
+        
+        # 广播游戏即将开始事件
         await sio.emit(
             "werewolf:game_starting",
             {
@@ -624,11 +702,11 @@ async def werewolf_start_game(sid: str, data: dict):
             room=room_code
         )
         
-        # 实际的游戏启动将由 WerewolfGameService.start_game_manual() 处理
-        # 这里只发送通知事件
+        # 运行游戏流程（异步执行）
+        asyncio.create_task(service.run_game(room_code))
         
     except Exception as e:
-        logger.error(f"Error handling werewolf start game: {e}")
+        logger.error(f"Error handling werewolf start game: {e}", exc_info=True)
         await sio.emit(
             "werewolf:error",
             {"message": f"开始游戏失败: {str(e)}"},

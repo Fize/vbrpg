@@ -62,9 +62,64 @@ async def quick_start_game(
     Returns:
         初始游戏状态
     """
+    from src.models.game import GameRoom, GameRoomParticipant
+    from src.models.user import Player
+    
     try:
         # Generate a unique room code
         room_code = f"WW-{str(uuid4())[:8].upper()}"
+        
+        # 创建数据库房间记录
+        room = GameRoom(
+            code=room_code,
+            game_type_id="werewolf",
+            status="Waiting",
+            max_players=10,
+            min_players=10,
+            user_role="spectator" if request.preferred_role is None else "player",
+            is_spectator_mode=request.preferred_role is None,
+        )
+        db.add(room)
+        await db.flush()
+        
+        # 创建人类玩家记录
+        human_player = Player(
+            id=request.player_id,
+            username=f"玩家_{request.player_id[:8]}",
+            is_guest=True,
+        )
+        db.add(human_player)
+        await db.flush()
+        
+        # 创建人类参与者记录
+        human_participant = GameRoomParticipant(
+            game_room_id=room.id,
+            player_id=human_player.id,
+            is_ai_agent=False,
+            is_owner=True,  # 单人模式下，唯一的人类玩家就是房主
+        )
+        db.add(human_participant)
+        
+        # 创建 9 个 AI 参与者记录
+        for i in range(9):
+            ai_player = Player(
+                username=f"AI玩家{i + 1}",
+                is_guest=True,
+            )
+            db.add(ai_player)
+            await db.flush()
+            
+            ai_participant = GameRoomParticipant(
+                game_room_id=room.id,
+                player_id=ai_player.id,
+                is_ai_agent=True,
+                ai_personality="balanced",
+            )
+            db.add(ai_participant)
+        
+        room.current_participant_count = 10
+        await db.commit()
+        await db.refresh(room, ["participants"])
         
         # Create service and start game
         service = WerewolfGameService(db)

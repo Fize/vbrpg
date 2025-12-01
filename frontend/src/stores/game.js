@@ -81,9 +81,10 @@ export const useGameStore = defineStore('game', () => {
   const isInRoom = computed(() => currentRoom.value !== null)
   const roomCode = computed(() => currentRoom.value?.code || null)
   
+  // 单人模式下，用户始终是"房主"（有权限控制游戏）
   const isHost = computed(() => {
-    if (!currentRoom.value) return false
-    return currentRoom.value.owner_id === myPlayerId.value
+    // 只要在房间中，就有控制权限
+    return currentRoom.value !== null
   })
   
   const activeParticipants = computed(() =>
@@ -96,10 +97,6 @@ export const useGameStore = defineStore('game', () => {
   
   const spectators = computed(() =>
     activeParticipants.value.filter((p) => p.is_spectator)
-  )
-  
-  const humanPlayers = computed(() =>
-    players.value.filter((p) => !p.is_ai)
   )
   
   const aiPlayers = computed(() =>
@@ -124,7 +121,7 @@ export const useGameStore = defineStore('game', () => {
   const deadPlayerIds = computed(() => deadPlayers.value.map(p => p.id))
   
   const canStartGame = computed(() => {
-    if (!currentRoom.value || !isHost.value) return false
+    if (!currentRoom.value) return false
     if (currentRoom.value.status !== 'Waiting') return false
     return players.value.length === 10
   })
@@ -766,7 +763,6 @@ export const useGameStore = defineStore('game', () => {
     activeParticipants,
     players,
     spectators,
-    humanPlayers,
     aiPlayers,
     alivePlayers,
     deadPlayers,

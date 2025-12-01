@@ -42,16 +42,6 @@
       />
     </div>
     
-    <!-- 新增：持久主持人发言面板 -->
-    <div class="host-panel-container">
-      <HostAnnouncementPanel
-        :current-announcement="gameStore.hostAnnouncement?.content || ''"
-        :is-streaming="gameStore.hostAnnouncement?.isStreaming || false"
-        :announcement-history="gameStore.announcementHistory"
-        :visible="!!gameStore.hostAnnouncement?.content || gameStore.announcementHistory.length > 0"
-      />
-    </div>
-    
     <!-- 主游戏区域 -->
     <div class="game-main" v-loading="loading">
       <!-- 左侧面板 -->
@@ -98,8 +88,15 @@
         </div>
       </div>
       
-      <!-- 中央座位圆环 -->
+      <!-- 中央区域：主持人面板 + 座位圆环 -->
       <div class="center-area">
+        <!-- 主持人发言面板（中上部） -->
+        <div class="host-panel-center">
+          <HostAnnouncementPanel
+            :current-announcement="gameStore.hostAnnouncement || { type: null, content: '', isStreaming: false }"
+            :announcement-history="gameStore.announcementHistory"
+          />
+        </div>
         <SeatCircle
           :players="playersWithState"
           :current-player-id="myPlayerId"
@@ -238,14 +235,8 @@ const roomCode = computed(() => route.params.code)
 const myPlayerId = computed(() => gameStore.myPlayerId)
 const myRole = computed(() => gameStore.myRole)
 const isSpectator = computed(() => gameStore.isSpectator || mode.value === 'spectator')
-// 单人模式下，玩家始终是房主
-const isHost = computed(() => gameStore.isHost || isSinglePlayerMode.value)
-const isSinglePlayerMode = computed(() => {
-  // 单人模式：所有其他玩家都是AI
-  const participants = gameStore.participants || []
-  const humanCount = participants.filter(p => !p.is_ai).length
-  return humanCount <= 1
-})
+// 单人模式下，用户始终有控制权限
+const isHost = computed(() => gameStore.isHost)
 const currentPhase = computed(() => gameStore.currentPhase || 'night')
 const subPhase = computed(() => gameStore.subPhase)
 const dayNumber = computed(() => gameStore.dayNumber)
@@ -426,6 +417,15 @@ async function loadGameState() {
     gameStore.setCurrentPhase('night')
     gameStore.setTurnNumber(1)
     
+    // 单人模式：自动开始游戏
+    // 无论房间状态是 Waiting 还是 In Progress，都发送开始事件
+    // 后端会处理服务器重启后的状态恢复
+    setTimeout(() => {
+      console.log('发送开始游戏事件...', room.status)
+      socketStore.startGame(roomCode.value)
+      gameStore.setGameStarted(true)
+    }, 500)
+    
   } catch (err) {
     console.error('加载游戏状态失败:', err)
     ElMessage.error('加载游戏失败')
@@ -442,9 +442,9 @@ function setupSocketListeners() {
   socketStore.setupWerewolfHandlers(gameStore)
   
   // 本地主持人发言监听（用于UI展示）
-  socketStore.on('host:announcement_start', handleHostAnnouncementStart)
-  socketStore.on('host:announcement_chunk', handleHostAnnouncementChunk)
-  socketStore.on('host:announcement_end', handleHostAnnouncementEnd)
+  socketStore.on('werewolf:host_announcement_start', handleHostAnnouncementStart)
+  socketStore.on('werewolf:host_announcement_chunk', handleHostAnnouncementChunk)
+  socketStore.on('werewolf:host_announcement_end', handleHostAnnouncementEnd)
   
   // 投票倒计时
   socketStore.on('werewolf:vote_countdown', handleVoteCountdown)
@@ -796,23 +796,30 @@ watch(gameEnded, (ended) => {
   }
 })
 
-onMounted(() => {
-  loadGameState()
-  setupSocketListeners()
-  
+onMounted(async () => {
+  // 先确保 socket 连接，再注册监听器
   if (!socketStore.isConnected) {
-    socketStore.connect()
+    await socketStore.connect()
   }
+  
+  // 连接后加入房间，确保能收到广播消息
+  socketStore.joinRoom(roomCode.value)
+  
+  // Socket 连接后再注册监听器
+  setupSocketListeners()
   
   // F37-F40: 监听重连事件
   socketStore.on('reconnect', handleReconnect)
+  
+  // 最后加载游戏状态
+  loadGameState()
 })
 
 onUnmounted(() => {
   // 清理事件监听
-  socketStore.off('host:announcement_start', handleHostAnnouncementStart)
-  socketStore.off('host:announcement_chunk', handleHostAnnouncementChunk)
-  socketStore.off('host:announcement_end', handleHostAnnouncementEnd)
+  socketStore.off('werewolf:host_announcement_start', handleHostAnnouncementStart)
+  socketStore.off('werewolf:host_announcement_chunk', handleHostAnnouncementChunk)
+  socketStore.off('werewolf:host_announcement_end', handleHostAnnouncementEnd)
   socketStore.off('werewolf:vote_countdown', handleVoteCountdown)
   socketStore.off('game_state_update', handleGameStateUpdate)
   socketStore.off('game_ended', handleGameEnded)
@@ -945,14 +952,12 @@ onUnmounted(() => {
   }
 }
 
-/* 新增：持久主持人面板容器 */
-.host-panel-container {
-  position: fixed;
-  top: 80px;
-  right: 20px;
-  z-index: 900;
-  max-width: 360px;
+/* 主持人面板 - 中央上部位置 */
+.host-panel-center {
   width: 100%;
+  max-width: 600px;
+  margin: 0 auto 20px;
+  z-index: 100;
 }
 
 .game-main {
@@ -1082,12 +1087,16 @@ onUnmounted(() => {
 
 .center-area {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  gap: 20px;
   background: rgba(0, 240, 255, .03);
   border-radius: 20px;
   border: 1px solid rgba(0, 240, 255, .1);
   position: relative;
+  padding: 20px;
+  overflow: auto;
 }
 
 .center-status {
