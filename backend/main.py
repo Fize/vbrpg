@@ -70,5 +70,5 @@ app.include_router(monitoring.router)
 app.include_router(werewolf_routes.router)
 
 # Mount Socket.IO app
-socket_app = socketio.ASGIApp(sio, app)
+socket_app = socketio.ASGIApp(sio, app, cors_allowed_origins=origins)
 
