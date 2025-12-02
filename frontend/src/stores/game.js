@@ -3,6 +3,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { getPhaseCategory, getPhaseDisplayName, resolveNightSubPhase } from '@/utils/phase'
 
 export const useGameStore = defineStore('game', () => {
   // ============ 基础状态 ============
@@ -19,6 +20,7 @@ export const useGameStore = defineStore('game', () => {
   const subPhase = ref(null) // 夜间子阶段: 'werewolf' | 'seer' | 'witch' | 'hunter'
   const dayNumber = ref(1)
   const countdown = ref(0)
+  const phaseCategory = computed(() => getPhaseCategory(currentPhase.value))
   
   // ============ F1: 游戏控制状态 ============
   const isStarted = ref(false)  // 游戏是否已开始
@@ -138,14 +140,14 @@ export const useGameStore = defineStore('game', () => {
   const canUseSkill = computed(() => {
     if (isSpectator.value || !myRole.value) return false
     if (!alivePlayers.value.find(p => p.id === myPlayerId.value)) return false
-    if (currentPhase.value !== 'night') return false
+    if (phaseCategory.value !== 'night') return false
     return !mySkillUsed.value
   })
   
   const canVote = computed(() => {
     if (isSpectator.value) return false
     if (!alivePlayers.value.find(p => p.id === myPlayerId.value)) return false
-    if (currentPhase.value !== 'vote') return false
+    if (phaseCategory.value !== 'vote') return false
     return !hasVoted.value
   })
 
@@ -250,8 +252,9 @@ export const useGameStore = defineStore('game', () => {
     // 解析游戏状态
     if (state) {
       if (state.day_number !== undefined) dayNumber.value = state.day_number
-      if (state.phase) currentPhase.value = state.phase
-      if (state.sub_phase) subPhase.value = state.sub_phase
+      if (state.phase !== undefined || state.sub_phase !== undefined) {
+        syncPhaseState(state.phase, state.sub_phase)
+      }
       if (state.player_states) {
         Object.assign(playerStates.value, state.player_states)
       }
@@ -273,11 +276,16 @@ export const useGameStore = defineStore('game', () => {
     if (stateUpdate.turn_number !== undefined) {
       turnNumber.value = stateUpdate.turn_number
     }
-    if (stateUpdate.current_phase || stateUpdate.phase) {
-      currentPhase.value = stateUpdate.current_phase || stateUpdate.phase
-    }
-    if (stateUpdate.sub_phase !== undefined) {
-      subPhase.value = stateUpdate.sub_phase
+    if (
+      stateUpdate.current_phase !== undefined
+      || stateUpdate.phase !== undefined
+      || stateUpdate.sub_phase !== undefined
+    ) {
+      const nextPhase =
+        stateUpdate.current_phase !== undefined
+          ? stateUpdate.current_phase
+          : stateUpdate.phase
+      syncPhaseState(nextPhase, stateUpdate.sub_phase)
     }
     if (stateUpdate.day_number !== undefined) {
       dayNumber.value = stateUpdate.day_number
@@ -293,6 +301,20 @@ export const useGameStore = defineStore('game', () => {
     }
     if (stateUpdate.speaking_player_id !== undefined) {
       speakingPlayerId.value = stateUpdate.speaking_player_id
+    }
+  }
+
+  function syncPhaseState(phaseValue, providedSubPhase) {
+    const hasPhaseValue = phaseValue !== undefined
+    const hasSubPhaseValue = providedSubPhase !== undefined
+    if (!hasPhaseValue && !hasSubPhaseValue) {
+      return
+    }
+    if (hasPhaseValue) {
+      currentPhase.value = phaseValue
+      subPhase.value = resolveNightSubPhase(phaseValue, providedSubPhase)
+    } else if (hasSubPhaseValue) {
+      subPhase.value = providedSubPhase
     }
   }
   
@@ -339,8 +361,8 @@ export const useGameStore = defineStore('game', () => {
     })
   }
   
-  function setCurrentPhase(phase) {
-    currentPhase.value = phase
+  function setCurrentPhase(phase, sub = undefined) {
+    syncPhaseState(phase, sub)
   }
   
   function setTurnNumber(turn) {
@@ -354,14 +376,14 @@ export const useGameStore = defineStore('game', () => {
     }
   }
   
-  function setPhase(phase, sub = null) {
-    currentPhase.value = phase
-    subPhase.value = sub
+  function setPhase(phase, sub = undefined) {
+    syncPhaseState(phase, sub)
+    const normalizedPhase = getPhaseCategory(phase)
     
     // 重置回合状态
-    if (phase === 'night') {
+    if (normalizedPhase === 'night') {
       mySkillUsed.value = false
-    } else if (phase === 'vote') {
+    } else if (normalizedPhase === 'vote') {
       hasVoted.value = false
       myVote.value = null
       voteResults.value = {}
@@ -394,17 +416,22 @@ export const useGameStore = defineStore('game', () => {
 
   // 根据座位号标记玩家死亡
   function setPlayerDeadBySeat(seatNumber, roleName = null) {
+    console.log('setPlayerDeadBySeat called with:', seatNumber, 'seatPlayerMap:', JSON.stringify(seatPlayerMap.value))
     if (seatNumber === undefined || seatNumber === null) {
+      console.log('seatNumber is undefined or null, returning')
       return
     }
     const normalizedSeat = Number(seatNumber)
     const playerId = seatPlayerMap.value[normalizedSeat]
+    console.log('Looking for playerId with seat', normalizedSeat, '-> found:', playerId)
     if (playerId) {
       setPlayerDead(playerId, roleName)
+      console.log('Marked player dead:', playerId, 'playerStates:', JSON.stringify(playerStates.value[playerId]))
     }
     const idx = participants.value.findIndex(p => Number(p.seat_number) === normalizedSeat)
     if (idx !== -1) {
       participants.value[idx].is_alive = false
+      console.log('Marked participant dead at index:', idx)
     }
   }
   
@@ -430,7 +457,7 @@ export const useGameStore = defineStore('game', () => {
       time: new Date().toISOString(),
       day: dayNumber.value,
       phase: currentPhase.value,
-      phase_name: getPhaseDisplayName(currentPhase.value)
+        phase_name: getPhaseDisplayName(currentPhase.value, subPhase.value)
     })
   }
   
@@ -450,7 +477,7 @@ export const useGameStore = defineStore('game', () => {
       time: new Date().toISOString(),
       day: dayNumber.value,
       phase: currentPhase.value,
-      phase_name: getPhaseDisplayName(currentPhase.value),
+        phase_name: getPhaseDisplayName(currentPhase.value, subPhase.value),
       isStreaming: true
     }
     gameLogs.value.push(streamingLog)
@@ -487,17 +514,6 @@ export const useGameStore = defineStore('game', () => {
         log.isStreaming = false
         return
       }
-    }
-  }
-  
-  function getPhaseDisplayName(phase) {
-    switch (phase) {
-      case 'night': return '夜晚'
-      case 'day': return '白天'
-      case 'discussion': return '讨论'
-      case 'vote': return '投票'
-      case 'result': return '结算'
-      default: return phase
     }
   }
   
@@ -572,11 +588,12 @@ export const useGameStore = defineStore('game', () => {
     // 添加到历史
     announcementHistory.value.push(announcement)
     
-    // 重置当前公告状态
+    // 保留当前公告固定显示，不重置
     hostAnnouncement.value = {
-      type: null,
-      content: '',
-      isStreaming: false
+      type: announcement.type,
+      content: announcement.content,
+      isStreaming: false,
+      metadata: announcement.metadata
     }
     
     return announcement
@@ -763,6 +780,62 @@ export const useGameStore = defineStore('game', () => {
     myPlayerId.value = localStorage.getItem('playerId') || null
   }
 
+  /**
+   * 为新游戏重置状态（不清空房间信息）
+   * 用于在同一房间重新开始游戏时清理上一局的数据
+   */
+  function resetForNewGame() {
+    // 清理游戏进度状态
+    gameState.value = null
+    currentTurn.value = null
+    turnNumber.value = 0
+    currentPhase.value = null
+    subPhase.value = null
+    dayNumber.value = 1
+    countdown.value = 0
+    
+    // 清理AI状态
+    isAiThinking.value = false
+    aiThinkingPlayer.value = null
+    
+    // 清理游戏结果
+    gameEnded.value = false
+    winner.value = null
+    winnerTeam.value = []
+    
+    // 清理玩家状态（重要：确保新游戏时状态干净）
+    playerStates.value = {}
+    seatPlayerMap.value = {}
+    
+    // 清理投票状态
+    voteResults.value = {}
+    myVote.value = null
+    hasVoted.value = false
+    
+    // 清理日志
+    gameLogs.value = []
+    
+    // 清理发言状态
+    speakingPlayerId.value = null
+    mySkillTargets.value = []
+    mySkillUsed.value = false
+    
+    // 清理控制状态
+    isStarted.value = false
+    isPaused.value = false
+    
+    // 清理公告状态
+    hostAnnouncement.value = { type: null, content: '', isStreaming: false }
+    announcementHistory.value = []
+    activeSpeechBubbles.value = {}
+    
+    // 清理发言者状态
+    currentSpeaker.value = { seatNumber: null, playerName: '', isHuman: false }
+    waitingForInput.value = false
+    
+    console.log('Game state reset for new game')
+  }
+
   // 设置我的回合状态
   function setMyTurn(isMyTurn, actionInfo = null) {
     if (isMyTurn && actionInfo) {
@@ -782,21 +855,108 @@ export const useGameStore = defineStore('game', () => {
     }
   }
 
-  // 设置所有玩家信息（游戏结束后）
-  function setAllPlayersInfo(players) {
+  // 更新玩家角色信息（游戏开始时从后端接收）
+  function updatePlayerRoles(players) {
+    const roleNameMap = {
+      'werewolf': '狼人',
+      'seer': '预言家',
+      'witch': '女巫',
+      'hunter': '猎人',
+      'villager': '村民'
+    }
+    const roleTypeMap = {
+      'werewolf': 'werewolf',
+      'seer': 'god',
+      'witch': 'god',
+      'hunter': 'god',
+      'villager': 'villager'
+    }
+    
     players.forEach(p => {
-      const key = `seat_${p.seat_number}`
+      const seatNumber = Number(p.seat_number)
+      // 使用 seatPlayerMap 中已存在的 playerId，保持一致性
+      // 如果没有则使用 seat_${seatNumber} 格式
+      const existingPlayerId = seatPlayerMap.value[seatNumber]
+      const key = existingPlayerId || `seat_${seatNumber}`
+      const roleName = roleNameMap[p.role] || p.role
+      const roleType = roleTypeMap[p.role] || 'villager'
+      
       if (playerStates.value[key]) {
-        playerStates.value[key].role_name = p.role
+        playerStates.value[key].role_name = roleName
+        playerStates.value[key].role_type = roleType
         playerStates.value[key].team = p.team
         playerStates.value[key].role_revealed = true
       } else {
         playerStates.value[key] = {
-          is_alive: p.is_alive,
-          role_name: p.role,
+          seat_number: seatNumber,
+          display_name: p.player_name,
+          is_alive: true,
+          role_name: roleName,
+          role_type: roleType,
           team: p.team,
           role_revealed: true,
           vote_count: 0
+        }
+        // 只有在 seatPlayerMap 中没有该座位号时才设置
+        if (!existingPlayerId) {
+          seatPlayerMap.value[seatNumber] = key
+        }
+      }
+    })
+    
+    console.log('Player roles updated:', playerStates.value)
+  }
+
+  // 设置所有玩家信息（游戏结束后）
+  function setAllPlayersInfo(players) {
+    // 角色名称映射
+    const roleNameMap = {
+      'werewolf': '狼人',
+      'seer': '预言家',
+      'witch': '女巫',
+      'hunter': '猎人',
+      'villager': '村民'
+    }
+    
+    // 角色阵营映射
+    const roleTypeMap = {
+      'werewolf': 'werewolf',
+      'seer': 'god',
+      'witch': 'god',
+      'hunter': 'god',
+      'villager': 'villager'
+    }
+    
+    players.forEach(p => {
+      const seatNumber = Number(p.seat_number)
+      // 使用 seatPlayerMap 中已存在的 playerId，保持一致性
+      const existingPlayerId = seatPlayerMap.value[seatNumber]
+      const key = existingPlayerId || `seat_${seatNumber}`
+      // 使用后端传来的 role_name，如果没有则进行映射
+      const roleName = p.role_name || roleNameMap[p.role] || p.role
+      const roleType = roleTypeMap[p.role] || p.team || 'villager'
+      
+      if (playerStates.value[key]) {
+        playerStates.value[key].role_name = roleName
+        playerStates.value[key].role_type = roleType
+        playerStates.value[key].team = p.team
+        playerStates.value[key].role_revealed = true
+        // 更新显示名称为角色名
+        playerStates.value[key].display_name = roleName
+      } else {
+        playerStates.value[key] = {
+          seat_number: seatNumber,
+          display_name: roleName,
+          is_alive: p.is_alive,
+          role_name: roleName,
+          role_type: roleType,
+          team: p.team,
+          role_revealed: true,
+          vote_count: 0
+        }
+        // 只有在 seatPlayerMap 中没有该座位号时才设置
+        if (!existingPlayerId) {
+          seatPlayerMap.value[seatNumber] = key
         }
       }
     })
@@ -859,6 +1019,7 @@ export const useGameStore = defineStore('game', () => {
     canStartGame,
     isMyTurn,
     isGameInProgress,
+    phaseCategory,
     canUseSkill,
     canVote,
 
@@ -897,9 +1058,11 @@ export const useGameStore = defineStore('game', () => {
     clearError,
     leaveRoom,
     reset,
+    resetForNewGame,
     setMyTurn,
     addVote,
     setAllPlayersInfo,
+    updatePlayerRoles,
     
     // F1-F4, F9: 新增 Actions
     setGameStarted,

@@ -209,7 +209,7 @@ async function loadRoom() {
     const data = await roomsApi.getRoom(roomCode.value)
     room.value = data
     
-    // 检查游戏是否已开始
+    // 检查游戏是否已开始（进入进行中的游戏，不是新游戏）
     if (data.status === 'In Progress') {
       router.replace(`/game/${roomCode.value}`)
     }
@@ -239,7 +239,8 @@ function handleRoomUpdate(data) {
 function handleGameStarted(data) {
   if (data.room_code === roomCode.value) {
     ElMessage.success('游戏开始！')
-    router.push(`/game/${roomCode.value}`)
+    // 游戏开始是新游戏
+    router.push({ path: `/game/${roomCode.value}`, query: { newGame: 'true' } })
   }
 }
 
@@ -277,9 +278,9 @@ async function handleStartGame() {
   starting.value = true
   try {
     const response = await roomsApi.startGame(roomCode.value)
-    // 成功后直接跳转到游戏页面
+    // 成功后直接跳转到游戏页面，带上 newGame 参数表示新游戏
     ElMessage.success('游戏开始！')
-    router.push(`/game/${roomCode.value}`)
+    router.push({ path: `/game/${roomCode.value}`, query: { newGame: 'true' } })
   } catch (err) {
     // 如果是 409 冲突（游戏已开始），也跳转到游戏页面
     if (err.response?.status === 409) {

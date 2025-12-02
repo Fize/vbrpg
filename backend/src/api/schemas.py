@@ -194,7 +194,7 @@ class GameLogEntryResponse(BaseModel):
     content: str
     day: int
     phase: str
-    time: datetime
+    time: datetime | None = None
     player_id: str | None = None
     player_name: str | None = None
     seat_number: int | None = None

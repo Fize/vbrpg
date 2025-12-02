@@ -135,7 +135,9 @@ const tooltipContent = computed(() => {
 
 // 方法：切换日志级别
 const toggleLogLevel = () => {
+  console.log('[LogLevelSwitch] toggleLogLevel called, current isDetailedMode:', isDetailedMode.value)
   const newLevel = isDetailedMode.value ? 'basic' : 'detailed'
+  console.log('[LogLevelSwitch] switching to:', newLevel)
   updateLevel(newLevel)
 }
 

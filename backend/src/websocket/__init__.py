@@ -23,6 +23,8 @@ def __getattr__(name):
         "broadcast_vote_update",
         "broadcast_vote_result",
         "broadcast_game_over",
+        "broadcast_role_assignment",
+        "broadcast_ai_action",
     ]
     
     if name in werewolf_funcs:
@@ -48,4 +50,6 @@ __all__ = [
     "broadcast_vote_update",
     "broadcast_vote_result",
     "broadcast_game_over",
+    "broadcast_role_assignment",
+    "broadcast_ai_action",
 ]

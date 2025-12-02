@@ -36,20 +36,25 @@ HUNTER_SHOOT_PROMPT = """你已死亡，现在是猎人开枪时间。
 {death_reason}
 
 ## 当前状态
+- 当前天数：第{day_number}天
 - 是否可以开枪：{can_shoot}
 - 存活玩家：{alive_players}
 
 ## 可开枪的目标
 {available_targets}
 
-## 游戏分析
-{game_analysis}
+{speech_history_section}
+
+## 你已知的信息
+{known_info}
 
 ## 请做出决策
 根据你掌握的信息，选择一名玩家开枪带走。考虑：
 1. 你认为最可能是狼人的玩家
-2. 场上已知的信息
-3. 其他玩家的发言和行为
+2. 场上已知的信息（如预言家的查验结果）
+3. 其他玩家的发言和行为（如果有发言记录的话）
+
+注意：如果是第1天且没有发言记录，请根据场上有限信息做出判断。
 
 你也可以选择不开枪（"no_shoot"），但通常建议开枪。
 
@@ -58,7 +63,7 @@ HUNTER_SHOOT_PROMPT = """你已死亡，现在是猎人开枪时间。
 {{
     "action": "shoot" 或 "no_shoot",
     "target": "目标玩家编号（不开枪时为null）",
-    "reasoning": "简要说明你的决策理由（不超过50字）"
+    "reasoning": "简要说明你的决策理由"
 }}
 ```
 """

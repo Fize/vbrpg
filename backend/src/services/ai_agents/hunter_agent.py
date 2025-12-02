@@ -123,19 +123,24 @@ class HunterAgent(BaseWerewolfAgent):
             for t in available_targets
         ])
 
-        # Game analysis based on known info
-        analysis_lines = []
-        for info in self.known_info:
-            if info.get("type") in ["check_result", "suspicious", "speech_analysis"]:
-                analysis_lines.append(f"- {info.get('content', '')}")
-        game_analysis = "\n".join(analysis_lines) or "根据场上发言和行为进行分析"
+        # Get day number
+        day_number = game_state.get("day_number", 1)
+        
+        # Format speech history section (only if available)
+        speech_history = game_state.get("speech_history", "")
+        if speech_history:
+            speech_history_section = f"## 白天发言记录\n{speech_history}"
+        else:
+            speech_history_section = ""
 
         prompt = HUNTER_SHOOT_PROMPT.format(
             death_reason=death_reason,
+            day_number=day_number,
             can_shoot="是" if can_shoot_now else "否",
             alive_players=formatted["alive_players"],
             available_targets=targets_text,
-            game_analysis=game_analysis,
+            speech_history_section=speech_history_section,
+            known_info=formatted["known_info"],
         )
 
         messages = [
@@ -157,15 +162,17 @@ class HunterAgent(BaseWerewolfAgent):
                     "reasoning": decision.get("reasoning", "选择不开枪"),
                 }
 
-            # Validate target
-            valid_seats = {str(t["seat_number"]) for t in available_targets}
-            if str(target) not in valid_seats:
+            # Normalize and validate target
+            normalized_target = self._normalize_seat_number(target)
+            valid_seats = {t["seat_number"] for t in available_targets}
+            if normalized_target is None or normalized_target not in valid_seats:
+                logger.warning(f"[{self.player_name}] Invalid shoot target '{target}' (normalized: {normalized_target}), using fallback")
                 # Pick first available target
-                target = available_targets[0]["seat_number"]
+                normalized_target = available_targets[0]["seat_number"]
 
             return {
                 "action": "shoot",
-                "target": target,
+                "target": normalized_target,
                 "reasoning": decision.get("reasoning", ""),
             }
 

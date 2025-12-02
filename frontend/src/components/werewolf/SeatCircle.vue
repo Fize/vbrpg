@@ -63,7 +63,7 @@
           :is-current="player.id === currentPlayerId"
           :is-selected="selectedPlayerId === player.id"
           :selectable="selectable && player.is_alive"
-          :is-speaking="speakingPlayerId === player.id"
+          :is-speaking="isSpeaking(player)"
           :show-role="showRoles"
           :vote-count="getVoteCount(player.id)"
           @select="handleSelect"
@@ -92,7 +92,7 @@ const props = defineProps({
     default: null
   },
   speakingPlayerId: {
-    type: String,
+    type: [String, Number],
     default: null
   },
   selectable: {
@@ -130,15 +130,25 @@ const containerStyle = computed(() => ({
   height: `${containerSize.value}px`
 }))
 
-// 计算每个座位的位置
+// 计算每个座位的位置 - 两侧对称布局
 function getSeatStyle(index) {
   const totalPlayers = props.players.length || 10
-  const angle = (index * 360 / totalPlayers) - 90 // 从12点方向开始
-  const radian = (angle * Math.PI) / 180
-  const radius = containerSize.value * props.radiusRatio
+  const halfPlayers = Math.ceil(totalPlayers / 2)
   
-  const x = Math.cos(radian) * radius
-  const y = Math.sin(radian) * radius
+  const containerWidth = containerSize.value
+  const containerHeight = containerSize.value * 0.85  // 扩展垂直高度
+  
+  // 判断左侧还是右侧
+  const isLeftSide = index < halfPlayers
+  const positionInSide = isLeftSide ? index : index - halfPlayers
+  const playersOnSide = isLeftSide ? halfPlayers : totalPlayers - halfPlayers
+  
+  // 计算垂直间距
+  const verticalSpacing = containerHeight / (playersOnSide + 1)
+  
+  // 左侧玩家在左边，右侧玩家在右边 - 增加水平距离到边缘
+  const x = isLeftSide ? -containerWidth * 0.48 : containerWidth * 0.48
+  const y = verticalSpacing * (positionInSide + 1) - containerHeight / 2
   
   return {
     transform: `translate(${x}px, ${y}px)`
@@ -150,21 +160,38 @@ function getVoteCount(playerId) {
   return props.votes[playerId] || 0
 }
 
-// 获取连接线终点坐标
+// 判断玩家是否正在发言
+function isSpeaking(player) {
+  if (!props.speakingPlayerId) return false
+  // speakingPlayerId 可能是座位号（Number）或玩家ID（String）
+  const speakingSeat = Number(props.speakingPlayerId)
+  if (!isNaN(speakingSeat)) {
+    return player.seat_number === speakingSeat
+  }
+  return player.id === props.speakingPlayerId
+}
+
+// 获取连接线终点坐标 - 两侧对称布局
 function getLineEndX(index) {
   const totalPlayers = props.players.length || 10
-  const angle = (index * 360 / totalPlayers) - 90
-  const radian = (angle * Math.PI) / 180
-  const radius = containerSize.value * props.radiusRatio * 0.75
-  return containerSize.value / 2 + Math.cos(radian) * radius
+  const halfPlayers = Math.ceil(totalPlayers / 2)
+  const isLeftSide = index < halfPlayers
+  
+  const radius = containerSize.value * 0.42
+  return containerSize.value / 2 + (isLeftSide ? -radius : radius)
 }
 
 function getLineEndY(index) {
   const totalPlayers = props.players.length || 10
-  const angle = (index * 360 / totalPlayers) - 90
-  const radian = (angle * Math.PI) / 180
-  const radius = containerSize.value * props.radiusRatio * 0.75
-  return containerSize.value / 2 + Math.sin(radian) * radius
+  const halfPlayers = Math.ceil(totalPlayers / 2)
+  const isLeftSide = index < halfPlayers
+  const positionInSide = isLeftSide ? index : index - halfPlayers
+  const playersOnSide = isLeftSide ? halfPlayers : totalPlayers - halfPlayers
+  
+  const containerHeight = containerSize.value * 0.85
+  const verticalSpacing = containerHeight / (playersOnSide + 1)
+  
+  return containerSize.value / 2 + verticalSpacing * (positionInSide + 1) - containerHeight / 2
 }
 
 // 选择处理
@@ -172,12 +199,12 @@ function handleSelect(player) {
   emit('select', player)
 }
 
-// 响应式调整大小
+// 响应式调整大小 - 支持更大的尺寸
 function updateSize() {
   if (circleRef.value) {
     const rect = circleRef.value.getBoundingClientRect()
     const minSize = Math.min(rect.width, rect.height)
-    containerSize.value = Math.max(300, Math.min(600, minSize))
+    containerSize.value = Math.max(400, Math.min(800, minSize))
   }
 }
 
@@ -195,11 +222,11 @@ onUnmounted(() => {
 .cyber-seat-circle {
   width: 100%;
   height: 100%;
-  min-height: 450px;
+  min-height: 600px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 30px;
   position: relative;
 }
 
@@ -296,8 +323,8 @@ onUnmounted(() => {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 140px;
-  height: 140px;
+  width: 200px;
+  height: 200px;
   transform: translate(-50%, -50%);
   border: 2px solid rgba(0, 240, 255, .3);
   border-radius: 50%;
@@ -326,17 +353,17 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 120px;
-  height: 120px;
+  width: 180px;
+  height: 180px;
   background: linear-gradient(135deg, rgba(0, 240, 255, .1) 0%, rgba(168, 85, 247, .1) 100%);
-  border: 1px solid rgba(0, 240, 255, .4);
+  border: 2px solid rgba(0, 240, 255, .4);
   border-radius: 50%;
   color: var(--color-primary);
   position: relative;
   overflow: hidden;
   box-shadow: 
-    0 0 30px rgba(0, 240, 255, .2),
-    inset 0 0 30px rgba(0, 240, 255, .1);
+    0 0 40px rgba(0, 240, 255, .3),
+    inset 0 0 40px rgba(0, 240, 255, .15);
 }
 
 .holo-scanline {
@@ -355,17 +382,17 @@ onUnmounted(() => {
 }
 
 .alive-count {
-  font-size: 36px;
+  font-size: 48px;
   font-weight: 700;
   line-height: 1;
-  text-shadow: 0 0 20px var(--color-primary);
+  text-shadow: 0 0 25px var(--color-primary);
   font-family: 'Courier New', monospace;
 }
 
 .alive-label {
-  font-size: 11px;
-  margin-top: 4px;
-  letter-spacing: 2px;
+  font-size: 13px;
+  margin-top: 6px;
+  letter-spacing: 3px;
   opacity: .8;
   text-transform: uppercase;
 }
@@ -442,26 +469,26 @@ onUnmounted(() => {
 /* 响应式 */
 @media (max-width: 768px) {
   .cyber-seat-circle {
-    min-height: 350px;
-    padding: 10px;
+    min-height: 450px;
+    padding: 15px;
   }
   
   .center-hologram {
-    width: 80px;
-    height: 80px;
+    width: 120px;
+    height: 120px;
   }
   
   .hologram-ring {
-    width: 100px;
-    height: 100px;
+    width: 140px;
+    height: 140px;
   }
   
   .alive-count {
-    font-size: 24px;
+    font-size: 32px;
   }
   
   .alive-label {
-    font-size: 9px;
+    font-size: 10px;
   }
   
   .seat-wrapper {

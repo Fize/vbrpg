@@ -1,5 +1,5 @@
 <template>
-  <div class="app-layout" :class="{ 'is-mobile': isMobile }">
+  <div class="app-layout" :class="{ 'is-mobile': isMobile, 'hide-chrome': shouldHideChrome }">
     <!-- Cyber Background -->
     <div class="cyber-bg">
       <div class="grid-lines"></div>
@@ -7,7 +7,7 @@
     </div>
     
     <!-- Header -->
-    <header class="app-header">
+    <header class="app-header" v-if="!shouldHideChrome">
       <div class="header-content">
         <!-- Logo -->
         <router-link to="/" class="logo">
@@ -96,7 +96,7 @@
     </main>
     
     <!-- Footer -->
-    <footer class="app-footer">
+    <footer class="app-footer" v-if="!shouldHideChrome">
       <div class="footer-content">
         <div class="footer-brand">
           <span class="footer-logo">[AI]</span>
@@ -136,6 +136,11 @@ const isAuthenticated = computed(() => authStore.isAuthenticated)
 const isGuest = computed(() => authStore.isGuest)
 const username = computed(() => authStore.username || '游客')
 
+// 检查是否应该隐藏 header/footer (游戏页面)
+const shouldHideChrome = computed(() => {
+  return route.path.startsWith('/game/') || route.path.startsWith('/werewolf/')
+})
+
 // Check if mobile
 const checkMobile = () => {
   isMobile.value = window.innerWidth < 768
@@ -159,6 +164,16 @@ onUnmounted(() => {
   background: var(--color-bg-primary);
   position: relative;
   overflow-x: hidden;
+}
+
+/* 游戏模式：隐藏 header/footer */
+.app-layout.hide-chrome {
+  background: transparent;
+}
+
+.app-layout.hide-chrome .app-main {
+  padding: 0;
+  margin: 0;
 }
 
 /* ==================== Cyber Background ==================== */

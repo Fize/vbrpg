@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -40,6 +41,8 @@ from src.websocket import (
     broadcast_vote_update,
     broadcast_vote_result,
     broadcast_game_over,
+    broadcast_role_assignment,
+    broadcast_ai_action,
 )
 from src.utils.errors import BadRequestError, NotFoundError
 
@@ -69,6 +72,18 @@ class WerewolfGameService:
         self._ai_agents: dict[int, Any] = {}  # seat_number -> agent
         self._game_states: dict[str, WerewolfGameState] = {}  # room_code -> state
     
+    def _validate_game_state(self, room_code: str, game_id: str) -> WerewolfGameState | None:
+        """Validate that the current game state matches the expected game ID."""
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return None
+        if game_state.game_id != game_id:
+            logger.info(f"Game ID mismatch for room {room_code}: expected {game_id}, got {game_state.game_id}")
+            return None
+        if game_state.is_stopped:
+            return None
+        return game_state
+
     # =========================================================================
     # B34: 游戏启动流程
     # =========================================================================
@@ -100,6 +115,14 @@ class WerewolfGameService:
         # 判断是否为观战模式（没有指定角色）
         is_spectator = human_role is None
         
+        # Check for existing game and stop it
+        if room_code in self._game_states:
+            old_state = self._game_states[room_code]
+            old_state.is_stopped = True
+            logger.info(f"Stopping existing game in room {room_code} before starting new one")
+            # Give the old loop a chance to see the flag and exit
+            await asyncio.sleep(0.5)
+
         # Initialize game state
         game_state = self.engine.initialize_game(
             room_code=room_code,
@@ -122,6 +145,7 @@ class WerewolfGameService:
         """运行游戏流程（在 WebSocket 连接建立后调用）。
         
         此方法执行：
+        - 广播角色分配信息（观战模式）
         - 广播游戏开始公告
         - 启动第一个夜晚阶段
         
@@ -142,8 +166,25 @@ class WerewolfGameService:
             return
         
         game_state.is_started = True
-        print(f"[DEBUG] run_game: starting game for {room_code}")
-        logger.info(f"Running game for room {room_code}")
+        game_id = game_state.game_id
+        print(f"[DEBUG] run_game: starting game for {room_code} (ID: {game_id})")
+        logger.info(f"Running game for room {room_code} (ID: {game_id})")
+        
+        # Initialize day_number and phase
+        self.engine.start_game()
+        
+        # 广播角色分配信息（观战模式下可见所有角色）
+        if game_state.is_spectator_mode:
+            players_info = [
+                {
+                    "seat_number": p.seat_number,
+                    "player_name": p.player_name,
+                    "role": p.role,
+                    "team": p.team,
+                }
+                for p in game_state.players.values()
+            ]
+            await broadcast_role_assignment(room_code, players_info)
         
         # Broadcast game start announcement
         print(f"[DEBUG] run_game: calling _announce_game_start")
@@ -151,7 +192,7 @@ class WerewolfGameService:
         
         # Start the first night
         print(f"[DEBUG] run_game: calling _start_night_phase")
-        await self._start_night_phase(room_code)
+        await self._start_night_phase(room_code, game_id)
     
     async def _create_ai_agents(
         self,
@@ -224,6 +265,96 @@ class WerewolfGameService:
                 seat_number=seat_number
             )
         return None
+
+    @staticmethod
+    def _normalize_seat_number(value: Any) -> int | None:
+        """Normalize different seat representations returned by LLMs/UI into ints."""
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        if isinstance(value, dict):
+            for key in ("seat_number", "seat", "target"):
+                if key in value:
+                    normalized = WerewolfGameService._normalize_seat_number(value[key])
+                    if normalized is not None:
+                        return normalized
+        if isinstance(value, str):
+            digits = re.search(r"\d+", value)
+            if digits:
+                return int(digits.group())
+        return None
+
+    @staticmethod
+    def _format_speech_entries(speeches: list[dict], limit: int = 10) -> list[dict]:
+        """Return a copy of the most recent speech entries for prompts."""
+        if not speeches:
+            return []
+        return list(speeches[-limit:])
+
+    @staticmethod
+    def _speeches_to_text(speeches: list[dict]) -> str:
+        """Render speech history into text for vote prompts with day grouping."""
+        if not speeches:
+            return "暂无发言记录"
+        
+        # Group speeches by day
+        speeches_by_day: dict[int, list[dict]] = {}
+        for speech in speeches:
+            day = speech.get("day", 1)
+            if day not in speeches_by_day:
+                speeches_by_day[day] = []
+            speeches_by_day[day].append(speech)
+        
+        lines: list[str] = []
+        for day in sorted(speeches_by_day.keys()):
+            day_speeches = speeches_by_day[day]
+            lines.append(f"\n=== 第{day}天发言 ===")
+            for speech in day_speeches:
+                seat = speech.get("seat_number", "?")
+                name = speech.get("player_name", f"玩家{seat}")
+                content = speech.get("content", "")
+                speech_type = speech.get("type", "speech")
+                
+                type_marker = ""
+                if speech_type == "last_words":
+                    type_marker = "[遗言] "
+                elif speech_type == "vote_speech":
+                    type_marker = "[投票发言] "
+                
+                lines.append(f"{seat}号 {name}{type_marker}: {content}")
+        
+        return "\n".join(lines)
+
+    @staticmethod
+    def _record_speech_entry(
+        game_state: WerewolfGameState,
+        seat_number: int,
+        player_name: str,
+        content: str,
+        speech_type: str = "speech",
+    ) -> None:
+        """Append a structured speech entry to the game state's speech history.
+        
+        Args:
+            game_state: Current game state
+            seat_number: Speaker's seat number
+            player_name: Speaker's name
+            content: Speech content
+            speech_type: Type of speech ('speech', 'last_words', 'vote_speech')
+        """
+        if not content:
+            return
+        entry = {
+            "day": game_state.day_number,
+            "seat_number": seat_number,
+            "player_name": player_name,
+            "content": content.strip(),
+            "type": speech_type,
+        }
+        game_state.speech_history.append(entry)
     
     async def _announce_game_start(
         self,
@@ -250,18 +381,44 @@ class WerewolfGameService:
                 "werewolf_count": 3
             }
         )
+        
+        # Send initial game state
+        alive_players = [
+            {
+                "seat_number": p.seat_number,
+                "display_name": p.player_name
+            }
+            for p in game_state.players.values()
+            if p.is_alive
+        ]
+        await broadcast_game_state_update(
+            room_code=room_code,
+            phase=game_state.phase.value,
+            day_number=game_state.day_number,
+            alive_players=alive_players,
+            dead_players=[],
+            current_speaker=None
+        )
+        
+        # Also broadcast phase change
+        await broadcast_phase_change(
+            room_code=room_code,
+            from_phase="waiting",
+            to_phase=game_state.phase.value,
+            day_number=game_state.day_number
+        )
     
     # =========================================================================
     # B35: 夜晚执行流程
     # =========================================================================
     
-    async def _start_night_phase(self, room_code: str):
+    async def _start_night_phase(self, room_code: str, game_id: str):
         """Start the night phase."""
         # 检查是否暂停或停止
-        if not await self._check_paused_or_stopped(room_code):
+        if not await self._check_paused_or_stopped(room_code, game_id):
             return
         
-        game_state = self._game_states.get(room_code)
+        game_state = self._validate_game_state(room_code, game_id)
         if not game_state:
             return
         
@@ -292,17 +449,29 @@ class WerewolfGameService:
         )
         
         # Start werewolf action
-        await self._execute_werewolf_action(room_code)
+        await self._execute_werewolf_action(room_code, game_id)
     
-    async def _execute_werewolf_action(self, room_code: str):
+    async def _execute_werewolf_action(self, room_code: str, game_id: str):
         """Execute werewolf kill action (AI only, human waits)."""
         # 检查是否暂停或停止
-        if not await self._check_paused_or_stopped(room_code):
+        if not await self._check_paused_or_stopped(room_code, game_id):
             return
         
-        game_state = self._game_states.get(room_code)
+        game_state = self._validate_game_state(room_code, game_id)
         if not game_state:
             return
+        
+        # 公告狼人睁眼
+        werewolf_wake_stream = self.host.announce_werewolf_wake(stream=True)
+        await stream_host_announcement(
+            room_code=room_code,
+            announcement_type="werewolf_wake",
+            content_stream=werewolf_wake_stream,
+            metadata={"phase": "night_werewolf"}
+        )
+        
+        # 短暂延迟，让用户看到阶段变化
+        await asyncio.sleep(1.5)
         
         # Get alive werewolves and targets
         werewolves = [
@@ -334,56 +503,182 @@ class WerewolfGameService:
             # Wait for human input via werewolf_action event
             return
         
-        # All werewolves are AI - let them decide
+        # All werewolves are AI - let them discuss and decide together
         if ai_werewolves:
-            # Use first werewolf's agent to make decision
-            wolf_agent = self._ai_agents.get(ai_werewolves[0].seat_number)
-            if wolf_agent:
-                # Build game_state dict for agent
-                alive_players = [
-                    {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
-                    for p in game_state.players.values() if p.is_alive
-                ]
-                dead_players = [
-                    {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
-                    for p in game_state.players.values() if not p.is_alive
-                ]
-                agent_game_state = {
-                    "day_number": game_state.day_number,
-                    "alive_players": alive_players,
-                    "dead_players": dead_players,
-                }
-                # Build available targets (exclude werewolf teammates)
-                available_targets = [
-                    {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
-                    for p in game_state.players.values()
-                    if p.is_alive and p.role != "werewolf"
-                ]
-                
-                result = await wolf_agent.decide_night_action(
-                    game_state=agent_game_state,
-                    available_targets=available_targets
-                )
-                target_seat = result.get("target") if isinstance(result, dict) else result
-                
-                # Process the kill
-                self.engine.process_werewolf_action(game_state, target_seat)
-                game_state.game_logs.append(f"夜晚：狼人选择击杀{target_seat}号玩家" if target_seat else "夜晚：狼人选择空刀")
+            # Build game_state dict for agent
+            alive_players = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values() if p.is_alive
+            ]
+            dead_players = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values() if not p.is_alive
+            ]
+            
+            # 获取发言历史用于分析（非首夜时）
+            speech_history_text = ""
+            if game_state.day_number > 1 and game_state.speech_history:
+                speech_history_text = self._speeches_to_text(game_state.speech_history)
+            
+            agent_game_state = {
+                "day_number": game_state.day_number,
+                "alive_players": alive_players,
+                "dead_players": dead_players,
+                "speech_history": speech_history_text,  # 添加发言历史
+            }
+            # Build available targets (exclude werewolf teammates)
+            available_targets = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values()
+                if p.is_alive and p.role != "werewolf"
+            ]
+            
+            # Phase 1: 每个狼人发表意见
+            discussion_history = []
+            for wolf in ai_werewolves:
+                wolf_agent = self._ai_agents.get(wolf.seat_number)
+                if wolf_agent and hasattr(wolf_agent, 'discuss_night_target'):
+                    try:
+                        discussion_result = await wolf_agent.discuss_night_target(
+                            game_state=agent_game_state,
+                            available_targets=available_targets,
+                            previous_opinions=discussion_history
+                        )
+                        
+                        suggested_target = discussion_result.get("suggested_target")
+                        opinion = discussion_result.get("opinion", "")
+                        
+                        # 记录讨论历史（使用 discuss_night_target 返回的格式）
+                        discussion_entry = {
+                            "seat_number": wolf.seat_number,
+                            "name": wolf.player_name,
+                            "suggested_target": suggested_target,
+                            "opinion": opinion
+                        }
+                        discussion_history.append(discussion_entry)
+                        
+                        logger.info(f"[AI Discussion] Werewolf {wolf.seat_number} suggests target {suggested_target}: {opinion[:50] if opinion else ''}...")
+                        
+                        # 广播狼人讨论（用于详细日志模式）
+                        await broadcast_ai_action(
+                            room_code=room_code,
+                            ai_player_id=wolf.player_id,
+                            action={
+                                "action_type": "werewolf_discussion",
+                                "seat_number": wolf.seat_number,
+                                "role": "werewolf",
+                                "player_name": wolf.player_name,
+                                "suggested_target": suggested_target,
+                                "opinion": opinion,
+                            }
+                        )
+                        
+                        # 短暂延迟，让用户看到讨论过程
+                        await asyncio.sleep(1.0)
+                        
+                    except Exception as e:
+                        logger.error(f"Error in werewolf discussion for seat {wolf.seat_number}: {e}")
+            
+            # Phase 2: 由一个狼人做最终决定
+            decision_wolf = ai_werewolves[0]  # 使用第一个狼人做最终决定
+            decision_agent = self._ai_agents.get(decision_wolf.seat_number)
+            
+            if decision_agent:
+                try:
+                    # 检查是否有 make_final_kill_decision 方法
+                    if hasattr(decision_agent, 'make_final_kill_decision'):
+                        result = await decision_agent.make_final_kill_decision(
+                            game_state=agent_game_state,
+                            available_targets=available_targets,
+                            teammate_opinions=discussion_history
+                        )
+                    else:
+                        # 回退到原有方法
+                        result = await decision_agent.decide_night_action(
+                            game_state=agent_game_state,
+                            available_targets=available_targets
+                        )
+                    
+                    raw_target = result.get("target") if isinstance(result, dict) else result
+                    target_seat = self._normalize_seat_number(raw_target)
+                    reasoning = result.get("reasoning", "") if isinstance(result, dict) else ""
+                    
+                    logger.info(f"[AI Final Decision] Werewolf {decision_wolf.seat_number} final target: {target_seat}, reasoning: {reasoning[:50]}...")
+                    
+                    # 广播最终决定（用于详细日志模式）
+                    await broadcast_ai_action(
+                        room_code=room_code,
+                        ai_player_id=decision_wolf.player_id,
+                        action={
+                            "action_type": "werewolf_final_decision",
+                            "seat_number": decision_wolf.seat_number,
+                            "role": "werewolf",
+                            "player_name": decision_wolf.player_name,
+                            "target": target_seat,
+                            "reasoning": reasoning,
+                            "discussion_summary": [
+                                {"seat": d["seat_number"], "target": d["suggested_target"]} 
+                                for d in discussion_history
+                            ]
+                        }
+                    )
+                    
+                    # Process the kill
+                    self.engine.process_werewolf_action(game_state, target_seat)
+                    if target_seat:
+                        game_state.game_logs.append(f"夜晚：狼人选择击杀{target_seat}号玩家")
+                    else:
+                        game_state.game_logs.append("夜晚：狼人选择空刀")
+                        
+                except Exception as e:
+                    logger.error(f"Error in werewolf final decision: {e}")
+                    # 回退处理：使用简单的投票
+                    if discussion_history:
+                        targets_count = {}
+                        for d in discussion_history:
+                            t = d.get("suggested_target")
+                            if t:
+                                targets_count[t] = targets_count.get(t, 0) + 1
+                        if targets_count:
+                            target_seat = max(targets_count, key=targets_count.get)
+                            self.engine.process_werewolf_action(game_state, target_seat)
+                            game_state.game_logs.append(f"夜晚：狼人选择击杀{target_seat}号玩家")
+        
+        # 公告狼人闭眼
+        werewolf_sleep_stream = self.host.announce_werewolf_sleep(stream=True)
+        await stream_host_announcement(
+            room_code=room_code,
+            announcement_type="werewolf_sleep",
+            content_stream=werewolf_sleep_stream,
+            metadata={"phase": "night_werewolf_end"}
+        )
+        
+        # 短暂延迟
+        await asyncio.sleep(1.0)
         
         # Move to seer phase
-        await self._execute_seer_action(room_code)
+        await self._execute_seer_action(room_code, game_id)
     
-    async def _execute_seer_action(self, room_code: str):
+    async def _execute_seer_action(self, room_code: str, game_id: str):
         """Execute seer check action."""
         # 检查是否暂停或停止
-        if not await self._check_paused_or_stopped(room_code):
+        if not await self._check_paused_or_stopped(room_code, game_id):
             return
         
-        game_state = self._game_states.get(room_code)
+        game_state = self._validate_game_state(room_code, game_id)
         if not game_state:
             return
         
+        old_phase = game_state.phase
         game_state.phase = WerewolfPhase.NIGHT_SEER
+        
+        # Broadcast phase change
+        await broadcast_phase_change(
+            room_code=room_code,
+            from_phase=old_phase.value,
+            to_phase=game_state.phase.value,
+            day_number=game_state.day_number
+        )
         
         # Find alive seer
         seer = next(
@@ -393,8 +688,20 @@ class WerewolfGameService:
         
         if not seer:
             # Seer is dead, skip to witch
-            await self._execute_witch_action(room_code)
+            await self._execute_witch_action(room_code, game_id)
             return
+        
+        # 公告预言家睁眼
+        seer_wake_stream = self.host.announce_seer_wake(stream=True)
+        await stream_host_announcement(
+            room_code=room_code,
+            announcement_type="seer_wake",
+            content_stream=seer_wake_stream,
+            metadata={"phase": "night_seer"}
+        )
+        
+        # 短暂延迟
+        await asyncio.sleep(1.5)
         
         targets = [
             {"seat_number": p.seat_number, "display_name": f"玩家{p.seat_number}"}
@@ -414,10 +721,17 @@ class WerewolfGameService:
                 {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
                 for p in game_state.players.values() if not p.is_alive
             ]
+            
+            # 获取发言历史用于分析（非首夜时）
+            speech_history_text = ""
+            if game_state.day_number > 1 and game_state.speech_history:
+                speech_history_text = self._speeches_to_text(game_state.speech_history)
+            
             agent_game_state = {
                 "day_number": game_state.day_number,
                 "alive_players": alive_players,
                 "dead_players": dead_players,
+                "speech_history": speech_history_text,  # 添加发言历史
             }
             # Build available targets (exclude self)
             available_targets = [
@@ -430,7 +744,9 @@ class WerewolfGameService:
                 game_state=agent_game_state,
                 available_targets=available_targets
             )
-            target_seat = result.get("target") if isinstance(result, dict) else result
+            raw_target = result.get("target") if isinstance(result, dict) else result
+            target_seat = self._normalize_seat_number(raw_target)
+            reasoning = result.get("reasoning", "") if isinstance(result, dict) else ""
             
             if target_seat:
                 is_werewolf = self.engine.process_seer_action(game_state, target_seat)
@@ -439,9 +755,37 @@ class WerewolfGameService:
                 target_name = target_player.player_name if target_player else f"玩家{target_seat}"
                 seer_agent.add_check_result(target_seat, target_name, is_werewolf, game_state.day_number)
                 game_state.game_logs.append(f"夜晚：预言家查验了{target_seat}号玩家，结果是{'狼人' if is_werewolf else '好人'}")
+                
+                # 广播 AI 行动详情（用于详细日志模式）
+                await broadcast_ai_action(
+                    room_code=room_code,
+                    ai_player_id=seer.player_id,
+                    action={
+                        "action_type": "seer_check",
+                        "seat_number": seer.seat_number,
+                        "role": "seer",
+                        "player_name": seer.player_name,
+                        "target": target_seat,
+                        "target_name": target_name,
+                        "reasoning": reasoning,
+                        "result": "狼人" if is_werewolf else "好人",
+                    }
+                )
+            
+            # 公告预言家闭眼
+            seer_sleep_stream = self.host.announce_seer_sleep(stream=True)
+            await stream_host_announcement(
+                room_code=room_code,
+                announcement_type="seer_sleep",
+                content_stream=seer_sleep_stream,
+                metadata={"phase": "night_seer_end"}
+            )
+            
+            # 短暂延迟
+            await asyncio.sleep(1.0)
             
             # Move to witch
-            await self._execute_witch_action(room_code)
+            await self._execute_witch_action(room_code, game_id)
         else:
             # Human seer
             await notify_seer_turn(
@@ -451,17 +795,26 @@ class WerewolfGameService:
             )
             # Wait for human input
     
-    async def _execute_witch_action(self, room_code: str):
+    async def _execute_witch_action(self, room_code: str, game_id: str):
         """Execute witch save/poison action."""
         # 检查是否暂停或停止
-        if not await self._check_paused_or_stopped(room_code):
+        if not await self._check_paused_or_stopped(room_code, game_id):
             return
         
-        game_state = self._game_states.get(room_code)
+        game_state = self._validate_game_state(room_code, game_id)
         if not game_state:
             return
         
+        old_phase = game_state.phase
         game_state.phase = WerewolfPhase.NIGHT_WITCH
+        
+        # Broadcast phase change
+        await broadcast_phase_change(
+            room_code=room_code,
+            from_phase=old_phase.value,
+            to_phase=game_state.phase.value,
+            day_number=game_state.day_number
+        )
         
         # Find alive witch
         witch = next(
@@ -471,11 +824,33 @@ class WerewolfGameService:
         
         if not witch:
             # Witch is dead, process night and go to day
-            await self._end_night_phase(room_code)
+            await self._end_night_phase(room_code, game_id)
             return
         
         # Get killed player info
         killed_seat = game_state.current_night_actions.werewolf_kill_target
+        killed_player_desc = None
+        if killed_seat:
+            killed_p = game_state.players.get(killed_seat)
+            if killed_p:
+                killed_player_desc = f"{killed_seat}号玩家"
+        
+        # 公告女巫睁眼
+        witch_wake_stream = self.host.announce_witch_wake(
+            killed_player=killed_player_desc,
+            stream=True
+        )
+        await stream_host_announcement(
+            room_code=room_code,
+            announcement_type="witch_wake",
+            content_stream=witch_wake_stream,
+            metadata={"phase": "night_witch", "killed_seat": killed_seat}
+        )
+        
+        # 短暂延迟
+        await asyncio.sleep(1.5)
+        
+        # Get killed player info for notification
         killed_player = None
         if killed_seat:
             killed_p = game_state.players.get(killed_seat)
@@ -535,8 +910,18 @@ class WerewolfGameService:
                 available_targets=available_targets,
                 killed_player=killed_player_info
             )
-            save_target = result.get("save_target") if isinstance(result, dict) else None
-            poison_target = result.get("poison_target") if isinstance(result, dict) else None
+            # Parse witch decision: format is {"action": "save"|"poison"|"pass", "target": seat_number}
+            save_target = None
+            poison_target = None
+            reasoning = ""
+            if isinstance(result, dict):
+                action = result.get("action", "pass")
+                raw_target = result.get("target")
+                reasoning = result.get("reasoning", "")
+                if action == "save":
+                    save_target = self._normalize_seat_number(raw_target)
+                elif action == "poison":
+                    poison_target = self._normalize_seat_number(raw_target)
             
             self.engine.process_witch_action(
                 game_state,
@@ -544,13 +929,68 @@ class WerewolfGameService:
                 poison_target=poison_target
             )
             
+            # Update witch agent potion status
             if save_target:
+                witch_agent.use_antidote()
                 game_state.game_logs.append(f"夜晚：女巫救了{save_target}号玩家")
+                # 广播 AI 行动详情（用于详细日志模式）
+                await broadcast_ai_action(
+                    room_code=room_code,
+                    ai_player_id=witch.player_id,
+                    action={
+                        "action_type": "witch_save",
+                        "seat_number": witch.seat_number,
+                        "role": "witch",
+                        "player_name": witch.player_name,
+                        "target": save_target,
+                        "reasoning": reasoning,
+                    }
+                )
             if poison_target:
+                witch_agent.use_poison()
                 game_state.game_logs.append(f"夜晚：女巫毒了{poison_target}号玩家")
+                # 广播 AI 行动详情（用于详细日志模式）
+                await broadcast_ai_action(
+                    room_code=room_code,
+                    ai_player_id=witch.player_id,
+                    action={
+                        "action_type": "witch_poison",
+                        "seat_number": witch.seat_number,
+                        "role": "witch",
+                        "player_name": witch.player_name,
+                        "target": poison_target,
+                        "reasoning": reasoning,
+                    }
+                )
+            if not save_target and not poison_target:
+                # 广播女巫选择不行动
+                await broadcast_ai_action(
+                    room_code=room_code,
+                    ai_player_id=witch.player_id,
+                    action={
+                        "action_type": "witch_pass",
+                        "seat_number": witch.seat_number,
+                        "role": "witch",
+                        "player_name": witch.player_name,
+                        "target": None,
+                        "reasoning": reasoning,
+                    }
+                )
+            
+            # 公告女巫闭眼
+            witch_sleep_stream = self.host.announce_witch_sleep(stream=True)
+            await stream_host_announcement(
+                room_code=room_code,
+                announcement_type="witch_sleep",
+                content_stream=witch_sleep_stream,
+                metadata={"phase": "night_witch_end"}
+            )
+            
+            # 短暂延迟
+            await asyncio.sleep(1.0)
             
             # End night
-            await self._end_night_phase(room_code)
+            await self._end_night_phase(room_code, game_id)
         else:
             # Human witch
             await notify_witch_turn(
@@ -564,18 +1004,26 @@ class WerewolfGameService:
             )
             # Wait for human input
     
-    async def _end_night_phase(self, room_code: str):
+    async def _end_night_phase(self, room_code: str, game_id: str):
         """End night phase and transition to day."""
         # 检查是否暂停或停止
-        if not await self._check_paused_or_stopped(room_code):
+        if not await self._check_paused_or_stopped(room_code, game_id):
             return
         
-        game_state = self._game_states.get(room_code)
+        game_state = self._validate_game_state(room_code, game_id)
         if not game_state:
             return
         
         # Process night deaths
         deaths = self.engine.advance_to_day(game_state)
+        
+        # Broadcast phase change to DAY with updated day_number
+        await broadcast_phase_change(
+            room_code=room_code,
+            from_phase="night",
+            to_phase=game_state.phase.value,
+            day_number=game_state.day_number
+        )
         
         # Announce dawn
         dead_info = [
@@ -602,31 +1050,49 @@ class WerewolfGameService:
             await self._end_game(room_code, winner)
             return
         
-        # Handle hunter shoot if applicable
+        # Handle last words for dead players (before hunter shoot check)
         for death_seat in deaths:
             player = game_state.players.get(death_seat)
-            if player and player.role == "hunter":
-                await self._handle_hunter_shoot(room_code, death_seat)
-                return
+            if player:
+                # Let dead player speak last words
+                await self._handle_last_words(room_code, death_seat, "night_kill", game_id)
+                
+                # Handle hunter shoot if applicable
+                if player.role == "hunter":
+                    await self._handle_hunter_shoot(room_code, death_seat, game_id)
+                    # After hunter action, check win again
+                    winner = self.engine.check_winner(game_state)
+                    if winner:
+                        await self._end_game(room_code, winner)
+                        return
         
         # Start day discussion
-        await self._start_day_discussion(room_code)
+        await self._start_day_discussion(room_code, game_id)
     
     # =========================================================================
     # B36: 白天执行流程
     # =========================================================================
     
-    async def _start_day_discussion(self, room_code: str):
+    async def _start_day_discussion(self, room_code: str, game_id: str):
         """Start day discussion phase."""
         # 检查是否暂停或停止
-        if not await self._check_paused_or_stopped(room_code):
+        if not await self._check_paused_or_stopped(room_code, game_id):
             return
         
-        game_state = self._game_states.get(room_code)
+        game_state = self._validate_game_state(room_code, game_id)
         if not game_state:
             return
         
+        old_phase = game_state.phase
         game_state.phase = WerewolfPhase.DAY_DISCUSSION
+        
+        # Broadcast phase change
+        await broadcast_phase_change(
+            room_code=room_code,
+            from_phase=old_phase.value,
+            to_phase=game_state.phase.value,
+            day_number=game_state.day_number
+        )
         
         # Announce discussion start
         await broadcast_host_announcement(
@@ -636,11 +1102,11 @@ class WerewolfGameService:
         )
         
         # Execute speeches in order
-        await self._execute_speeches(room_code)
+        await self._execute_speeches(room_code, game_id)
     
-    async def _execute_speeches(self, room_code: str):
+    async def _execute_speeches(self, room_code: str, game_id: str):
         """Execute all player speeches in seat order."""
-        game_state = self._game_states.get(room_code)
+        game_state = self._validate_game_state(room_code, game_id)
         if not game_state:
             return
         
@@ -650,10 +1116,27 @@ class WerewolfGameService:
             key=lambda p: p.seat_number
         )
         
-        for player in alive_players:
+        for idx, player in enumerate(alive_players):
             # 在每个玩家发言前检查是否暂停或停止
-            if not await self._check_paused_or_stopped(room_code):
+            if not await self._check_paused_or_stopped(room_code, game_id):
                 return
+            
+            player_name = f"玩家{player.seat_number}"
+            is_human = player.seat_number not in self._ai_agents
+            
+            # 1. 主持人点名发言
+            await broadcast_host_announcement(
+                room_code=room_code,
+                announcement_type="request_speech",
+                content=f"请{player.seat_number}号玩家发言。",
+                metadata={"seat_number": player.seat_number, "is_human": is_human}
+            )
+            
+            # 设置当前发言者
+            game_state.current_speaker_seat = player.seat_number
+            
+            # 等待0.5秒，让点名公告显示
+            await asyncio.sleep(0.5)
             
             if player.seat_number in self._ai_agents:
                 # AI speech with streaming
@@ -673,10 +1156,11 @@ class WerewolfGameService:
                     "alive_players": agent_alive_players,
                     "dead_players": agent_dead_players,
                 }
-                # Convert game_logs to previous_speeches format
-                previous_speeches = [
-                    {"content": str(log)} for log in game_state.game_logs
-                ]
+                # Use structured speech history for context
+                previous_speeches = self._format_speech_entries(
+                    game_state.speech_history,
+                    limit=12
+                )
                 
                 speech_stream = agent.generate_speech_stream(
                     game_state=agent_game_state,
@@ -686,14 +1170,20 @@ class WerewolfGameService:
                 speech_content = await stream_ai_speech(
                     room_code=room_code,
                     speaker_seat=player.seat_number,
-                    speaker_name=f"玩家{player.seat_number}",
+                    speaker_name=player_name,
                     speech_stream=speech_stream
                 )
                 
                 game_state.game_logs.append(f"第{game_state.day_number}天 - {player.seat_number}号发言: {speech_content}")
+                self._record_speech_entry(
+                    game_state,
+                    seat_number=player.seat_number,
+                    player_name=player.player_name,
+                    content=speech_content
+                )
                 
-                # AI发言间隔：每个AI之间等待2秒
-                await asyncio.sleep(2)
+                # AI发言间隔：每个AI之间等待1秒
+                await asyncio.sleep(1)
             else:
                 # Human player - in single player mode, human can choose to skip or just listen
                 # For simplicity, we'll broadcast that it's human's turn
@@ -705,22 +1195,48 @@ class WerewolfGameService:
                 )
                 # In auto mode, we skip human speech after a brief pause
                 await asyncio.sleep(2)
+            
+            # 2. 清除当前发言者
+            game_state.current_speaker_seat = None
+            
+            # 3. 发言结束公告（除了最后一个玩家）
+            if idx < len(alive_players) - 1:
+                await broadcast_host_announcement(
+                    room_code=room_code,
+                    announcement_type="speech_end_transition",
+                    content=f"{player.seat_number}号玩家发言结束。",
+                    metadata={"seat_number": player.seat_number}
+                )
+                # 等待1秒，让发言结束公告显示
+                await asyncio.sleep(1)
+        
+        # 所有玩家发言完成后，等待0.5秒
+        await asyncio.sleep(0.5)
         
         # Start voting
-        await self._start_voting(room_code)
+        await self._start_voting(room_code, game_id)
     
-    async def _start_voting(self, room_code: str):
+    async def _start_voting(self, room_code: str, game_id: str):
         """Start voting phase."""
         # 检查是否暂停或停止
-        if not await self._check_paused_or_stopped(room_code):
+        if not await self._check_paused_or_stopped(room_code, game_id):
             return
         
-        game_state = self._game_states.get(room_code)
+        game_state = self._validate_game_state(room_code, game_id)
         if not game_state:
             return
         
+        old_phase = game_state.phase
         game_state.phase = WerewolfPhase.DAY_VOTE
         game_state.current_votes = {}  # Reset votes for this round
+        
+        # Broadcast phase change
+        await broadcast_phase_change(
+            room_code=room_code,
+            from_phase=old_phase.value,
+            to_phase=game_state.phase.value,
+            day_number=game_state.day_number
+        )
         
         # Announce voting
         await broadcast_host_announcement(
@@ -730,11 +1246,11 @@ class WerewolfGameService:
         )
         
         # Execute votes
-        await self._execute_votes(room_code)
+        await self._execute_votes(room_code, game_id)
     
-    async def _execute_votes(self, room_code: str):
+    async def _execute_votes(self, room_code: str, game_id: str):
         """Execute all player votes."""
-        game_state = self._game_states.get(room_code)
+        game_state = self._validate_game_state(room_code, game_id)
         if not game_state:
             return
         
@@ -743,7 +1259,7 @@ class WerewolfGameService:
         
         for player in alive_players:
             # 在每个玩家投票前检查是否暂停或停止
-            if not await self._check_paused_or_stopped(room_code):
+            if not await self._check_paused_or_stopped(room_code, game_id):
                 return
             
             if player.seat_number in self._ai_agents:
@@ -764,9 +1280,9 @@ class WerewolfGameService:
                     "alive_players": agent_alive_players,
                     "dead_players": agent_dead_players,
                 }
-                # Build speech summary from game_logs
-                speech_logs = [str(log) for log in game_state.game_logs if "发言" in str(log)]
-                speech_summary = "\n".join(speech_logs[-10:]) if speech_logs else "暂无发言记录"
+                # Build speech summary from structured speech history
+                recent_speeches = self._format_speech_entries(game_state.speech_history, limit=12)
+                speech_summary = self._speeches_to_text(recent_speeches)
                 # Build voteable players
                 voteable_players = [
                     {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
@@ -779,7 +1295,8 @@ class WerewolfGameService:
                     speech_summary=speech_summary,
                     voteable_players=voteable_players
                 )
-                vote_target = result.get("target") if isinstance(result, dict) else result
+                raw_target = result.get("target") if isinstance(result, dict) else result
+                vote_target = self._normalize_seat_number(raw_target)
                 
                 self.engine.process_vote(game_state, player.seat_number, vote_target)
                 
@@ -812,11 +1329,11 @@ class WerewolfGameService:
                 )
         
         # Process vote result
-        await self._process_vote_result(room_code)
+        await self._process_vote_result(room_code, game_id)
     
-    async def _process_vote_result(self, room_code: str):
+    async def _process_vote_result(self, room_code: str, game_id: str):
         """Process voting result and eliminate player if applicable."""
-        game_state = self._game_states.get(room_code)
+        game_state = self._validate_game_state(room_code, game_id)
         if not game_state:
             return
         
@@ -834,33 +1351,38 @@ class WerewolfGameService:
         
         if eliminated:
             game_state.game_logs.append(f"投票结果: {eliminated}号玩家被放逐")
-            
-            # Announce death
+
+            # Check win condition immediately after elimination
+            winner = self.engine.check_winner(game_state)
+            if winner:
+                # Game ends, no need for last words
+                await self._end_game(room_code, winner)
+                return
+
+            # Handle last words for eliminated player
             player = game_state.players.get(eliminated)
             if player:
-                await broadcast_host_announcement(
-                    room_code=room_code,
-                    announcement_type="death",
-                    content=f"{eliminated}号玩家被放逐出局，请发表遗言。",
-                    metadata={"seat_number": eliminated, "death_reason": "vote"}
-                )
-                
+                await self._handle_last_words(room_code, eliminated, "vote", game_id)
+
                 # Check for hunter
                 if player.role == "hunter":
-                    await self._handle_hunter_shoot(room_code, eliminated)
-                    return
+                    await self._handle_hunter_shoot(room_code, eliminated, game_id)
+                    # After hunter action, check win again
+                    winner = self.engine.check_winner(game_state)
+                    if winner:
+                        await self._end_game(room_code, winner)
+                        return
         else:
             game_state.game_logs.append("投票结果: 平票，无人出局")
-        
-        # Check win condition
+
+        # Check win condition again (in case no elimination or after last words)
         winner = self.engine.check_winner(game_state)
         if winner:
             await self._end_game(room_code, winner)
             return
         
-        # Start next night
-        game_state.day_number += 1
-        await self._start_night_phase(room_code)
+        # Start next night (day_number is already incremented in advance_to_day)
+        await self._start_night_phase(room_code, game_id)
     
     # =========================================================================
     # B37: 用户行动处理
@@ -893,18 +1415,20 @@ class WerewolfGameService:
         if not human_player:
             raise BadRequestError("Player not in game")
         
+        normalized_target = self._normalize_seat_number(target_seat)
+        
         if action_type == "kill":
-            await self._handle_human_kill(room_code, human_player, target_seat)
+            await self._handle_human_kill(room_code, human_player, normalized_target)
         elif action_type == "check":
-            await self._handle_human_check(room_code, human_player, target_seat)
+            await self._handle_human_check(room_code, human_player, normalized_target)
         elif action_type == "save":
-            await self._handle_human_save(room_code, human_player, target_seat)
+            await self._handle_human_save(room_code, human_player, normalized_target)
         elif action_type == "poison":
-            await self._handle_human_poison(room_code, human_player, target_seat)
+            await self._handle_human_poison(room_code, human_player, normalized_target)
         elif action_type == "shoot":
-            await self._handle_human_shoot(room_code, human_player, target_seat)
+            await self._handle_human_shoot(room_code, human_player, normalized_target)
         elif action_type == "vote":
-            await self._handle_human_vote(room_code, human_player, target_seat)
+            await self._handle_human_vote(room_code, human_player, normalized_target)
         else:
             raise BadRequestError(f"Unknown action type: {action_type}")
     
@@ -923,9 +1447,10 @@ class WerewolfGameService:
             raise BadRequestError("Not werewolf action phase")
         
         self.engine.process_werewolf_action(game_state, target_seat)
-        game_state.game_logs.append(
-            f"夜晚：狼人选择击杀{target_seat}号玩家" if target_seat else "夜晚：狼人选择空刀"
-        )
+        if target_seat:
+            game_state.game_logs.append(f"夜晚：狼人选择击杀{target_seat}号玩家")
+        else:
+            game_state.game_logs.append("夜晚：狼人选择空刀")
         
         # Continue to seer phase
         await self._execute_seer_action(room_code)
@@ -1010,6 +1535,7 @@ class WerewolfGameService:
     ):
         """Handle human hunter shoot action."""
         game_state = self._game_states[room_code]
+        game_id = game_state.game_id
         
         if player.role != "hunter":
             raise BadRequestError("Only hunter can shoot")
@@ -1031,10 +1557,10 @@ class WerewolfGameService:
         if winner:
             await self._end_game(room_code, winner)
         elif game_state.phase == WerewolfPhase.DAY_ANNOUNCEMENT:
-            await self._start_day_discussion(room_code)
+            await self._start_day_discussion(room_code, game_id)
         else:
-            game_state.day_number += 1
-            await self._start_night_phase(room_code)
+            # day_number is already incremented in advance_to_day
+            await self._start_night_phase(room_code, game_id)
     
     async def _handle_human_vote(
         self,
@@ -1055,16 +1581,118 @@ class WerewolfGameService:
         )
     
     # =========================================================================
-    # B38: 猎人技能和游戏结束
+    # B38: 遗言处理
     # =========================================================================
     
-    async def _handle_hunter_shoot(self, room_code: str, hunter_seat: int):
-        """Handle hunter death and shooting."""
-        game_state = self._game_states.get(room_code)
+    async def _handle_last_words(self, room_code: str, dead_seat: int, death_reason: str, game_id: str):
+        """Handle last words from a dead player.
+        
+        Args:
+            room_code: Room code
+            dead_seat: Seat number of dead player
+            death_reason: Reason of death ('night_kill', 'vote', 'poison', 'hunter_shot')
+            game_id: Game ID
+        """
+        game_state = self._validate_game_state(room_code, game_id)
         if not game_state:
             return
         
+        player = game_state.players.get(dead_seat)
+        if not player:
+            return
+        
+        # 检查是否暂停或停止
+        if not await self._check_paused_or_stopped(room_code, game_id):
+            return
+        
+        # Announce last words request
+        reason_text = {
+            "night_kill": "昨夜不幸遇害",
+            "vote": "被放逐出局",
+            "poison": "被毒杀",
+            "hunter_shot": "被猎人带走"
+        }.get(death_reason, "离开了游戏")
+        
+        await broadcast_host_announcement(
+            room_code=room_code,
+            announcement_type="last_words_request",
+            content=f"{dead_seat}号玩家{reason_text}，请留下遗言。",
+            metadata={"seat_number": dead_seat, "death_reason": death_reason}
+        )
+        
+        if dead_seat in self._ai_agents:
+            # AI player gives last words
+            agent = self._ai_agents[dead_seat]
+            
+            # Build game_state dict for agent
+            agent_alive_players = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values() if p.is_alive
+            ]
+            agent_dead_players = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values() if not p.is_alive
+            ]
+            agent_game_state = {
+                "day_number": game_state.day_number,
+                "alive_players": agent_alive_players,
+                "dead_players": agent_dead_players,
+            }
+            
+            # Get previous speeches for context
+            previous_speeches = self._format_speech_entries(
+                game_state.speech_history,
+                limit=12
+            )
+            
+            # Generate last words
+            last_words_stream = agent.generate_last_words_stream(
+                game_state=agent_game_state,
+                death_reason=death_reason,
+                previous_speeches=previous_speeches
+            )
+            
+            last_words_content = await stream_ai_speech(
+                room_code=room_code,
+                speaker_seat=dead_seat,
+                speaker_name=f"玩家{dead_seat}",
+                speech_stream=last_words_stream
+            )
+            
+            game_state.game_logs.append(
+                f"第{game_state.day_number}天 - {dead_seat}号遗言: {last_words_content}"
+            )
+            self._record_speech_entry(
+                game_state,
+                seat_number=dead_seat,
+                player_name=player.player_name,
+                content=last_words_content,
+                speech_type="last_words"
+            )
+        else:
+            # Human player - for now, skip last words (TODO: implement human input)
+            logger.info(f"Human player {dead_seat} last words - skipping for now")
+    
+    # =========================================================================
+    # B39: 猎人技能和游戏结束
+    # =========================================================================
+    
+    async def _handle_hunter_shoot(self, room_code: str, hunter_seat: int, game_id: str):
+        """Handle hunter death and shooting."""
+        game_state = self._validate_game_state(room_code, game_id)
+        if not game_state:
+            return
+        
+        old_phase = game_state.phase
         game_state.phase = WerewolfPhase.HUNTER_SHOOT
+        
+        # Broadcast phase change
+        await broadcast_phase_change(
+            room_code=room_code,
+            from_phase=old_phase.value,
+            to_phase=game_state.phase.value,
+            day_number=game_state.day_number
+        )
         
         hunter = game_state.players.get(hunter_seat)
         if not hunter:
@@ -1090,10 +1718,16 @@ class WerewolfGameService:
                 {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
                 for p in game_state.players.values() if not p.is_alive
             ]
+            # 获取发言历史
+            speech_history_text = ""
+            if game_state.speech_history:
+                speech_history_text = self._speeches_to_text(game_state.speech_history)
+            
             agent_game_state = {
                 "day_number": game_state.day_number,
                 "alive_players": agent_alive_players,
                 "dead_players": agent_dead_players,
+                "speech_history": speech_history_text,  # 添加发言历史
             }
             # Build available targets
             available_targets = [
@@ -1109,7 +1743,8 @@ class WerewolfGameService:
                 death_reason=death_reason,
                 available_targets=available_targets
             )
-            shoot_target = result.get("target") if isinstance(result, dict) else result
+            raw_target = result.get("target") if isinstance(result, dict) else result
+            shoot_target = self._normalize_seat_number(raw_target)
             
             if shoot_target:
                 self.engine.process_hunter_shoot(game_state, shoot_target)
@@ -1122,15 +1757,8 @@ class WerewolfGameService:
                     metadata={"target_seat": shoot_target}
                 )
             
-            # Check win and continue
-            winner = self.engine.check_winner(game_state)
-            if winner:
-                await self._end_game(room_code, winner)
-            elif game_state.phase == WerewolfPhase.DAY_ANNOUNCEMENT:
-                await self._start_day_discussion(room_code)
-            else:
-                game_state.day_number += 1
-                await self._start_night_phase(room_code)
+            # Note: Win check and next phase transition is handled by the caller
+            # (_end_night_phase or vote processing)
         else:
             # Human hunter - notify and wait
             await notify_hunter_shoot(
@@ -1145,15 +1773,34 @@ class WerewolfGameService:
         if not game_state:
             return
         
+        old_phase = game_state.phase
         game_state.phase = WerewolfPhase.GAME_OVER
         game_state.winner = winner
         
-        # Prepare player info for reveal
+        # Broadcast phase change
+        await broadcast_phase_change(
+            room_code=room_code,
+            from_phase=old_phase.value,
+            to_phase=game_state.phase.value,
+            day_number=game_state.day_number
+        )
+        
+        # 角色名称映射
+        role_name_map = {
+            "werewolf": "狼人",
+            "seer": "预言家",
+            "witch": "女巫",
+            "hunter": "猎人",
+            "villager": "村民"
+        }
+        
+        # Prepare player info for reveal - 使用角色名称代替玩家X
         all_players = [
             {
                 "seat_number": p.seat_number,
-                "display_name": f"玩家{p.seat_number}",
+                "display_name": role_name_map.get(p.role, p.role),  # 使用角色中文名
                 "role": p.role,
+                "role_name": role_name_map.get(p.role, p.role),  # 添加角色中文名
                 "team": p.team,
                 "is_alive": p.is_alive
             }
@@ -1163,13 +1810,13 @@ class WerewolfGameService:
         winning_team = "werewolf" if winner == "werewolf" else "villager"
         winning_players = [p for p in all_players if p["team"] == winning_team]
         
-        # Build werewolf and good player lists for announcement
+        # Build werewolf and good player lists for announcement - 使用角色名称
         werewolf_players = [
-            {"seat_number": p["seat_number"], "name": p["display_name"]}
+            {"seat_number": p["seat_number"], "name": role_name_map.get("werewolf", "狼人")}
             for p in all_players if p["role"] == "werewolf"
         ]
         good_players = [
-            {"seat_number": p["seat_number"], "name": p["display_name"]}
+            {"seat_number": p["seat_number"], "name": p["role_name"]}
             for p in all_players if p["team"] == "villager"
         ]
         
@@ -1358,7 +2005,7 @@ class WerewolfGameService:
 
         return True
 
-    async def _check_paused_or_stopped(self, room_code: str) -> bool:
+    async def _check_paused_or_stopped(self, room_code: str, game_id: str | None = None) -> bool:
         """在执行下一个行动前检查是否暂停或停止。
 
         如果游戏暂停，此方法会阻塞直到游戏继续。
@@ -1366,12 +2013,16 @@ class WerewolfGameService:
 
         Args:
             room_code: 房间代码
+            game_id: 游戏ID（可选），用于验证游戏实例是否匹配
 
         Returns:
             True 表示可以继续执行，False 表示游戏已停止或状态不存在
         """
         game_state = self._game_states.get(room_code)
         if not game_state:
+            return False
+            
+        if game_id and game_state.game_id != game_id:
             return False
 
         # 如果已停止，直接返回 False
@@ -1384,6 +2035,8 @@ class WerewolfGameService:
             # 重新获取状态，以防游戏被清理或停止
             game_state = self._game_states.get(room_code)
             if not game_state or game_state.is_stopped:
+                return False
+            if game_id and game_state.game_id != game_id:
                 return False
 
         return True
@@ -1618,6 +2271,9 @@ class WerewolfGameService:
 
             # 点名发言
             await self._request_player_speech(room_code, player)
+
+        # 等待0.5秒，确保最后一个发言结束公告显示完毕
+        await asyncio.sleep(0.5)
 
         # 4. 广播发言结束公告
         await self._broadcast_host_announcement(
@@ -1931,6 +2587,9 @@ class WerewolfGameService:
 
         # 清除当前发言者
         game_state.current_speaker_seat = None
+
+        # 等待1秒，确保发言结束公告有时间显示
+        await asyncio.sleep(1)
 
         logger.debug(f"Speech end handled for player {player.seat_number} in room {room_code}")
 
@@ -2256,6 +2915,7 @@ class WerewolfGameService:
         return {
             "room_code": room_code,
             "phase": game_state.phase.value,
+            "sub_phase": game_state.sub_phase,
             "day_number": game_state.day_number,
             "players": players_info,
             "winner": game_state.winner,

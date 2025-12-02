@@ -71,6 +71,7 @@
 <script setup>
 import { computed } from 'vue'
 import { Moon, Sunny, ChatDotRound, Stamp, Timer } from '@element-plus/icons-vue'
+import { getPhaseCategory, getNightSubPhaseLabel } from '@/utils/phase'
 
 const props = defineProps({
   // 当前天数
@@ -78,11 +79,11 @@ const props = defineProps({
     type: Number,
     default: 1
   },
-  // 游戏阶段: 'night' | 'day' | 'discussion' | 'vote' | 'result'
+  // 游戏阶段: 'night' | 'day' | 'discussion' | 'vote' | 'result' | 'waiting'
   phase: {
     type: String,
     default: 'night',
-    validator: (v) => ['night', 'day', 'discussion', 'vote', 'result'].includes(v)
+    validator: (v) => ['night', 'day', 'discussion', 'vote', 'result', 'waiting'].includes(v)
   },
   // 夜晚子阶段: 'werewolf' | 'seer' | 'witch' | 'hunter' | null
   subPhase: {
@@ -101,38 +102,37 @@ const props = defineProps({
   }
 })
 
+// 归一化阶段
+const phaseCategory = computed(() => getPhaseCategory(props.phase) || props.phase || 'night')
+
 // 是否是夜晚
-const isNight = computed(() => props.phase === 'night')
+const isNight = computed(() => phaseCategory.value === 'night')
 
 // 阶段样式类
 const phaseClass = computed(() => ({
   'is-night': isNight.value,
   'is-day': !isNight.value,
-  'is-vote': props.phase === 'vote'
+  'is-vote': phaseCategory.value === 'vote'
 }))
 
 // 阶段名称
 const phaseName = computed(() => {
-  switch (props.phase) {
+  switch (phaseCategory.value) {
     case 'night': return 'NIGHT'
     case 'day': return 'DAY'
     case 'discussion': return 'DISCUSS'
     case 'vote': return 'VOTE'
     case 'result': return 'RESULT'
-    default: return props.phase.toUpperCase()
+    case 'waiting': return 'WAITING'
+    default: {
+      const fallback = phaseCategory.value || props.phase || 'PHASE'
+      return fallback.toString().toUpperCase()
+    }
   }
 })
 
 // 子阶段名称
-const subPhaseName = computed(() => {
-  switch (props.subPhase) {
-    case 'werewolf': return '狼人行动'
-    case 'seer': return '预言家查验'
-    case 'witch': return '女巫行动'
-    case 'hunter': return '猎人技能'
-    default: return ''
-  }
-})
+const subPhaseName = computed(() => getNightSubPhaseLabel(props.subPhase))
 
 // 格式化倒计时
 const formatCountdown = computed(() => {
