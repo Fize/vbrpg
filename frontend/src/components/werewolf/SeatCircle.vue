@@ -29,7 +29,7 @@
       </div>
       
       <!-- 连接线 -->
-      <svg class="connection-lines" :viewBox="`0 0 ${containerSize} ${containerSize}`">
+      <svg class="connection-lines" :viewBox="`0 0 ${containerWidth} ${containerHeight}`">
         <defs>
           <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stop-color="rgba(0, 240, 255, 0)" />
@@ -40,8 +40,8 @@
         <line 
           v-for="(player, index) in players"
           :key="'line-' + index"
-          :x1="containerSize / 2"
-          :y1="containerSize / 2"
+          :x1="containerWidth / 2"
+          :y1="containerHeight / 2"
           :x2="getLineEndX(index)"
           :y2="getLineEndY(index)"
           stroke="url(#lineGradient)"
@@ -66,6 +66,8 @@
           :is-speaking="isSpeaking(player)"
           :show-role="showRoles"
           :vote-count="getVoteCount(player.id)"
+          :speech-bubble="getSpeechBubble(player.seat_number || index + 1)"
+          :is-left-side="isLeftSide(index)"
           @select="handleSelect"
         />
       </div>
@@ -107,6 +109,11 @@ const props = defineProps({
     type: Object,
     default: () => ({})
   },
+  // 发言气泡数据
+  speechBubbles: {
+    type: Object,
+    default: () => ({})
+  },
   // 圆的半径（相对于容器尺寸的比例）
   radiusRatio: {
     type: Number,
@@ -117,7 +124,8 @@ const props = defineProps({
 const emit = defineEmits(['select'])
 
 const circleRef = ref(null)
-const containerSize = ref(500)
+const containerWidth = ref(800)
+const containerHeight = ref(600)
 
 // 存活玩家数量
 const aliveCount = computed(() => {
@@ -126,8 +134,8 @@ const aliveCount = computed(() => {
 
 // 容器样式
 const containerStyle = computed(() => ({
-  width: `${containerSize.value}px`,
-  height: `${containerSize.value}px`
+  width: `${containerWidth.value}px`,
+  height: `${containerHeight.value}px`
 }))
 
 // 计算每个座位的位置 - 两侧对称布局
@@ -135,20 +143,33 @@ function getSeatStyle(index) {
   const totalPlayers = props.players.length || 10
   const halfPlayers = Math.ceil(totalPlayers / 2)
   
-  const containerWidth = containerSize.value
-  const containerHeight = containerSize.value * 0.85  // 扩展垂直高度
+  // 使用实际容器尺寸
+  const width = containerWidth.value
+  const height = containerHeight.value
   
   // 判断左侧还是右侧
   const isLeftSide = index < halfPlayers
   const positionInSide = isLeftSide ? index : index - halfPlayers
   const playersOnSide = isLeftSide ? halfPlayers : totalPlayers - halfPlayers
   
-  // 计算垂直间距
-  const verticalSpacing = containerHeight / (playersOnSide + 1)
+  // 计算垂直间距，让玩家更均匀分布
+  // 留出上下边距 (假设座位高度约120px，留出160px空间确保不溢出)
+  const availableHeight = Math.max(height - 160, height * 0.6)
   
-  // 左侧玩家在左边，右侧玩家在右边 - 增加水平距离到边缘
-  const x = isLeftSide ? -containerWidth * 0.48 : containerWidth * 0.48
-  const y = verticalSpacing * (positionInSide + 1) - containerHeight / 2
+  let y = 0
+  if (playersOnSide > 1) {
+    // 分布在 availableHeight 范围内，首尾对齐
+    const step = availableHeight / (playersOnSide - 1)
+    y = -(availableHeight / 2) + (step * positionInSide)
+  } else {
+    // 只有一个玩家时居中
+    y = 0
+  }
+  
+  // 左侧玩家在左边，右侧玩家在右边
+  // 使用 45% 的宽度作为偏移量，这样左右两边相距 90% 的宽度
+  const horizontalOffset = width * 0.45
+  const x = isLeftSide ? -horizontalOffset : horizontalOffset
   
   return {
     transform: `translate(${x}px, ${y}px)`
@@ -158,6 +179,18 @@ function getSeatStyle(index) {
 // 获取投票数
 function getVoteCount(playerId) {
   return props.votes[playerId] || 0
+}
+
+// 获取发言气泡数据
+function getSpeechBubble(seatNumber) {
+  return props.speechBubbles[seatNumber] || null
+}
+
+// 判断是否在左侧
+function isLeftSide(index) {
+  const totalPlayers = props.players.length || 10
+  const halfPlayers = Math.ceil(totalPlayers / 2)
+  return index < halfPlayers
 }
 
 // 判断玩家是否正在发言
@@ -177,8 +210,10 @@ function getLineEndX(index) {
   const halfPlayers = Math.ceil(totalPlayers / 2)
   const isLeftSide = index < halfPlayers
   
-  const radius = containerSize.value * 0.42
-  return containerSize.value / 2 + (isLeftSide ? -radius : radius)
+  const width = containerWidth.value
+  const horizontalOffset = width * 0.45
+  
+  return (width / 2) + (isLeftSide ? -horizontalOffset : horizontalOffset)
 }
 
 function getLineEndY(index) {
@@ -188,10 +223,16 @@ function getLineEndY(index) {
   const positionInSide = isLeftSide ? index : index - halfPlayers
   const playersOnSide = isLeftSide ? halfPlayers : totalPlayers - halfPlayers
   
-  const containerHeight = containerSize.value * 0.85
-  const verticalSpacing = containerHeight / (playersOnSide + 1)
+  const height = containerHeight.value
+  const availableHeight = Math.max(height - 160, height * 0.6)
   
-  return containerSize.value / 2 + verticalSpacing * (positionInSide + 1) - containerHeight / 2
+  let yOffset = 0
+  if (playersOnSide > 1) {
+    const step = availableHeight / (playersOnSide - 1)
+    yOffset = -(availableHeight / 2) + (step * positionInSide)
+  }
+  
+  return (height / 2) + yOffset
 }
 
 // 选择处理
@@ -203,8 +244,8 @@ function handleSelect(player) {
 function updateSize() {
   if (circleRef.value) {
     const rect = circleRef.value.getBoundingClientRect()
-    const minSize = Math.min(rect.width, rect.height)
-    containerSize.value = Math.max(400, Math.min(800, minSize))
+    containerWidth.value = rect.width
+    containerHeight.value = rect.height
   }
 }
 
@@ -222,7 +263,6 @@ onUnmounted(() => {
 .cyber-seat-circle {
   width: 100%;
   height: 100%;
-  min-height: 600px;
   display: flex;
   align-items: center;
   justify-content: center;

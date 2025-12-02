@@ -603,6 +603,9 @@ export const useGameStore = defineStore('game', () => {
    * F3: 开始发言气泡流式显示
    */
   function startSpeechBubble(seatNumber, playerName) {
+    // 清除之前的所有气泡，确保同一时间只有一个发言气泡
+    clearAllSpeechBubbles()
+    
     activeSpeechBubbles.value[seatNumber] = {
       content: '',
       playerName,
@@ -628,10 +631,10 @@ export const useGameStore = defineStore('game', () => {
       activeSpeechBubbles.value[seatNumber].content = fullContent
       activeSpeechBubbles.value[seatNumber].isStreaming = false
       
-      // 设置定时器，5秒后自动消失
+      // 设置定时器，10秒后自动消失
       setTimeout(() => {
         clearSpeechBubble(seatNumber)
-      }, 5000)
+      }, 10000)
     }
   }
   

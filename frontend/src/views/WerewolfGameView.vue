@@ -102,6 +102,7 @@
           :selectable="canSelectPlayer"
           :show-roles="showRoles"
           :votes="voteResults"
+          :speech-bubbles="activeSpeechBubbles"
           @select="handleSelectPlayer"
         >
           <template #center>
@@ -227,6 +228,7 @@ const voteResults = computed(() => gameStore.voteResults)
 const myVote = computed(() => gameStore.myVote)
 const hasVoted = computed(() => gameStore.hasVoted)
 const speakingPlayerId = computed(() => gameStore.speakingPlayerId)
+const activeSpeechBubbles = computed(() => gameStore.activeSpeechBubbles)
 const canUseSkill = computed(() => gameStore.canUseSkill)
 const canVote = computed(() => gameStore.canVote)
 const skillUsed = computed(() => gameStore.mySkillUsed)
@@ -291,8 +293,8 @@ const canSelectPlayer = computed(() => {
          (currentPhase.value === 'vote' && canVote.value)
 })
 
-// 是否显示角色（单人模式始终显示，因为用户是观战者）
-const showRoles = computed(() => true)
+// 是否显示角色（只在游戏结束后揭晓身份）
+const showRoles = computed(() => gameEnded.value)
 
 // 新增：是否轮到当前玩家发言
 const isMyTurnToSpeak = computed(() => {
@@ -807,14 +809,22 @@ function resetGameState() {
 
 <style scoped>
 .werewolf-game-view {
-  min-height: 100vh;
-  background: var(--color-bg-primary);
+  width: 100%;
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  transition: background .5s ease;
-  position: relative;
-  padding: 0;
-  margin: 0;
+  background-color: #0a0a14;
+  background-image: url('@/assets/images/werewolf/werewolf-backgroud.jpeg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: var(--color-text-primary);
+  overflow: hidden;
+}
+
+.werewolf-game-view.is-night {
+  /* 夜晚模式可以加深背景或叠加遮罩 */
+  box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.8);
 }
 
 /* 科幻背景效果 */
@@ -831,10 +841,6 @@ function resetGameState() {
   background-size: 60px 60px;
   pointer-events: none;
   z-index: 0;
-}
-
-.werewolf-game-view.is-night {
-  background: linear-gradient(135deg, #0a0a15 0%, #10102a 50%, #0a1525 100%);
 }
 
 .werewolf-game-view.is-night:before {
@@ -964,7 +970,7 @@ function resetGameState() {
 .game-main {
   flex: 1;
   display: grid;
-  grid-template-columns: 280px 1fr 320px;
+  grid-template-columns: 340px 1fr 360px;
   gap: 20px;
   padding: 20px;
   overflow: hidden;
@@ -1091,15 +1097,30 @@ function resetGameState() {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 20px;
-  background: rgba(0, 240, 255, .03);
-  border-radius: 20px;
-  border: 1px solid rgba(0, 240, 255, .1);
+  /* 移除背景色和边框，让背景图透出来 */
+  background: transparent;
+  border: none;
   position: relative;
   padding: 20px;
-  overflow: auto;
+  overflow: hidden;
   min-height: 650px;
+}
+
+.host-panel-center {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  justify-content: center;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.host-panel-center > * {
+  pointer-events: auto;
 }
 
 .center-status {
@@ -1174,7 +1195,20 @@ function resetGameState() {
 .right-panel {
   display: flex;
   flex-direction: column;
+  gap: 16px;
   max-height: calc(100vh - 140px);
+  overflow: hidden;
+}
+
+/* 确保GameLog可以收缩 */
+.right-panel > * {
+  flex-shrink: 0;
+}
+
+.right-panel > :first-child {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 /* 游戏结果弹窗 */
@@ -1216,8 +1250,28 @@ function resetGameState() {
   color: var(--color-text-primary);
 }
 
-/* 响应式 */
+/* 响应式布局 */
+@media (max-width: 1600px) {
+  .game-main {
+    grid-template-columns: 300px 1fr 340px;
+  }
+}
+
+@media (max-width: 1400px) {
+  .game-main {
+    grid-template-columns: 280px 1fr 320px;
+  }
+}
+
 @media (max-width: 1200px) {
+  .game-main {
+    grid-template-columns: 260px 1fr 300px;
+    gap: 16px;
+    padding: 16px;
+  }
+}
+
+@media (max-width: 992px) {
   .game-main {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr auto;
@@ -1229,7 +1283,11 @@ function resetGameState() {
   }
   
   .right-panel {
-    max-height: 300px;
+    max-height: none;
+  }
+  
+  .right-panel > :first-child {
+    max-height: 400px;
   }
 }
 

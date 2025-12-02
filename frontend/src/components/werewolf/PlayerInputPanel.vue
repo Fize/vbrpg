@@ -240,7 +240,7 @@ defineExpose({
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .header-left {
@@ -301,7 +301,7 @@ defineExpose({
 
 /* 输入区域 */
 .input-area {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 :deep(.speech-input .el-textarea__inner) {

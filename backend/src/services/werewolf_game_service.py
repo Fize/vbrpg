@@ -863,7 +863,7 @@ class WerewolfGameService:
         # Check witch potions
         has_antidote = game_state.witch_has_antidote
         has_poison = game_state.witch_has_poison
-        can_self_save = game_state.day_number == 0  # First night (day 0) can self-save
+        can_self_save = game_state.day_number == 1  # First night (day 1) can self-save
         
         targets = [
             {"seat_number": p.seat_number, "display_name": f"玩家{p.seat_number}"}

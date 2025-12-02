@@ -142,7 +142,7 @@ async function handleResume() {
 .game-control-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 24px;
   padding: 12px 16px;
   background: linear-gradient(135deg, rgba(30, 30, 40, 0.95), rgba(20, 20, 30, 0.98));
   border-radius: 12px;
@@ -155,6 +155,7 @@ async function handleResume() {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .status-dot {
@@ -185,16 +186,19 @@ async function handleResume() {
 /* 控制按钮组 */
 .control-buttons {
   display: flex;
-  gap: 12px;
+  gap: 16px;
+  flex-shrink: 0;
 }
 
 .control-buttons .el-button {
   min-width: 100px;
+  padding: 8px 20px;
 }
 
 /* 旁观者标签 */
 .spectator-badge {
-  margin-left: 12px;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 /* 图标间距 */
