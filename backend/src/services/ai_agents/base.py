@@ -339,6 +339,74 @@ class BaseWerewolfAgent(ABC):
 
         return "\n\n".join(lines)
 
+    async def generate_last_words_stream(
+        self,
+        game_state: Dict[str, Any],
+        death_reason: str,
+        previous_speeches: List[Dict[str, Any]],
+    ) -> AsyncIterator[str]:
+        """
+        Generate last words with streaming output.
+
+        :param game_state: Current game state.
+        :param death_reason: Reason for death ('night_kill', 'vote', 'poison', 'hunter_shot').
+        :param previous_speeches: List of previous speeches.
+        :yields: Chunks of last words text.
+        """
+        from src.services.ai_agents.prompts.common_prompts import LAST_WORDS_PROMPT
+
+        formatted_state = self.format_game_state(game_state)
+        prev_speeches_text = self._format_previous_speeches(previous_speeches)
+
+        # 格式化死亡原因
+        death_reason_text = {
+            "night_kill": "你在昨夜被狼人杀害",
+            "vote": "你在白天被投票放逐出局",
+            "poison": "你在昨夜被女巫毒杀",
+            "hunter_shot": "你被猎人的技能带走"
+        }.get(death_reason, "你离开了游戏")
+
+        prompt = LAST_WORDS_PROMPT.format(
+            role_name=self.role_name,
+            team_name=self.team_name,
+            seat_number=self.seat_number,
+            death_reason=death_reason_text,
+            day_number=formatted_state["day_number"],
+            alive_players=formatted_state["alive_players"],
+            dead_players=formatted_state["dead_players"],
+            previous_speeches=prev_speeches_text,
+            known_info=formatted_state["known_info"],
+        )
+
+        # Use special system prompt for last words if available
+        if hasattr(self, 'get_last_words_system_prompt'):
+            system_prompt = self.get_last_words_system_prompt(game_state)
+        else:
+            system_prompt = self.get_system_prompt(game_state)
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+
+        full_content = ""
+        try:
+            async for chunk in self.llm_client.generate_stream(messages):
+                full_content += chunk
+                yield chunk
+
+            # Add to memory after complete
+            self.add_memory({
+                "type": "last_words",
+                "day": game_state.get("day_number", 1),
+                "content": full_content,
+                "death_reason": death_reason,
+            })
+        except Exception as e:
+            logger.error(f"[{self.player_name}] Last words stream failed: {e}")
+            fallback = f"我是{self.seat_number}号，我的遗言就到这里。"
+            yield fallback
+
     async def decide_vote(
         self,
         game_state: Dict[str, Any],
@@ -414,18 +482,70 @@ class BaseWerewolfAgent(ABC):
         self,
         speeches: List[Dict[str, Any]],
     ) -> str:
-        """Format previous speeches for prompts."""
+        """Format previous speeches for prompts with day grouping and self-reference markers."""
         if not speeches:
             return "暂无发言"
 
-        lines = []
+        # Group speeches by day
+        speeches_by_day: Dict[int, List[Dict[str, Any]]] = {}
         for speech in speeches:
-            speaker = speech.get("player_name", "未知")
-            seat = speech.get("seat_number", "?")
-            content = speech.get("content", "")
-            lines.append(f"【{seat}号 {speaker}】：{content}")
+            day = speech.get("day", 1)
+            if day not in speeches_by_day:
+                speeches_by_day[day] = []
+            speeches_by_day[day].append(speech)
 
-        return "\n\n".join(lines)
+        lines = []
+        for day in sorted(speeches_by_day.keys()):
+            day_speeches = speeches_by_day[day]
+            lines.append(f"=== 第{day}天发言 ===")
+            for speech in day_speeches:
+                speaker = speech.get("player_name", "未知")
+                seat = speech.get("seat_number", "?")
+                content = speech.get("content", "")
+                speech_type = speech.get("type", "speech")
+                
+                # Mark own previous speeches
+                is_self = seat == self.seat_number
+                self_marker = "【你的发言】" if is_self else ""
+                
+                # Mark speech type
+                type_marker = ""
+                if speech_type == "last_words":
+                    type_marker = "[遗言] "
+                elif speech_type == "vote_speech":
+                    type_marker = "[投票发言] "
+                
+                lines.append(f"{self_marker}【{seat}号 {speaker}】{type_marker}：{content}")
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _normalize_seat_number(value: Any) -> Optional[int]:
+        """
+        Normalize different seat representations returned by LLMs into integers.
+        
+        Handles formats like: "5号", "5", 5, "5号玩家5", {"seat_number": 5}, etc.
+        
+        :param value: The raw seat value from LLM response
+        :return: Normalized integer seat number, or None if invalid
+        """
+        import re
+        
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        if isinstance(value, dict):
+            for key in ("seat_number", "seat", "target"):
+                if key in value:
+                    return BaseWerewolfAgent._normalize_seat_number(value[key])
+        if isinstance(value, str):
+            digits = re.search(r"\d+", value)
+            if digits:
+                return int(digits.group())
+        return None
 
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
         """Parse JSON response from LLM."""

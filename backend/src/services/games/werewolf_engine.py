@@ -150,6 +150,7 @@ class WerewolfGameState:
     """Complete state of a werewolf game."""
 
     room_code: str
+    game_id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Unique game instance ID
     players: Dict[int, PlayerState] = field(default_factory=dict)  # seat_number -> PlayerState
     day_number: int = 0
     phase: WerewolfPhase = WerewolfPhase.WAITING

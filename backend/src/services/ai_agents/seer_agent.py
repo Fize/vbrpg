@@ -136,11 +136,22 @@ class SeerAgent(BaseWerewolfAgent):
             for t in unchecked_targets
         ]) or "所有存活玩家都已查验"
 
+        # Get day number
+        day_number = game_state.get("day_number", 1)
+        
+        # Format speech history section (only for day 2+)
+        speech_history = game_state.get("speech_history", "")
+        if day_number > 1 and speech_history:
+            speech_history_section = f"## 白天发言记录\n{speech_history}"
+        else:
+            speech_history_section = ""
+
         prompt = SEER_NIGHT_PROMPT.format(
+            day_number=day_number,
             check_history=self.format_check_history(),
             unchecked_players=unchecked_text,
-            game_analysis="根据场上发言和行为进行分析",
             available_targets=targets_text,
+            speech_history_section=speech_history_section,
         )
 
         messages = [
@@ -154,18 +165,20 @@ class SeerAgent(BaseWerewolfAgent):
 
             target = decision.get("target")
 
-            # Validate target
-            valid_seats = {str(t["seat_number"]) for t in available_targets}
-            if str(target) not in valid_seats:
+            # Normalize and validate target
+            normalized_target = self._normalize_seat_number(target)
+            valid_seats = {t["seat_number"] for t in available_targets}
+            if normalized_target is None or normalized_target not in valid_seats:
+                logger.warning(f"[{self.player_name}] Invalid check target '{target}' (normalized: {normalized_target}), using fallback")
                 # Prefer unchecked target
                 if unchecked_targets:
-                    target = unchecked_targets[0]["seat_number"]
+                    normalized_target = unchecked_targets[0]["seat_number"]
                 elif available_targets:
-                    target = available_targets[0]["seat_number"]
+                    normalized_target = available_targets[0]["seat_number"]
 
             return {
                 "action": "check",
-                "target": target,
+                "target": normalized_target,
                 "reasoning": decision.get("reasoning", ""),
             }
 

@@ -49,9 +49,12 @@ def setup_logging():
 
     # Configure third-party loggers to not propagate excessively
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
-    logging.getLogger("uvicorn").setLevel(logging.INFO)
-    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
-    logging.getLogger("socketio").setLevel(logging.INFO)
+    logging.getLogger("uvicorn").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("socketio").setLevel(logging.WARNING)
+    logging.getLogger("socketio.server").setLevel(logging.WARNING)
+    logging.getLogger("engineio").setLevel(logging.WARNING)
+    logging.getLogger("engineio.server").setLevel(logging.WARNING)
     
     _logging_initialized = True
 

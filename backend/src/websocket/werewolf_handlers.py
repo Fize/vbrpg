@@ -485,6 +485,27 @@ async def broadcast_game_over(
     logger.info(f"Game over broadcast to room {room_code}: {winner} wins")
 
 
+async def broadcast_role_assignment(
+    room_code: str,
+    players: list[dict]
+):
+    """
+    广播角色分配信息（观战模式下可见所有角色）。
+    
+    Args:
+        room_code: 房间代码
+        players: 玩家列表，包含 seat_number, player_name, role, team
+    """
+    await sio.emit(
+        "werewolf:role_assignment",
+        {
+            "players": players
+        },
+        room=room_code
+    )
+    logger.info(f"Role assignment broadcast to room {room_code}: {len(players)} players")
+
+
 # ============================================================================
 # 用户操作事件处理器
 # ============================================================================
@@ -998,3 +1019,41 @@ def _build_witch_message(
         parts.append("你没有药水可用")
     
     return "。".join(parts) + "。"
+
+
+# ============================================================================
+# AI 行动广播
+# ============================================================================
+
+async def broadcast_ai_action(
+    room_code: str,
+    ai_player_id: str,
+    action: dict[str, Any]
+):
+    """
+    广播 AI 代理的行动详情（用于详细日志模式）。
+    
+    Args:
+        room_code: 房间代码
+        ai_player_id: AI 玩家 ID
+        action: 行动数据，包含：
+            - action_type: 行动类型 (werewolf_kill, seer_check, witch_save, witch_poison, vote, etc.)
+            - seat_number: AI 玩家座位号
+            - role: AI 玩家角色
+            - target: 目标座位号（如果有）
+            - reasoning: AI 决策理由
+            - result: 行动结果（如预言家查验结果）
+    """
+    try:
+        await sio.emit(
+            "werewolf:ai_action",
+            {
+                "room_code": room_code,
+                "ai_player_id": ai_player_id,
+                "action": action,
+            },
+            room=room_code
+        )
+        logger.debug(f"Broadcasted ai_action for room {room_code}: {action.get('action_type')}")
+    except Exception as e:
+        logger.error(f"Error broadcasting ai_action: {e}")

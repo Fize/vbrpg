@@ -9,7 +9,7 @@
     
     <div class="log-content" ref="logContentRef">
       <div 
-        v-for="(entry, index) in logs"
+        v-for="(entry, index) in filteredLogs"
         :key="entry.id || index"
         class="log-entry"
         :class="[
@@ -50,6 +50,18 @@
           </div>
         </div>
         
+        <!-- AI 行动详情（详细日志模式） -->
+        <div v-else-if="entry.type === 'ai_action'" class="ai-action-entry">
+          <div class="ai-action-header">
+            <el-icon class="ai-icon"><Promotion /></el-icon>
+            <span class="ai-label">AI决策</span>
+            <span v-if="entry.time" class="entry-time">{{ formatTime(entry.time) }}</span>
+          </div>
+          <div class="ai-action-content">
+            <span class="ai-message">{{ entry.content }}</span>
+          </div>
+        </div>
+        
         <!-- 其他类型日志 -->
         <div v-else class="entry-content">
           <span v-if="entry.time" class="entry-time">{{ formatTime(entry.time) }}</span>
@@ -67,7 +79,7 @@
       </div>
       
       <!-- 空状态 -->
-      <div v-if="logs.length === 0" class="empty-log">
+      <div v-if="filteredLogs.length === 0" class="empty-log">
         <el-icon :size="40"><DocumentCopy /></el-icon>
         <span>暂无日志</span>
       </div>
@@ -76,12 +88,15 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, watch, nextTick, onMounted, onUnmounted, computed } from 'vue'
 import { 
   Bottom, Close, Stamp, ChatDotRound, 
   Aim, MagicStick, InfoFilled, DocumentCopy,
-  Microphone, Trophy
+  Microphone, Trophy, Promotion
 } from '@element-plus/icons-vue'
+import { useGameStore } from '@/stores/game'
+
+const gameStore = useGameStore()
 
 const props = defineProps({
   logs: {
@@ -92,6 +107,16 @@ const props = defineProps({
     type: Boolean,
     default: true
   }
+})
+
+// 根据日志级别过滤日志
+// 简洁模式下隐藏 ai_action 类型的日志
+const filteredLogs = computed(() => {
+  if (gameStore.logLevel === 'detailed') {
+    return props.logs
+  }
+  // 简洁模式下过滤掉 ai_action
+  return props.logs.filter(log => log.type !== 'ai_action')
 })
 
 const logContentRef = ref(null)
@@ -136,8 +161,8 @@ function scrollToBottom() {
 // 是否显示天数标记
 function showDayMarker(index) {
   if (index === 0) return true
-  const current = props.logs[index]
-  const prev = props.logs[index - 1]
+  const current = filteredLogs.value[index]
+  const prev = filteredLogs.value[index - 1]
   return current.day !== prev.day || current.phase !== prev.phase
 }
 
@@ -456,6 +481,46 @@ defineExpose({
 }
 
 .speech-message {
+  white-space: pre-wrap;
+}
+
+/* AI 行动详情样式（详细日志模式） */
+.ai-action-entry {
+  background: linear-gradient(135deg, rgba(255, 170, 0, .08), rgba(255, 100, 50, .08));
+  border: 1px solid rgba(255, 170, 0, .25);
+  border-left: 3px solid #ffaa00;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 8px 0;
+  font-size: 12px;
+}
+
+.ai-action-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ai-icon {
+  color: #ffaa00;
+  font-size: 14px;
+}
+
+.ai-label {
+  color: #ffaa00;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.ai-action-content {
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.ai-message {
   white-space: pre-wrap;
 }
 

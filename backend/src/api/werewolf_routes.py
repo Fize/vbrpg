@@ -381,31 +381,47 @@ async def get_game_logs(
         # 获取日志
         all_logs = game_state.game_logs if hasattr(game_state, "game_logs") else []
         
-        # 根据级别过滤
-        if level == "basic":
-            # 仅返回公开日志
-            filtered_logs = [log for log in all_logs if log.is_public]
-        else:
-            # 返回所有日志
-            filtered_logs = all_logs
-        
-        # 转换为响应格式
-        log_entries = [
-            GameLogEntryResponse(
-                id=log.id,
-                type=log.type,
-                content=log.content,
-                day=log.day,
-                phase=log.phase,
-                time=log.time,
-                player_id=log.player_id,
-                player_name=log.player_name,
-                seat_number=log.seat_number,
-                metadata=log.metadata,
-                is_public=log.is_public,
-            )
-            for log in filtered_logs
-        ]
+        # 过滤并处理日志（支持字符串和 GameLogEntry 混合类型）
+        log_entries = []
+        for log in all_logs:
+            # 处理字符串类型日志（旧格式）
+            if isinstance(log, str):
+                # 字符串日志作为系统日志处理，在basic级别显示
+                log_entries.append(
+                    GameLogEntryResponse(
+                        id=str(id(log)),
+                        type="system",
+                        content=log,
+                        day=game_state.day_number,
+                        phase=game_state.phase.value if game_state.phase else "unknown",
+                        time=None,
+                        player_id=None,
+                        player_name=None,
+                        seat_number=None,
+                        metadata=None,
+                        is_public=True,  # 字符串日志默认公开
+                    )
+                )
+            else:
+                # GameLogEntry 对象类型
+                # 根据级别过滤
+                if level == "basic" and not getattr(log, 'is_public', True):
+                    continue
+                log_entries.append(
+                    GameLogEntryResponse(
+                        id=log.id,
+                        type=log.type,
+                        content=log.content,
+                        day=log.day,
+                        phase=log.phase,
+                        time=log.time,
+                        player_id=log.player_id,
+                        player_name=log.player_name,
+                        seat_number=log.seat_number,
+                        metadata=log.metadata,
+                        is_public=getattr(log, 'is_public', True),
+                    )
+                )
         
         return GameLogListResponse(
             room_code=room_code,

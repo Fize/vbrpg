@@ -3,6 +3,15 @@
     <!-- 顶部状态栏 -->
     <div class="top-bar">
       <div class="room-info">
+        <el-button 
+          text
+          @click="handleBackToHome"
+          class="back-home-btn"
+        >
+          <el-icon><HomeFilled /></el-icon>
+          <span>返回首页</span>
+        </el-button>
+        <span class="divider">|</span>
         <span class="room-code">房间: {{ roomCode }}</span>
         <el-tag v-if="isSpectator" type="info">观战中</el-tag>
         <el-tag v-if="mode" :type="mode === 'player' ? 'success' : 'warning'" size="small">
@@ -160,7 +169,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { VideoPause, VideoPlay, Loading, Setting } from '@element-plus/icons-vue'
+import { VideoPause, VideoPlay, Loading, Setting, HomeFilled } from '@element-plus/icons-vue'
 import { useGameStore } from '@/stores/game'
 import { useSocketStore } from '@/stores/socket'
 import { roomsApi, gamesApi } from '@/services/api'
@@ -205,7 +214,7 @@ const myRole = computed(() => gameStore.myRole)
 const isSpectator = computed(() => gameStore.isSpectator || mode.value === 'spectator')
 // 单人模式下，用户始终有控制权限
 const isHost = computed(() => gameStore.isHost)
-const currentPhase = computed(() => gameStore.currentPhase || 'night')
+const currentPhase = computed(() => gameStore.phaseCategory || 'night')
 const subPhase = computed(() => gameStore.subPhase)
 const dayNumber = computed(() => gameStore.dayNumber)
 const countdown = computed(() => gameStore.countdown)
@@ -304,24 +313,45 @@ function getTeamName(team) {
   }
 }
 
-// 标准10人局角色配置
-const ROLE_CONFIG = [
-  { role_name: '狼人', role_type: 'werewolf' },
-  { role_name: '狼人', role_type: 'werewolf' },
-  { role_name: '狼人', role_type: 'werewolf' },
-  { role_name: '预言家', role_type: 'god' },
-  { role_name: '女巫', role_type: 'god' },
-  { role_name: '猎人', role_type: 'god' },
-  { role_name: '村民', role_type: 'villager' },
-  { role_name: '村民', role_type: 'villager' },
-  { role_name: '村民', role_type: 'villager' },
-  { role_name: '村民', role_type: 'villager' },
-]
-
 // 加载游戏状态
 async function loadGameState() {
   loading.value = true
   try {
+    // 检查是否是新游戏（从首页跳转来的）
+    const isNewGame = route.query.newGame === 'true'
+    
+    // 如果是新游戏，清理上一局的历史数据
+    if (isNewGame) {
+      console.log('新游戏开始，清理历史数据')
+      resetGameState()
+      // 清除 URL 中的 newGame 参数，避免刷新后再次清理
+      router.replace({ path: route.path, query: {} })
+    } else {
+      console.log('页面刷新或重连，尝试恢复游戏状态')
+      // 恢复历史日志
+      try {
+        const logs = await fetchHistoryLogs()
+        if (logs && logs.length > 0) {
+          replayHistoryLogs(logs)
+          restoreHostAnnouncements(logs)
+          console.log('历史日志恢复成功，共', logs.length, '条')
+        }
+      } catch (err) {
+        console.warn('恢复历史日志失败:', err)
+      }
+      
+      // 恢复游戏状态
+      try {
+        const gameState = await gamesApi.getWerewolfState(roomCode.value, myPlayerId.value || 'player_1')
+        if (gameState) {
+          gameStore.setGameState(gameState)
+          console.log('游戏状态恢复成功:', gameState)
+        }
+      } catch (err) {
+        console.warn('恢复游戏状态失败:', err)
+      }
+    }
+    
     const room = await roomsApi.getRoom(roomCode.value)
     const participantsWithSeats = (room.participants || []).map((participant, index) => {
       const seatNumber = participant.seat_number ?? index + 1
@@ -353,21 +383,17 @@ async function loadGameState() {
       gameStore.setIsSpectator(true)
     }
     
-    // 单人模式：为所有玩家分配角色（洗牌后分配）
-    const shuffledRoles = [...ROLE_CONFIG].sort(() => Math.random() - 0.5)
+    // 初始化玩家状态（不分配角色，等待后端发送角色信息）
     const participants = participantsWithSeats
-    
-    // 初始化玩家状态（包含角色信息）
     const playerStates = {}
-    participants.forEach((p, index) => {
+    participants.forEach((p) => {
       const playerId = p.id || p.player_id || `seat_${p.seat_number}`
-      const role = shuffledRoles[index] || { role_name: '村民', role_type: 'villager' }
       playerStates[playerId] = {
         seat_number: p.seat_number,
         display_name: p.name || p.player?.username || `玩家${p.seat_number}`,
         is_alive: true,
-        role_name: role.role_name,
-        role_type: role.role_type,
+        role_name: null,  // 等待后端发送
+        role_type: null,  // 等待后端发送
         role_revealed: true, // 单人观战模式下显示所有角色
         vote_count: 0
       }
@@ -557,6 +583,11 @@ function handleSkipSpeech() {
 
 function handleBackToLobby() {
   router.push('/lobby')
+}
+
+// 返回首页
+function handleBackToHome() {
+  router.push('/')
 }
 
 // ============ F37-F40: 断线重连恢复功能 ============
@@ -763,6 +794,15 @@ onUnmounted(() => {
     clearInterval(voteCountdownTimer)
   }
 })
+
+/**
+ * 重置游戏状态，清理上一局的历史数据
+ */
+function resetGameState() {
+  // 使用 store 的 resetForNewGame 方法清理所有游戏相关状态
+  gameStore.resetForNewGame()
+  console.log('Game state reset completed')
+}
 </script>
 
 <style scoped>
@@ -773,6 +813,8 @@ onUnmounted(() => {
   flex-direction: column;
   transition: background .5s ease;
   position: relative;
+  padding: 0;
+  margin: 0;
 }
 
 /* 科幻背景效果 */
@@ -829,6 +871,33 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+/* 返回首页按钮 */
+.back-home-btn {
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  padding: 8px 12px;
+  transition: all .3s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+}
+
+.back-home-btn:hover {
+  color: var(--color-primary);
+  background: rgba(0, 240, 255, .1);
+  text-shadow: 0 0 8px var(--color-primary);
+}
+
+.back-home-btn .el-icon {
+  font-size: 16px;
+}
+
+.divider {
+  color: rgba(0, 240, 255, .3);
+  margin: 0 4px;
 }
 
 .room-code {
@@ -901,6 +970,7 @@ onUnmounted(() => {
   overflow: hidden;
   position: relative;
   z-index: 1;
+  min-height: calc(100vh - 100px);
 }
 
 .left-panel {
@@ -1029,6 +1099,7 @@ onUnmounted(() => {
   position: relative;
   padding: 20px;
   overflow: auto;
+  min-height: 650px;
 }
 
 .center-status {

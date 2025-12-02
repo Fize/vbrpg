@@ -291,6 +291,12 @@ export const useSocketStore = defineStore('socket', () => {
    * @param {Object} gameStore - 游戏 store 实例
    */
   function setupHostHandlers(gameStore) {
+    // 先移除已有的监听器，防止重复
+    off('werewolf:host_announcement')
+    off('werewolf:host_announcement_start')
+    off('werewolf:host_announcement_chunk')
+    off('werewolf:host_announcement_end')
+    
     // 主持人发言（完整）
     on('werewolf:host_announcement', (data) => {
       gameStore.addGameLog({
@@ -304,6 +310,18 @@ export const useSocketStore = defineStore('socket', () => {
       // 处理死亡公告
       if (data.type === 'death' && data.metadata && data.metadata.seat_number) {
         gameStore.setPlayerDeadBySeat(data.metadata.seat_number)
+      }
+      
+      // 处理猎人开枪公告 - 标记被枪杀玩家死亡
+      if (data.type === 'hunter_shoot' && data.metadata && data.metadata.target_seat) {
+        gameStore.setPlayerDeadBySeat(data.metadata.target_seat)
+      }
+      
+      // 处理黎明公告中的死亡玩家
+      if (data.type === 'dawn' && data.metadata && data.metadata.dead_players) {
+        data.metadata.dead_players.forEach(p => {
+          gameStore.setPlayerDeadBySeat(p.seat_number)
+        })
       }
     })
     
@@ -327,14 +345,29 @@ export const useSocketStore = defineStore('socket', () => {
     
     // 主持人发言结束 (F6: 流式公告)
     on('werewolf:host_announcement_end', (data) => {
+      console.log('Host announcement end:', data)
       gameStore.endHostAnnouncement(data.content, data.metadata || {})
       gameStore.finalizeStreamingLog('host', data.content)
       
       // 处理死亡玩家信息（从dawn公告的metadata中获取）
       if (data.metadata && data.metadata.dead_players) {
+        console.log('Processing dead players from metadata:', data.metadata.dead_players)
         data.metadata.dead_players.forEach(p => {
+          console.log('Marking dead by seat:', p.seat_number)
           gameStore.setPlayerDeadBySeat(p.seat_number)
         })
+      }
+      
+      // 处理死亡公告
+      if (data.type === 'death' && data.metadata && data.metadata.seat_number) {
+        console.log('Processing death announcement for seat:', data.metadata.seat_number)
+        gameStore.setPlayerDeadBySeat(data.metadata.seat_number)
+      }
+      
+      // 处理猎人开枪公告
+      if (data.type === 'hunter_shoot' && data.metadata && data.metadata.target_seat) {
+        console.log('Processing hunter shoot for seat:', data.metadata.target_seat)
+        gameStore.setPlayerDeadBySeat(data.metadata.target_seat)
       }
     })
   }
@@ -344,6 +377,22 @@ export const useSocketStore = defineStore('socket', () => {
    * @param {Object} gameStore - 游戏 store 实例
    */
   function setupGameControlHandlers(gameStore) {
+    // 先移除已有的监听器，防止重复
+    off('werewolf:role_assignment')
+    off('werewolf:game_starting')
+    off('werewolf:game_started')
+    off('werewolf:game_ended')
+    off('werewolf:game_paused')
+    off('werewolf:game_resumed')
+    
+    // 角色分配信息（观战模式）
+    on('werewolf:role_assignment', (data) => {
+      console.log('Role assignment received:', data)
+      if (data.players && Array.isArray(data.players)) {
+        gameStore.updatePlayerRoles(data.players)
+      }
+    })
+    
     // 游戏开始
     on('werewolf:game_starting', (data) => {
       console.log('Game starting:', data)
@@ -351,6 +400,10 @@ export const useSocketStore = defineStore('socket', () => {
     
     on('werewolf:game_started', (data) => {
       gameStore.setGameStarted(true)
+      // 处理初始游戏状态
+      if (data.initial_state) {
+        gameStore.setGameState(data.initial_state)
+      }
       gameStore.addGameLog({
         type: 'system',
         content: '游戏已开始',
@@ -457,6 +510,25 @@ export const useSocketStore = defineStore('socket', () => {
    * @param {Object} gameStore - 游戏 store 实例
    */
   function setupWerewolfHandlers(gameStore) {
+    // 先移除已有的监听器，防止重复
+    off('werewolf:game_state')
+    off('werewolf:phase_change')
+    off('werewolf:speech_start')
+    off('werewolf:speech_chunk')
+    off('werewolf:speech_end')
+    off('werewolf:request_speech')
+    off('werewolf:speech_reminder')
+    off('werewolf:speech_received')
+    off('werewolf:player_speech')
+    off('werewolf:werewolf_turn')
+    off('werewolf:seer_turn')
+    off('werewolf:witch_turn')
+    off('werewolf:hunter_shoot')
+    off('werewolf:vote_phase')
+    off('werewolf:vote_cast')
+    off('werewolf:vote_result')
+    off('werewolf:ai_action')
+    
     // 游戏状态更新
     on('werewolf:game_state', (data) => {
       gameStore.updateGameState(data)
@@ -472,7 +544,7 @@ export const useSocketStore = defineStore('socket', () => {
     on('werewolf:phase_change', (data) => {
       gameStore.setPhase(data.to_phase)
       if (data.day_number !== undefined) {
-        gameStore.updateGameState({ dayNumber: data.day_number })
+        gameStore.updateGameState({ day_number: data.day_number })
       }
       // 阶段变化时清除所有发言气泡
       gameStore.clearAllSpeechBubbles()
@@ -573,6 +645,99 @@ export const useSocketStore = defineStore('socket', () => {
         targets: data.targets,
         message: data.message
       })
+    })
+    
+    // AI 行动详情（用于详细日志模式）
+    on('werewolf:ai_action', (data) => {
+      // 只在详细日志模式下显示
+      if (gameStore.logLevel === 'detailed') {
+        const action = data.action || {}
+        const actionType = action.action_type || 'unknown'
+        const seatNumber = action.seat_number
+        const role = action.role || '未知角色'
+        const playerName = action.player_name || `${seatNumber}号玩家`
+        const target = action.target
+        const reasoning = action.reasoning || ''
+        const result = action.result
+        
+        // 构建日志内容
+        let content = `【AI思考】${playerName}(${role})`
+        
+        switch (actionType) {
+          case 'werewolf_discussion':
+            // 狼人讨论阶段
+            const suggestedTarget = action.suggested_target
+            const opinion = action.opinion || ''
+            content = `【狼人密谋】${playerName}`
+            content += suggestedTarget ? ` 建议击杀 ${suggestedTarget}号` : ''
+            if (opinion) {
+              content += `\n「${opinion}」`
+            }
+            break
+          case 'werewolf_final_decision':
+            // 狼人最终决定
+            content = `【狼人决策】${playerName}`
+            content += target ? ` 最终决定击杀 ${target}号` : ' 最终决定空刀'
+            if (reasoning) {
+              content += `\n理由：${reasoning}`
+            }
+            // 显示讨论汇总
+            if (action.discussion_summary && action.discussion_summary.length > 0) {
+              const votes = action.discussion_summary.map(d => `${d.seat}号→${d.target}号`).join('，')
+              content += `\n(队友意见：${votes})`
+            }
+            break
+          case 'werewolf_kill':
+            content += target ? ` 决定击杀 ${target}号` : ' 决定空刀'
+            if (reasoning) {
+              content += `\n理由：${reasoning}`
+            }
+            break
+          case 'seer_check':
+            content += ` 查验 ${target}号，结果是${result}`
+            if (reasoning) {
+              content += `\n理由：${reasoning}`
+            }
+            break
+          case 'witch_save':
+            content += ` 使用解药救 ${target}号`
+            if (reasoning) {
+              content += `\n理由：${reasoning}`
+            }
+            break
+          case 'witch_poison':
+            content += ` 使用毒药毒 ${target}号`
+            if (reasoning) {
+              content += `\n理由：${reasoning}`
+            }
+            break
+          case 'witch_pass':
+            content += ' 选择不使用药物'
+            if (reasoning) {
+              content += `\n理由：${reasoning}`
+            }
+            break
+          case 'vote':
+            content += target ? ` 投票给 ${target}号` : ' 弃权'
+            if (reasoning) {
+              content += `\n理由：${reasoning}`
+            }
+            break
+          default:
+            content += ` 执行了 ${actionType}`
+            if (reasoning) {
+              content += `\n理由：${reasoning}`
+            }
+        }
+        
+        gameStore.addGameLog({
+          type: 'ai_action',
+          content: content,
+          player_id: data.ai_player_id,
+          seat_number: seatNumber,
+          metadata: action
+        })
+      }
     })
   }
 

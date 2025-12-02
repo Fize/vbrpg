@@ -353,3 +353,111 @@ class WerewolfHost(BaseGameHost):
             return result
         else:
             return await self.announce("speech_end_transition", context)
+
+    # 夜间角色阶段公告方法
+
+    async def announce_werewolf_wake(
+        self,
+        stream: bool = False,
+    ) -> AsyncIterator[str]:
+        """
+        公告狼人睁眼。
+
+        :param stream: 是否流式输出
+        :yields: 公告片段
+        """
+        context = {}
+        if stream:
+            async for chunk in self.announce_stream("werewolf_wake", context):
+                yield chunk
+        else:
+            yield await self.announce("werewolf_wake", context)
+
+    async def announce_werewolf_sleep(
+        self,
+        stream: bool = False,
+    ) -> AsyncIterator[str]:
+        """
+        公告狼人闭眼。
+
+        :param stream: 是否流式输出
+        :yields: 公告片段
+        """
+        context = {}
+        if stream:
+            async for chunk in self.announce_stream("werewolf_sleep", context):
+                yield chunk
+        else:
+            yield await self.announce("werewolf_sleep", context)
+
+    async def announce_seer_wake(
+        self,
+        stream: bool = False,
+    ) -> AsyncIterator[str]:
+        """
+        公告预言家睁眼。
+
+        :param stream: 是否流式输出
+        :yields: 公告片段
+        """
+        context = {}
+        if stream:
+            async for chunk in self.announce_stream("seer_wake", context):
+                yield chunk
+        else:
+            yield await self.announce("seer_wake", context)
+
+    async def announce_seer_sleep(
+        self,
+        stream: bool = False,
+    ) -> AsyncIterator[str]:
+        """
+        公告预言家闭眼。
+
+        :param stream: 是否流式输出
+        :yields: 公告片段
+        """
+        context = {}
+        if stream:
+            async for chunk in self.announce_stream("seer_sleep", context):
+                yield chunk
+        else:
+            yield await self.announce("seer_sleep", context)
+
+    async def announce_witch_wake(
+        self,
+        killed_player: Optional[str] = None,
+        stream: bool = False,
+    ) -> AsyncIterator[str]:
+        """
+        公告女巫睁眼。
+
+        :param killed_player: 被狼人杀害的玩家描述
+        :param stream: 是否流式输出
+        :yields: 公告片段
+        """
+        context = {
+            "killed_player": killed_player or "无人被杀"
+        }
+        if stream:
+            async for chunk in self.announce_stream("witch_wake", context):
+                yield chunk
+        else:
+            yield await self.announce("witch_wake", context)
+
+    async def announce_witch_sleep(
+        self,
+        stream: bool = False,
+    ) -> AsyncIterator[str]:
+        """
+        公告女巫闭眼。
+
+        :param stream: 是否流式输出
+        :yields: 公告片段
+        """
+        context = {}
+        if stream:
+            async for chunk in self.announce_stream("witch_sleep", context):
+                yield chunk
+        else:
+            yield await self.announce("witch_sleep", context)

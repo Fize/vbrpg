@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from src.integrations.llm_client import LLMClient
 from src.services.ai_agents.base import BaseWerewolfAgent
 from src.services.ai_agents.prompts.witch_prompts import (
+    WITCH_LAST_WORDS_SYSTEM_PROMPT,
     WITCH_NIGHT_PROMPT,
     WITCH_SYSTEM_PROMPT,
 )
@@ -89,6 +90,16 @@ class WitchAgent(BaseWerewolfAgent):
             dead_players=formatted["dead_players"],
         )
 
+    def get_last_words_system_prompt(self, game_state: Dict[str, Any]) -> str:
+        """Get witch system prompt for last words (without potion status)."""
+        formatted = self.format_game_state(game_state)
+
+        return WITCH_LAST_WORDS_SYSTEM_PROMPT.format(
+            day_number=formatted["day_number"],
+            alive_players=formatted["alive_players"],
+            dead_players=formatted["dead_players"],
+        )
+
     async def decide_night_action(
         self,
         game_state: Dict[str, Any],
@@ -105,12 +116,15 @@ class WitchAgent(BaseWerewolfAgent):
         """
         formatted = self.format_game_state(game_state)
         status = self.get_potion_status()
-        is_first_night = game_state.get("day_number", 1) == 1
+        is_first_night = game_state.get("day_number", 0) == 0
 
         # Format killed player
-        killed_text = "无人被杀" if not killed_player else (
-            f"{killed_player['seat_number']}号{killed_player['name']}"
-        )
+        if not killed_player:
+            killed_text = "无人被杀"
+        elif killed_player.get("seat_number") == self.seat_number:
+            killed_text = f"{killed_player['seat_number']}号{killed_player['name']}（就是你自己）"
+        else:
+            killed_text = f"{killed_player['seat_number']}号{killed_player['name']}"
 
         # Determine available actions
         actions = []
@@ -175,11 +189,15 @@ class WitchAgent(BaseWerewolfAgent):
                     action = "pass"
                     target = None
                 else:
-                    # Validate target
-                    valid_seats = {str(t["seat_number"]) for t in available_targets}
-                    if str(target) not in valid_seats:
+                    # Normalize and validate target
+                    normalized_target = self._normalize_seat_number(target)
+                    valid_seats = {t["seat_number"] for t in available_targets}
+                    if normalized_target is None or normalized_target not in valid_seats:
+                        logger.warning(f"[{self.player_name}] Invalid poison target '{target}' (normalized: {normalized_target}), not poisoning")
                         action = "pass"
                         target = None
+                    else:
+                        target = normalized_target
 
             else:
                 action = "pass"
@@ -209,7 +227,7 @@ class WitchAgent(BaseWerewolfAgent):
         :param game_state: Current game state.
         :return: True to use antidote on self.
         """
-        is_first_night = game_state.get("day_number", 1) == 1
+        is_first_night = game_state.get("day_number", 0) == 0
 
         if not self.has_antidote or not is_first_night:
             return False
