@@ -171,6 +171,8 @@ function truncateContent(content, maxLength = 80) {
   border-radius: 16px;
   overflow: hidden;
   transition: all 0.3s ease;
+  width: 400px; /* 固定宽度 */
+  max-width: 90%; /* 响应式最大宽度 */
 }
 
 .host-announcement-panel.expanded {

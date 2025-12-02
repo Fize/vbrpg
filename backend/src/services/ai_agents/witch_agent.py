@@ -116,7 +116,7 @@ class WitchAgent(BaseWerewolfAgent):
         """
         formatted = self.format_game_state(game_state)
         status = self.get_potion_status()
-        is_first_night = game_state.get("day_number", 0) == 0
+        is_first_night = game_state.get("day_number", 1) == 1
 
         # Format killed player
         if not killed_player:
@@ -227,7 +227,7 @@ class WitchAgent(BaseWerewolfAgent):
         :param game_state: Current game state.
         :return: True to use antidote on self.
         """
-        is_first_night = game_state.get("day_number", 0) == 0
+        is_first_night = game_state.get("day_number", 1) == 1
 
         if not self.has_antidote or not is_first_night:
             return False

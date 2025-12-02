@@ -11,36 +11,47 @@
     }"
     @click="handleClick"
   >
+    <!-- 发言气泡 -->
+    <transition name="bubble-fade">
+      <div 
+        v-if="speechBubble && speechBubble.content" 
+        class="speech-bubble"
+        :class="{ 
+          'bubble-left': isLeftSide, 
+          'bubble-right': !isLeftSide,
+          'is-streaming': speechBubble.isStreaming 
+        }"
+      >
+        <div class="bubble-content">
+          {{ speechBubble.content }}
+          <span v-if="speechBubble.isStreaming" class="typing-cursor">|</span>
+        </div>
+        <div class="bubble-arrow"></div>
+      </div>
+    </transition>
+    
     <!-- 霓虹边框 -->
     <div class="neon-border"></div>
     
-    <!-- 座位号全息标签 -->
-    <div class="seat-number-holo">
-      <span class="number">{{ seatNumber }}</span>
-    </div>
-    
-    <!-- 玩家头像区域 -->
-    <div class="avatar-container">
-      <div class="avatar-ring"></div>
-      <div class="avatar" :class="{ 'has-image': roleImage }">
-        <!-- 角色图片 -->
-        <img 
-          v-if="roleImage" 
-          :src="roleImage" 
-          :alt="player.role_name || '角色'"
-          class="role-image"
-        />
-        <!-- 默认图标 -->
-        <template v-else>
-          <el-icon v-if="player.is_ai" :size="28"><Monitor /></el-icon>
-          <el-icon v-else :size="28"><User /></el-icon>
-        </template>
+    <!-- 角色图片区域 -->
+    <div class="role-image-container" :class="{ 'has-image': roleImage }">
+      <!-- 角色图片 -->
+      <img 
+        v-if="roleImage" 
+        :src="roleImage" 
+        :alt="player.role_name || '角色'"
+        class="role-image"
+      />
+      <!-- 默认图标 -->
+      <div v-else class="default-avatar">
+        <el-icon v-if="player.is_ai" :size="40"><Monitor /></el-icon>
+        <el-icon v-else :size="40"><User /></el-icon>
       </div>
       
       <!-- 死亡特效 -->
       <div v-if="!player.is_alive" class="death-overlay">
         <div class="death-glitch">
-          <el-icon :size="20"><Close /></el-icon>
+          <el-icon :size="24"><Close /></el-icon>
         </div>
         <div class="death-scan"></div>
       </div>
@@ -53,11 +64,6 @@
     <div class="info-panel">
       <div class="player-name" :title="fullPlayerName">
         {{ displayName }}
-      </div>
-      
-      <!-- 阵营标签（显示角色时） -->
-      <div v-if="showRole && teamName" class="role-chip" :class="roleTypeClass">
-        {{ teamName }}
       </div>
       
       <!-- 状态标签 -->
@@ -147,13 +153,26 @@ const props = defineProps({
   voteCount: {
     type: Number,
     default: 0
+  },
+  // 发言气泡数据
+  speechBubble: {
+    type: Object,
+    default: null
+  },
+  // 是否在左侧（用于确定气泡方向）
+  isLeftSide: {
+    type: Boolean,
+    default: true
   }
 })
 
 const emit = defineEmits(['select'])
 
-// 获取角色图片
+// 获取角色图片（只在 showRole 为 true 时显示角色图片）
 const roleImage = computed(() => {
+  // 如果不显示角色，返回 null（显示默认图标）
+  if (!props.showRole) return null
+  
   const roleName = props.player.role_name || props.player.role
   const roleId = props.player.role_id || ''
   
@@ -194,7 +213,7 @@ const roleImage = computed(() => {
   return null
 })
 
-// 显示名称 - 优先显示角色名
+// 显示名称 - 游戏结束前只显示座位号，结束后显示角色名
 const displayName = computed(() => {
   // 如果有角色名且允许显示角色，优先显示角色名
   const roleName = props.player.role_name || props.player.role
@@ -202,13 +221,8 @@ const displayName = computed(() => {
     return roleName
   }
   
-  // 否则显示玩家名或座位号
-  const name = props.player.name || props.player.username
-  // 如果是 AI 名字（格式如 AI-XXX-1-abc），简化显示
-  if (name && name.startsWith('AI-')) {
-    return `AI-${props.seatNumber}`
-  }
-  return name || `玩家${props.seatNumber}`
+  // 游戏进行中只显示座位号
+  return `${props.seatNumber}号`
 })
 
 // 完整玩家名称（用于 tooltip）
@@ -273,11 +287,11 @@ function handleClick() {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 12px 10px;
+  padding: 0;
   background: rgba(10, 10, 20, .9);
   border-radius: 12px;
   border: 1px solid rgba(0, 240, 255, .3);
-  min-width: 90px;
+  width: 100px;
   transition: all .3s ease;
   position: relative;
   backdrop-filter: blur(10px);
@@ -339,13 +353,14 @@ function handleClick() {
 /* 座位号全息标签 */
 .seat-number-holo {
   position: absolute;
-  top: -12px;
+  top: 6px;
   left: 50%;
   transform: translateX(-50%);
   background: linear-gradient(135deg, rgba(0, 240, 255, .9), rgba(0, 128, 255, .9));
   padding: 2px 10px;
   border-radius: 10px;
   box-shadow: 0 0 15px rgba(0, 240, 255, .5);
+  z-index: 10;
 }
 
 .seat-number-holo .number {
@@ -355,53 +370,32 @@ function handleClick() {
   font-family: 'Courier New', monospace;
 }
 
-/* 头像区域 */
-.avatar-container {
-  position: relative;
-  margin-bottom: 8px;
-}
-
-.avatar-ring {
-  position: absolute;
-  top: -4px;
-  left: -4px;
-  right: -4px;
-  bottom: -4px;
-  border: 1px solid rgba(0, 240, 255, .3);
-  border-radius: 50%;
-  animation: ring-spin 8s linear infinite;
-}
-
-@keyframes ring-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, rgba(0, 240, 255, .2), rgba(168, 85, 247, .2));
-  border: 2px solid rgba(0, 240, 255, .5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-primary);
+/* 角色图片区域 - 充满卡片 */
+.role-image-container {
+  width: 100%;
+  height: 120px;
   position: relative;
   overflow: hidden;
+  background: linear-gradient(135deg, rgba(0, 240, 255, .1), rgba(168, 85, 247, .1));
 }
 
-/* 角色图片样式 */
-.avatar.has-image {
+.role-image-container.has-image {
   background: transparent;
-  padding: 0;
 }
 
 .role-image {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 50%;
+}
+
+.default-avatar {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
 }
 
 /* 死亡时角色图片变灰 */
@@ -409,40 +403,19 @@ function handleClick() {
   filter: grayscale(100%) brightness(0.5);
 }
 
-.avatar:before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -50%;
-  width: 50%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .1), transparent);
-  animation: avatar-shine 3s infinite;
-}
-
-@keyframes avatar-shine {
-  0% { left: -50%; }
-  100% { left: 150%; }
-}
-
-.cyber-player-seat.is-ai .avatar {
-  background: linear-gradient(135deg, rgba(168, 85, 247, .2), rgba(0, 240, 255, .2));
-  border-color: rgba(168, 85, 247, .5);
-  color: #a855f7;
-}
-
-.cyber-player-seat.is-dead .avatar {
-  background: rgba(50, 50, 60, .5);
-  border-color: rgba(255, 51, 102, .3);
+.is-dead .default-avatar {
   color: rgba(255, 51, 102, .6);
+}
+
+.cyber-player-seat.is-ai .default-avatar {
+  color: #a855f7;
 }
 
 /* 死亡特效 */
 .death-overlay {
   position: absolute;
   inset: 0;
-  border-radius: 50%;
-  background: rgba(255, 51, 102, .2);
+  background: rgba(255, 51, 102, .3);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -480,10 +453,10 @@ function handleClick() {
 /* 状态LED */
 .status-led {
   position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 12px;
-  height: 12px;
+  bottom: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   border: 2px solid rgba(10, 10, 20, .9);
 }
@@ -516,16 +489,18 @@ function handleClick() {
 .info-panel {
   text-align: center;
   width: 100%;
+  padding: 8px 6px;
+  background: rgba(10, 10, 20, .95);
 }
 
 .player-name {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 75px;
+  max-width: 100%;
   text-shadow: 0 0 10px rgba(0, 240, 255, .3);
 }
 
@@ -666,5 +641,147 @@ function handleClick() {
   .seat-number-holo .number {
     font-size: 10px;
   }
+}
+
+/* 发言气泡样式 */
+.speech-bubble {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 500px;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.speech-bubble.bubble-left {
+  left: calc(100% + 15px);
+}
+
+.speech-bubble.bubble-right {
+  right: calc(100% + 15px);
+}
+
+.bubble-content {
+  background: linear-gradient(135deg, rgba(15, 15, 30, 0.95), rgba(25, 25, 50, 0.95));
+  border: 1px solid rgba(0, 240, 255, 0.4);
+  border-radius: 12px;
+  padding: 12px 16px;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+  box-shadow: 
+    0 4px 20px rgba(0, 0, 0, 0.4),
+    0 0 20px rgba(0, 240, 255, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  position: relative;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.speech-bubble.is-streaming .bubble-content {
+  border-color: rgba(0, 255, 136, 0.5);
+  box-shadow: 
+    0 4px 20px rgba(0, 0, 0, 0.4),
+    0 0 25px rgba(0, 255, 136, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.bubble-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border: 8px solid transparent;
+}
+
+.bubble-left .bubble-arrow {
+  left: -8px;
+  border-right-color: rgba(0, 240, 255, 0.4);
+}
+
+.bubble-left .bubble-arrow::after {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: -7px;
+  border: 7px solid transparent;
+  border-right-color: rgba(15, 15, 30, 0.95);
+}
+
+.bubble-right .bubble-arrow {
+  right: -8px;
+  border-left-color: rgba(0, 240, 255, 0.4);
+}
+
+.bubble-right .bubble-arrow::after {
+  content: '';
+  position: absolute;
+  right: -6px;
+  top: -7px;
+  border: 7px solid transparent;
+  border-left-color: rgba(15, 15, 30, 0.95);
+}
+
+.typing-cursor {
+  display: inline-block;
+  font-weight: bold;
+  color: #00ff88;
+  text-shadow: 0 0 10px #00ff88;
+  animation: cursorBlink 0.8s infinite;
+  margin-left: 2px;
+}
+
+@keyframes cursorBlink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* 气泡动画 */
+.bubble-fade-enter-active {
+  animation: bubble-in 0.3s ease-out;
+}
+
+.bubble-fade-leave-active {
+  animation: bubble-out 0.3s ease-in;
+}
+
+@keyframes bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
+}
+
+@keyframes bubble-out {
+  from {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.8);
+  }
+}
+
+/* 气泡内滚动条样式 */
+.bubble-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.bubble-content::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 2px;
+}
+
+.bubble-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 240, 255, 0.3);
+  border-radius: 2px;
 }
 </style>
