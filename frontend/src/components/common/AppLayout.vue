@@ -16,7 +16,7 @@
             <span class="logo-text">AI</span>
             <span class="logo-bracket">]</span>
           </div>
-          <h1>桌游平台</h1>
+          <h1>游戏平台</h1>
           <div class="logo-glow"></div>
         </router-link>
         
@@ -100,7 +100,7 @@
       <div class="footer-content">
         <div class="footer-brand">
           <span class="footer-logo">[AI]</span>
-          <p>&copy; 2025 AI桌游平台</p>
+          <p>&copy; 2025 AI游戏平台</p>
         </div>
         <div class="footer-links">
           <a href="#" class="footer-link">关于我们</a>

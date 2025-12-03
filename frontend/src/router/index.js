@@ -69,7 +69,7 @@ const router = createRouter({
 // Navigation guards
 router.beforeEach((to, from, next) => {
   // Set page title
-  document.title = to.meta.title || 'AI 桌游平台'
+  document.title = to.meta.title || 'AI 游戏平台'
   next()
 })
 
