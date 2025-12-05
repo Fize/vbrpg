@@ -70,6 +70,7 @@ class PlayerState:
     team: str  # werewolf, villager
     is_alive: bool = True
     is_ai: bool = True
+    is_human: bool = False  # 是否为人类玩家（与 is_ai 互斥）
     death_reason: Optional[DeathReason] = None
     death_day: Optional[int] = None
 
@@ -189,6 +190,21 @@ class WerewolfGameState:
     # === 新增字段: 游戏日志 ===
     game_logs: List[GameLogEntry] = field(default_factory=list)  # 完整日志列表
 
+    # === 新增字段: 人类玩家参与 ===
+    human_player_seat: Optional[int] = None  # 人类玩家座位号
+    waiting_for_human_action: bool = False  # 是否等待人类行动
+    human_action_type: Optional[str] = None  # 等待的行动类型 (speech/vote/night_action/last_words)
+    human_action_timeout: Optional[int] = None  # 超时时间（秒）
+    human_action_start_time: Optional[datetime] = None  # 行动开始时间
+
+    # === 新增字段: 狼人私密讨论 ===
+    werewolf_private_chat: List[Dict[str, Any]] = field(default_factory=list)  # 狼人私密讨论记录
+
+    # === 新增字段: 遗言与观战模式 (Phase 5) ===
+    last_words_seat: Optional[int] = None  # 当前需要遗言的玩家座位号
+    last_words_reason: Optional[str] = None  # 死亡原因
+    is_spectator_after_death: bool = False  # 人类玩家死后是否进入观战模式
+
 
 class WerewolfEngine:
     """
@@ -277,6 +293,85 @@ class WerewolfEngine:
             random.shuffle(roles)
 
         return roles
+
+    def _assign_random_seat(self, total_seats: int = 10) -> int:
+        """
+        随机分配一个座位号给人类玩家。
+
+        :param total_seats: 总座位数，默认为10
+        :return: 随机选择的座位号（1-10）
+        """
+        return random.randint(1, total_seats)
+
+    def initialize_game_with_human_player(
+        self,
+        room_code: str,
+        player_names: List[str],
+        human_player_id: str,
+        human_role: Optional[str] = None,
+    ) -> WerewolfGameState:
+        """
+        初始化带人类玩家的游戏。
+
+        与 initialize_game 的区别：
+        - 座位号随机分配（不固定为1号位）
+        - 人类玩家明确标记为 is_human=True, is_ai=False
+        - 支持角色选择（human_role）或随机分配（human_role=None）
+
+        :param room_code: 房间代码
+        :param player_names: 10个玩家名称列表
+        :param human_player_id: 人类玩家ID
+        :param human_role: 人类玩家选择的角色（None表示随机分配）
+        :return: 初始化后的游戏状态
+        """
+        if len(player_names) != 10:
+            raise ValueError(f"Werewolf 10P requires exactly 10 players, got {len(player_names)}")
+
+        self.state = WerewolfGameState(
+            room_code=room_code,
+            is_spectator_mode=False,
+        )
+
+        # 1. 生成角色列表
+        roles = []
+        for role, count in WEREWOLF_10P_CONFIG.items():
+            roles.extend([role] * count)
+        random.shuffle(roles)
+
+        # 2. 随机选择人类玩家的座位号
+        human_seat = self._assign_random_seat()
+        self.state.human_player_seat = human_seat
+        self.state.user_seat_number = human_seat
+
+        # 3. 如果人类玩家指定了角色，确保分配给该座位
+        if human_role and human_role in roles:
+            # 找到该角色在列表中的位置
+            role_index = roles.index(human_role)
+            # 将该角色与人类座位位置的角色交换
+            human_seat_index = human_seat - 1  # 座位号从1开始，索引从0开始
+            roles[role_index], roles[human_seat_index] = roles[human_seat_index], roles[role_index]
+
+        # 4. 创建所有玩家状态
+        for i, (name, role) in enumerate(zip(player_names, roles), start=1):
+            team = "werewolf" if role == "werewolf" else "villager"
+            is_human = (i == human_seat)
+
+            self.state.players[i] = PlayerState(
+                player_id=human_player_id if is_human else f"ai_player_{i}",
+                player_name=name,
+                seat_number=i,
+                role=role,
+                team=team,
+                is_ai=not is_human,
+                is_human=is_human,
+            )
+
+        logger.info(
+            f"Game initialized with human player: room={room_code}, "
+            f"human_seat={human_seat}, human_role={self.state.players[human_seat].role}"
+        )
+
+        return self.state
 
     def start_game(self) -> None:
         """Start the game, entering first night."""

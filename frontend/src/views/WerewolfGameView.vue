@@ -67,10 +67,15 @@
             v-if="isNightPhase && canUseSkill"
             :role="myRole"
             :targets="availableTargets"
+            :killed-player="gameStore.killedPlayerInfo"
+            :antidote-used="!gameStore.witchPotions.hasAntidote"
+            :poison-used="!gameStore.witchPotions.hasPoison"
             :disabled="skillUsed"
             @use-skill="handleUseSkill"
             @empty-kill="handleEmptyKill"
-            @self-save="handleSelfSave"
+            @use-antidote="handleUseAntidote"
+            @use-poison="handleUsePoison"
+            @skip="handleSkipNightAction"
           />
           <VotePanel
             v-else-if="currentPhase === 'vote' && canVote"
@@ -133,8 +138,11 @@
           :visible="showPlayerInput"
           :is-my-turn="isMyTurnToSpeak"
           :is-submitting="isSubmittingSpeech"
-          :allow-skip="false"
+          :allow-skip="true"
           :max-length="500"
+          :show-countdown="speechTimeout > 0"
+          :time-remaining="speechTimeout"
+          :speech-options="speechOptions"
           @submit="handleSubmitSpeech"
           @skip="handleSkipSpeech"
         />
@@ -305,6 +313,10 @@ const isMyTurnToSpeak = computed(() => {
          gameStore.waitingForInput
 })
 
+// T20: 发言选项和超时
+const speechOptions = computed(() => gameStore.speechOptions)
+const speechTimeout = computed(() => gameStore.speechTimeout)
+
 // 获取阵营名称
 function getTeamName(team) {
   switch (team) {
@@ -433,13 +445,316 @@ function setupSocketListeners() {
   socketStore.setupWerewolfHandlers(gameStore)
   socketStore.setupGameControlHandlers(gameStore)  // 游戏控制事件（暂停/继续）
   
+  // 角色选择确认事件
+  socketStore.on('werewolf:role_selected', handleRoleSelected)
+  
   // 投票倒计时
   socketStore.on('werewolf:vote_countdown', handleVoteCountdown)
+  
+  // T20: 人类玩家发言相关事件
+  socketStore.on('werewolf:waiting_for_human', handleWaitingForHuman)
+  socketStore.on('werewolf:speech_options', handleSpeechOptions)
+  socketStore.on('werewolf:human_speech_complete', handleHumanSpeechComplete)
+  socketStore.on('werewolf:speech_submitted', handleSpeechSubmitted)
+  
+  // T28: 人类玩家投票相关事件
+  socketStore.on('werewolf:vote_options', handleVoteOptions)
+  socketStore.on('werewolf:human_vote_complete', handleHumanVoteComplete)
+  
+  // T37: 人类玩家夜间行动相关事件
+  socketStore.on('werewolf:human_night_action_complete', handleHumanNightActionComplete)
+  socketStore.on('werewolf:night_action_result', handleNightActionResult)
   
   // 旧的事件监听（兼容）
   socketStore.on('game_state_update', handleGameStateUpdate)
   socketStore.on('game_ended', handleGameEnded)
   socketStore.on('game_log', handleGameLog)
+}
+
+/**
+ * T20: 处理等待人类玩家行动事件
+ */
+function handleWaitingForHuman(data) {
+  console.log('收到等待人类玩家事件:', data)
+  
+  if (data.action_type === 'speech' && data.seat_number === gameStore.mySeatNumber) {
+    // 设置等待输入状态
+    gameStore.setWaitingForInput(true)
+    gameStore.setSpeechTimeout(data.timeout_seconds)
+    
+    ElMessage.info({
+      message: '轮到你发言了！',
+      duration: 3000
+    })
+  } else if (data.action_type === 'vote' && data.seat_number === gameStore.mySeatNumber) {
+    // T28: 设置投票等待状态
+    gameStore.setWaitingForInput(true)
+    gameStore.setVoteTimeout(data.timeout_seconds)
+    
+    ElMessage.info({
+      message: '轮到你投票了！',
+      duration: 3000
+    })
+  } else if (['werewolf_kill', 'seer_check', 'witch_action', 'hunter_shoot'].includes(data.action_type)) {
+    // T37: 夜间行动
+    if (data.seat_number === gameStore.mySeatNumber) {
+      gameStore.setWaitingForInput(true)
+      gameStore.setNightActionType(data.action_type)
+      gameStore.setNightActionTimeout(data.timeout_seconds)
+      
+      // 解析夜间行动选项
+      if (data.metadata?.options) {
+        gameStore.setNightActionOptions(data.metadata.options)
+      }
+      
+      // 女巫专用信息
+      if (data.action_type === 'witch_action' && data.metadata) {
+        gameStore.updateWitchPotions({
+          hasAntidote: data.metadata.has_antidote,
+          hasPoison: data.metadata.has_poison
+        })
+        if (data.metadata.killed_seat) {
+          gameStore.setKilledPlayerInfo({
+            seat_number: data.metadata.killed_seat,
+            can_self_save: data.metadata.can_self_save
+          })
+        } else {
+          gameStore.setKilledPlayerInfo(null)
+        }
+      }
+      
+      const actionMessages = {
+        'werewolf_kill': '狼人行动时间，请选择击杀目标！',
+        'seer_check': '预言家行动时间，请选择查验目标！',
+        'witch_action': '女巫行动时间，请选择是否使用药水！',
+        'hunter_shoot': '猎人技能触发，请选择是否开枪！'
+      }
+      
+      ElMessage.info({
+        message: actionMessages[data.action_type] || '轮到你行动了！',
+        duration: 3000
+      })
+    }
+  }
+}
+
+/**
+ * T20: 处理发言选项事件
+ */
+function handleSpeechOptions(data) {
+  console.log('收到发言选项:', data)
+  
+  if (data.seat_number === gameStore.mySeatNumber) {
+    gameStore.setSpeechOptions(data.options || [])
+  }
+}
+
+/**
+ * T20: 处理人类玩家发言完成事件
+ */
+function handleHumanSpeechComplete(data) {
+  console.log('人类玩家发言完成:', data)
+  
+  // 添加发言到日志
+  gameStore.addGameLog({
+    type: 'speech',
+    content: data.content,
+    player_id: null,
+    player_name: `${data.seat_number}号玩家`,
+    seat_number: data.seat_number
+  })
+}
+
+/**
+ * T20: 处理发言提交确认事件
+ */
+function handleSpeechSubmitted(data) {
+  if (data.success) {
+    console.log('发言提交成功')
+  }
+}
+
+/**
+ * T28: 处理投票选项事件
+ */
+function handleVoteOptions(data) {
+  console.log('收到投票选项:', data)
+  
+  if (data.seat_number === gameStore.mySeatNumber) {
+    // 转换选项格式为 VotePanel 需要的格式
+    const formattedOptions = (data.options || []).map(opt => ({
+      id: opt.player_id || `seat_${opt.seat_number}`,
+      name: opt.player_name,
+      seat_number: opt.seat_number,
+      vote_count: 0
+    }))
+    gameStore.setVoteOptions(formattedOptions)
+    if (data.timeout_seconds) {
+      gameStore.setVoteTimeout(data.timeout_seconds)
+    }
+  }
+}
+
+/**
+ * T28: 处理人类玩家投票完成事件
+ */
+function handleHumanVoteComplete(data) {
+  console.log('人类玩家投票完成:', data)
+  
+  // 添加投票日志
+  const voteText = data.is_abstain 
+    ? `${data.voter_seat}号玩家弃票`
+    : `${data.voter_seat}号玩家投给了${data.target_seat}号`
+  
+  gameStore.addGameLog({
+    type: 'vote',
+    content: voteText,
+    player_id: null,
+    player_name: data.voter_name,
+    seat_number: data.voter_seat
+  })
+}
+
+/**
+ * T37: 处理人类玩家夜间行动完成事件
+ */
+function handleHumanNightActionComplete(data) {
+  console.log('人类玩家夜间行动完成:', data)
+  
+  // 清除夜间行动状态
+  gameStore.clearNightActionState()
+  gameStore.setWaitingForInput(false)
+  
+  // 根据行动类型添加日志
+  const { action_type, result, seat_number } = data
+  let logContent = ''
+  
+  switch (action_type) {
+    case 'werewolf_kill':
+      logContent = result.target_seat 
+        ? `你选择击杀${result.target_seat}号玩家`
+        : '你选择空刀'
+      break
+    case 'seer_check':
+      if (result.target_seat && result.check_result) {
+        logContent = `你查验了${result.target_seat}号玩家，结果是${result.check_result}`
+        // 保存查验结果供界面显示
+        gameStore.setNightActionResult({
+          target_seat: result.target_seat,
+          is_werewolf: result.is_werewolf,
+          result_text: result.check_result
+        })
+      } else {
+        logContent = '你没有查验任何人'
+      }
+      break
+    case 'witch_action':
+      if (result.save_target) {
+        logContent = `你使用解药救了${result.save_target}号玩家`
+      } else if (result.poison_target) {
+        logContent = `你使用毒药毒杀了${result.poison_target}号玩家`
+      } else {
+        logContent = '你选择不使用任何药水'
+      }
+      break
+    case 'hunter_shoot':
+      logContent = result.target_seat
+        ? `你开枪带走了${result.target_seat}号玩家`
+        : '你选择不开枪'
+      break
+  }
+  
+  if (logContent) {
+    gameStore.addGameLog({
+      type: 'night_action',
+      content: logContent,
+      player_id: null,
+      player_name: `${seat_number}号玩家`,
+      seat_number: seat_number
+    })
+  }
+}
+
+/**
+ * T37: 处理夜间行动结果（发送给行动者的确认）
+ */
+function handleNightActionResult(data) {
+  console.log('夜间行动结果:', data)
+  
+  if (data.success) {
+    ElMessage.success('行动成功！')
+  } else if (data.error) {
+    ElMessage.error(data.error)
+  }
+}
+
+/**
+ * 处理角色选择确认事件
+ * @param {Object} data - 角色选择结果
+ * @param {string} data.role - 分配的角色名称
+ * @param {number} data.seat_number - 分配的座位号
+ * @param {Array} data.werewolf_teammates - 狼人队友列表（仅狼人角色）
+ * @param {string} data.role_description - 角色描述
+ */
+function handleRoleSelected(data) {
+  console.log('收到角色选择确认:', data)
+  
+  // 更新当前玩家角色信息
+  gameStore.setMyRole({
+    name: data.role,
+    type: getRoleType(data.role),
+    team: getRoleTeam(data.role),
+    description: data.role_description || ''
+  })
+  
+  // 更新当前玩家座位号
+  gameStore.setMySeatNumber(data.seat_number)
+  
+  // 更新玩家存活状态
+  gameStore.setIsAlive(true)
+  
+  // 如果是狼人，更新狼人队友列表
+  if (data.werewolf_teammates && data.werewolf_teammates.length > 0) {
+    gameStore.setWerewolfTeammates(data.werewolf_teammates)
+  }
+  
+  // 添加游戏日志
+  gameStore.addGameLog({
+    type: 'role_assigned',
+    content: `你的角色是 ${data.role}，座位号 ${data.seat_number}`,
+    player_id: gameStore.myPlayerId,
+    player_name: '系统'
+  })
+  
+  ElMessage.success(`角色分配成功：${data.role}，座位号 ${data.seat_number}`)
+}
+
+/**
+ * 获取角色类型
+ */
+function getRoleType(roleName) {
+  const roleTypes = {
+    '狼人': 'werewolf',
+    '预言家': 'god',
+    '女巫': 'god',
+    '猎人': 'god',
+    '村民': 'villager'
+  }
+  return roleTypes[roleName] || 'villager'
+}
+
+/**
+ * 获取角色阵营
+ */
+function getRoleTeam(roleName) {
+  const roleTeams = {
+    '狼人': 'werewolf',
+    '预言家': 'villager',
+    '女巫': 'villager',
+    '猎人': 'villager',
+    '村民': 'villager'
+  }
+  return roleTeams[roleName] || 'villager'
 }
 
 // 投票倒计时
@@ -483,50 +798,190 @@ function handleSelectPlayer(player) {
 }
 
 function handleUseSkill(target) {
-  socketStore.emit('werewolf:use_skill', {
-    room_code: roomCode.value,
-    target_id: target.id
-  })
-  gameStore.useSkill()
-  selectedPlayerId.value = null
+  // T37: 使用新的人类玩家夜间行动方法
+  const targetSeat = target?.seat_number || null
+  const role = gameStore.myRole?.name
+  
+  // 根据角色确定行动类型
+  let actionType = null
+  let witchAction = null
+  
+  switch (role) {
+    case '狼人':
+      actionType = 'werewolf_kill'
+      break
+    case '预言家':
+      actionType = 'seer_check'
+      break
+    case '猎人':
+      actionType = 'hunter_shoot'
+      break
+    case '女巫':
+      // 女巫的技能使用通过 use-antidote 和 use-poison 事件处理
+      // 这里不应该被调用
+      console.warn('女巫技能应通过专用事件处理')
+      return
+    default:
+      console.error('未知角色:', role)
+      return
+  }
+  
+  try {
+    socketStore.submitHumanNightAction(
+      roomCode.value,
+      gameStore.gameId,
+      actionType,
+      targetSeat,
+      witchAction
+    )
+    gameStore.useSkill()
+    gameStore.clearNightActionState()
+    selectedPlayerId.value = null
+  } catch (err) {
+    ElMessage.error('行动提交失败: ' + err.message)
+  }
 }
 
 // 狼人空刀
 function handleEmptyKill() {
-  socketStore.emit('werewolf:use_skill', {
-    room_code: roomCode.value,
-    target_id: null,
-    action_type: 'empty_kill'
-  })
-  gameStore.useSkill()
-  ElMessage.info('已选择不击杀任何人')
+  try {
+    socketStore.submitHumanNightAction(
+      roomCode.value,
+      gameStore.gameId,
+      'werewolf_kill',
+      null,  // 空刀，不选择目标
+      null
+    )
+    gameStore.useSkill()
+    gameStore.clearNightActionState()
+    ElMessage.info('已选择不击杀任何人')
+  } catch (err) {
+    ElMessage.error('行动提交失败: ' + err.message)
+  }
 }
 
-// 女巫自救
+// 女巫自救（使用解药救自己）
 function handleSelfSave() {
-  socketStore.emit('werewolf:use_skill', {
-    room_code: roomCode.value,
-    target_id: myPlayerId.value,
-    action_type: 'self_save'
-  })
-  gameStore.useSkill()
-  ElMessage.info('已使用解药自救')
+  try {
+    socketStore.submitHumanNightAction(
+      roomCode.value,
+      gameStore.gameId,
+      'witch_action',
+      gameStore.mySeatNumber,
+      'save'
+    )
+    gameStore.useSkill()
+    gameStore.clearNightActionState()
+    gameStore.updateWitchPotions({ hasAntidote: false })
+    ElMessage.info('已使用解药自救')
+  } catch (err) {
+    ElMessage.error('行动提交失败: ' + err.message)
+  }
+}
+
+// T37: 女巫使用解药救人
+function handleUseAntidote(target) {
+  try {
+    socketStore.submitHumanNightAction(
+      roomCode.value,
+      gameStore.gameId,
+      'witch_action',
+      target?.seat_number || gameStore.killedPlayerInfo?.seat_number,
+      'save'
+    )
+    gameStore.useSkill()
+    gameStore.clearNightActionState()
+    gameStore.updateWitchPotions({ hasAntidote: false })
+    ElMessage.info('已使用解药救人')
+  } catch (err) {
+    ElMessage.error('行动提交失败: ' + err.message)
+  }
+}
+
+// T37: 女巫使用毒药
+function handleUsePoison(target) {
+  try {
+    socketStore.submitHumanNightAction(
+      roomCode.value,
+      gameStore.gameId,
+      'witch_action',
+      target?.seat_number,
+      'poison'
+    )
+    gameStore.useSkill()
+    gameStore.clearNightActionState()
+    gameStore.updateWitchPotions({ hasPoison: false })
+    ElMessage.info('已使用毒药毒杀')
+  } catch (err) {
+    ElMessage.error('行动提交失败: ' + err.message)
+  }
+}
+
+// T37: 跳过夜间行动（女巫不使用药水、猎人不开枪等）
+function handleSkipNightAction() {
+  const role = gameStore.myRole?.name
+  let actionType = null
+  
+  switch (role) {
+    case '女巫':
+      actionType = 'witch_action'
+      break
+    case '猎人':
+      actionType = 'hunter_shoot'
+      break
+    default:
+      console.warn('当前角色不支持跳过行动:', role)
+      return
+  }
+  
+  try {
+    socketStore.submitHumanNightAction(
+      roomCode.value,
+      gameStore.gameId,
+      actionType,
+      null,
+      actionType === 'witch_action' ? 'pass' : null
+    )
+    gameStore.useSkill()
+    gameStore.clearNightActionState()
+    ElMessage.info('已跳过行动')
+  } catch (err) {
+    ElMessage.error('行动提交失败: ' + err.message)
+  }
 }
 
 function handleVote(player) {
-  socketStore.emit('werewolf:vote', {
-    room_code: roomCode.value,
-    target_id: player.id
-  })
-  gameStore.setVote(player.id)
+  // T28: 使用新的人类玩家投票方法
+  const targetSeat = player.seat_number || null
+  
+  try {
+    socketStore.submitHumanVote(
+      roomCode.value,
+      gameStore.gameId,
+      targetSeat
+    )
+    gameStore.setVote(player.id)
+    gameStore.clearVoteState()
+    ElMessage.success('投票已提交')
+  } catch (err) {
+    ElMessage.error('投票提交失败: ' + err.message)
+  }
 }
 
 function handleAbstain() {
-  socketStore.emit('werewolf:vote', {
-    room_code: roomCode.value,
-    target_id: null // 弃票
-  })
-  gameStore.setVote(null)
+  // T28: 使用新的人类玩家投票方法（弃票）
+  try {
+    socketStore.submitHumanVote(
+      roomCode.value,
+      gameStore.gameId,
+      null  // null 表示弃票
+    )
+    gameStore.setVote(null)
+    gameStore.clearVoteState()
+    ElMessage.info('已弃票')
+  } catch (err) {
+    ElMessage.error('弃票提交失败: ' + err.message)
+  }
 }
 
 // 新增：开始游戏
@@ -563,15 +1018,27 @@ function handleShowSettings() {
 }
 
 // 新增：提交发言
-async function handleSubmitSpeech(content) {
+async function handleSubmitSpeech(data) {
+  // data 可能是对象 { content, optionId } 或字符串（向后兼容）
+  const content = typeof data === 'object' ? data.content : data
+  const optionId = typeof data === 'object' ? data.optionId : null
+  
   if (!content || isSubmittingSpeech.value) return
   
   isSubmittingSpeech.value = true
   try {
-    socketStore.submitSpeech(roomCode.value, content)
+    // T20: 使用新的人类玩家发言提交方法
+    socketStore.submitHumanSpeech(
+      roomCode.value,
+      myPlayerId.value,
+      content,
+      optionId
+    )
     ElMessage.success('发言已提交')
+    // 清除发言状态
+    gameStore.clearSpeechState()
   } catch (err) {
-    ElMessage.error('发言提交失败')
+    ElMessage.error('发言提交失败: ' + err.message)
   } finally {
     isSubmittingSpeech.value = false
   }
@@ -579,8 +1046,18 @@ async function handleSubmitSpeech(content) {
 
 // 新增：跳过发言
 function handleSkipSpeech() {
-  socketStore.submitSpeech(roomCode.value, '')
-  ElMessage.info('已跳过发言')
+  try {
+    socketStore.submitHumanSpeech(
+      roomCode.value,
+      myPlayerId.value,
+      '（跳过发言）',
+      'pass'
+    )
+    ElMessage.info('已跳过发言')
+    gameStore.clearSpeechState()
+  } catch (err) {
+    ElMessage.error('跳过发言失败')
+  }
 }
 
 function handleBackToLobby() {
@@ -785,11 +1262,20 @@ onUnmounted(() => {
   }
   
   // 清理事件监听
+  socketStore.off('werewolf:role_selected', handleRoleSelected)
   socketStore.off('werewolf:vote_countdown', handleVoteCountdown)
   socketStore.off('game_state_update', handleGameStateUpdate)
   socketStore.off('game_ended', handleGameEnded)
   socketStore.off('game_log', handleGameLog)
   socketStore.off('reconnect', handleReconnect)
+  
+  // T28: 清理投票相关事件监听
+  socketStore.off('werewolf:vote_options', handleVoteOptions)
+  socketStore.off('werewolf:human_vote_complete', handleHumanVoteComplete)
+  
+  // T37: 清理夜间行动相关事件监听
+  socketStore.off('werewolf:human_night_action_complete', handleHumanNightActionComplete)
+  socketStore.off('werewolf:night_action_result', handleNightActionResult)
   
   // 清理倒计时
   if (voteCountdownTimer) {

@@ -60,6 +60,9 @@ export const useGameStore = defineStore('game', () => {
   // ============ 玩家角色状态 ============
   const myPlayerId = ref(localStorage.getItem('playerId') || null)
   const myRole = ref(null) // { name, type, team, description }
+  const mySeatNumber = ref(null) // 当前玩家座位号
+  const isAlive = ref(true) // 当前玩家是否存活
+  const werewolfTeammates = ref([]) // 狼人队友列表 [{ seat_number, player_name }]
   const isSpectator = ref(false)
   const mySkillTargets = ref([]) // 可使用技能的目标
   const mySkillUsed = ref(false) // 本回合技能是否已使用
@@ -79,6 +82,33 @@ export const useGameStore = defineStore('game', () => {
   // ============ 发言状态 ============
   const speakingPlayerId = ref(null)
   const speakOrder = ref([]) // 发言顺序
+  const speechOptions = ref([]) // T20: 预设发言选项
+  const speechTimeout = ref(0) // T20: 发言超时时间（秒）
+
+  // ============ 投票选项状态 (Phase 3) ============
+  const voteOptions = ref([]) // T28: 可投票玩家选项
+  const voteTimeout = ref(0) // T28: 投票超时时间（秒）
+
+  // ============ 夜间行动状态 (Phase 4) ============
+  const nightActionOptions = ref([]) // T37: 夜间行动选项
+  const nightActionTimeout = ref(0) // T37: 夜间行动超时时间（秒）
+  const nightActionType = ref(null) // T37: 当前夜间行动类型 ('werewolf_kill'|'seer_check'|'witch_action'|'hunter_shoot')
+  const nightActionResult = ref(null) // T37: 夜间行动结果（如预言家查验结果）
+  const killedPlayerInfo = ref(null) // T37: 被狼人杀死的玩家信息（女巫用）
+  const witchPotions = ref({ hasAntidote: true, hasPoison: true }) // T37: 女巫药水状态
+
+  // ============ 狼人私密讨论状态 (Phase 4.1) ============
+  const isWerewolf = ref(false) // T44: 当前玩家是否是狼人
+  const wolfChatMessages = ref([]) // T44: 狼人私密讨论消息列表
+  const isWolfChatEnabled = ref(false) // T44: 狼人讨论是否可用（仅狼人行动阶段）
+
+  // ============ 遗言与观战状态 (Phase 5) ============
+  const isLastWordsPhase = ref(false) // T52: 是否处于遗言阶段
+  const lastWordsSeat = ref(null) // T52: 需要遗言的玩家座位号
+  const lastWordsOptions = ref([]) // T52: 遗言预设选项
+  const lastWordsDeathReason = ref(null) // T52: 死亡原因
+  const lastWordsTimeout = ref(0) // T52: 遗言超时时间（秒）
+  const isSpectatorMode = ref(false) // T53: 是否为观战模式（死后观战）
 
   // ============ 计算属性 ============
   const isInRoom = computed(() => currentRoom.value !== null)
@@ -320,6 +350,30 @@ export const useGameStore = defineStore('game', () => {
   
   function setMyRole(role) {
     myRole.value = role
+  }
+  
+  /**
+   * 设置当前玩家座位号
+   * @param {number} seatNumber - 座位号
+   */
+  function setMySeatNumber(seatNumber) {
+    mySeatNumber.value = seatNumber
+  }
+  
+  /**
+   * 设置当前玩家存活状态
+   * @param {boolean} alive - 是否存活
+   */
+  function setIsAlive(alive) {
+    isAlive.value = alive
+  }
+  
+  /**
+   * 设置狼人队友列表
+   * @param {Array} teammates - 队友列表 [{ seat_number, player_name }]
+   */
+  function setWerewolfTeammates(teammates) {
+    werewolfTeammates.value = teammates || []
   }
   
   function setIsSpectator(spectator) {
@@ -692,6 +746,208 @@ export const useGameStore = defineStore('game', () => {
     waitingForInput.value = waiting
   }
   
+  /**
+   * T20: 设置发言选项
+   */
+  function setSpeechOptions(options) {
+    speechOptions.value = options || []
+  }
+  
+  /**
+   * T20: 设置发言超时
+   */
+  function setSpeechTimeout(timeout) {
+    speechTimeout.value = timeout || 0
+  }
+  
+  /**
+   * T20: 清除发言状态
+   */
+  function clearSpeechState() {
+    speechOptions.value = []
+    speechTimeout.value = 0
+    waitingForInput.value = false
+  }
+  
+  // ============ Phase 3: 投票交互 (T28) ============
+  
+  /**
+   * T28: 设置投票选项
+   */
+  function setVoteOptions(options) {
+    voteOptions.value = options
+  }
+  
+  /**
+   * T28: 设置投票超时时间
+   */
+  function setVoteTimeout(seconds) {
+    voteTimeout.value = seconds
+  }
+  
+  /**
+   * T28: 清除投票状态
+   */
+  function clearVoteState() {
+    voteOptions.value = []
+    voteTimeout.value = 0
+    hasVoted.value = false
+    myVote.value = null
+  }
+  
+  // ============ Phase 4: 夜间行动交互 (T37) ============
+  
+  /**
+   * T37: 设置夜间行动选项
+   */
+  function setNightActionOptions(options) {
+    nightActionOptions.value = options || []
+  }
+  
+  /**
+   * T37: 设置夜间行动超时
+   */
+  function setNightActionTimeout(seconds) {
+    nightActionTimeout.value = seconds || 0
+  }
+  
+  /**
+   * T37: 设置夜间行动类型
+   */
+  function setNightActionType(type) {
+    nightActionType.value = type
+  }
+  
+  /**
+   * T37: 设置夜间行动结果（如预言家查验结果）
+   */
+  function setNightActionResult(result) {
+    nightActionResult.value = result
+  }
+  
+  /**
+   * T37: 设置被杀玩家信息（女巫用）
+   */
+  function setKilledPlayerInfo(player) {
+    killedPlayerInfo.value = player
+  }
+  
+  /**
+   * T37: 更新女巫药水状态
+   */
+  function updateWitchPotions(potions) {
+    if (potions) {
+      witchPotions.value = { ...witchPotions.value, ...potions }
+    }
+  }
+  
+  /**
+   * T37: 清除夜间行动状态
+   */
+  function clearNightActionState() {
+    nightActionOptions.value = []
+    nightActionTimeout.value = 0
+    nightActionType.value = null
+    nightActionResult.value = null
+    killedPlayerInfo.value = null
+  }
+  
+  // ============ Phase 4.1: 狼人私密讨论 (T44) ============
+  
+  /**
+   * T44: 设置当前玩家是否是狼人
+   */
+  function setIsWerewolf(werewolf) {
+    isWerewolf.value = werewolf
+  }
+  
+  /**
+   * T44: 添加狼人讨论消息
+   */
+  function addWolfChatMessage(message) {
+    wolfChatMessages.value.push({
+      ...message,
+      id: Date.now(),
+      time: new Date().toISOString()
+    })
+  }
+  
+  /**
+   * T44: 设置狼人讨论消息历史
+   */
+  function setWolfChatHistory(messages) {
+    wolfChatMessages.value = messages || []
+  }
+  
+  /**
+   * T44: 清除狼人讨论消息
+   */
+  function clearWolfChatMessages() {
+    wolfChatMessages.value = []
+  }
+  
+  /**
+   * T44: 设置狼人讨论是否可用
+   */
+  function setWolfChatEnabled(enabled) {
+    isWolfChatEnabled.value = enabled
+  }
+
+  // ============ T52-T53: 遗言与观战状态方法 ============
+
+  /**
+   * T52: 设置遗言阶段状态
+   */
+  function setLastWordsPhase(isActive, data = {}) {
+    isLastWordsPhase.value = isActive
+    if (isActive) {
+      lastWordsSeat.value = data.seat_number || null
+      lastWordsOptions.value = data.options || []
+      lastWordsDeathReason.value = data.death_reason || null
+      lastWordsTimeout.value = data.timeout_seconds || 60
+    } else {
+      lastWordsSeat.value = null
+      lastWordsOptions.value = []
+      lastWordsDeathReason.value = null
+      lastWordsTimeout.value = 0
+    }
+  }
+
+  /**
+   * T52: 设置遗言选项
+   */
+  function setLastWordsOptions(options) {
+    lastWordsOptions.value = options || []
+  }
+
+  /**
+   * T52: 设置遗言超时时间
+   */
+  function setLastWordsTimeout(timeout) {
+    lastWordsTimeout.value = timeout
+  }
+
+  /**
+   * T53: 设置观战模式
+   */
+  function setSpectatorMode(isSpectator) {
+    isSpectatorMode.value = isSpectator
+    if (isSpectator) {
+      isAlive.value = false
+    }
+  }
+
+  /**
+   * T52: 清除遗言状态
+   */
+  function clearLastWordsState() {
+    isLastWordsPhase.value = false
+    lastWordsSeat.value = null
+    lastWordsOptions.value = []
+    lastWordsDeathReason.value = null
+    lastWordsTimeout.value = 0
+  }
+
   // ============ F37-F40: 断线重连辅助方法 ============
   
   /**
@@ -756,6 +1012,9 @@ export const useGameStore = defineStore('game', () => {
     winner.value = null
     winnerTeam.value = []
     myRole.value = null
+    mySeatNumber.value = null
+    isAlive.value = true
+    werewolfTeammates.value = []
     isSpectator.value = false
     playerStates.value = {}
     voteResults.value = {}
@@ -809,6 +1068,12 @@ export const useGameStore = defineStore('game', () => {
     // 清理玩家状态（重要：确保新游戏时状态干净）
     playerStates.value = {}
     seatPlayerMap.value = {}
+    
+    // 清理玩家角色信息
+    myRole.value = null
+    mySeatNumber.value = null
+    isAlive.value = true
+    werewolfTeammates.value = []
     
     // 清理投票状态
     voteResults.value = {}
@@ -985,6 +1250,9 @@ export const useGameStore = defineStore('game', () => {
     winnerTeam,
     myPlayerId,
     myRole,
+    mySeatNumber,
+    isAlive,
+    werewolfTeammates,
     isSpectator,
     playerStates,
     seatPlayerMap,
@@ -996,6 +1264,8 @@ export const useGameStore = defineStore('game', () => {
     speakOrder,
     mySkillTargets,
     mySkillUsed,
+    speechOptions,     // T20: 预设发言选项
+    speechTimeout,     // T20: 发言超时时间
     
     // F1-F4, F9: 新增状态
     isStarted,
@@ -1036,6 +1306,9 @@ export const useGameStore = defineStore('game', () => {
     setGameState,
     updateGameState,
     setMyRole,
+    setMySeatNumber,
+    setIsAlive,
+    setWerewolfTeammates,
     setIsSpectator,
     setPlayerStates,
     setCurrentPhase,
@@ -1082,6 +1355,54 @@ export const useGameStore = defineStore('game', () => {
     setCurrentSpeaker,
     clearCurrentSpeaker,
     setWaitingForInput,
+    setSpeechOptions,       // T20: 设置发言选项
+    setSpeechTimeout,       // T20: 设置发言超时
+    clearSpeechState,       // T20: 清除发言状态
+    
+    // Phase 3: 投票交互 (T28)
+    voteOptions,
+    voteTimeout,
+    setVoteOptions,         // T28: 设置投票选项
+    setVoteTimeout,         // T28: 设置投票超时
+    clearVoteState,         // T28: 清除投票状态
+    
+    // Phase 4: 夜间行动交互 (T37)
+    nightActionOptions,
+    nightActionTimeout,
+    nightActionType,
+    nightActionResult,
+    killedPlayerInfo,
+    witchPotions,
+    setNightActionOptions,   // T37: 设置夜间行动选项
+    setNightActionTimeout,   // T37: 设置夜间行动超时
+    setNightActionType,      // T37: 设置夜间行动类型
+    setNightActionResult,    // T37: 设置夜间行动结果
+    setKilledPlayerInfo,     // T37: 设置被杀玩家信息
+    updateWitchPotions,      // T37: 更新女巫药水状态
+    clearNightActionState,   // T37: 清除夜间行动状态
+    
+    // Phase 4.1: 狼人私密讨论 (T44)
+    isWerewolf,
+    wolfChatMessages,
+    isWolfChatEnabled,
+    setIsWerewolf,           // T44: 设置是否是狼人
+    addWolfChatMessage,      // T44: 添加狼人讨论消息
+    setWolfChatHistory,      // T44: 设置狼人讨论历史
+    clearWolfChatMessages,   // T44: 清除狼人讨论消息
+    setWolfChatEnabled,      // T44: 设置狼人讨论可用状态
+    
+    // Phase 5: 遗言与观战 (T52-T53)
+    isLastWordsPhase,
+    lastWordsSeat,
+    lastWordsOptions,
+    lastWordsDeathReason,
+    lastWordsTimeout,
+    isSpectatorMode,
+    setLastWordsPhase,       // T52: 设置遗言阶段状态
+    setLastWordsOptions,     // T52: 设置遗言选项
+    setLastWordsTimeout,     // T52: 设置遗言超时
+    setSpectatorMode,        // T53: 设置观战模式
+    clearLastWordsState,     // T52: 清除遗言状态
     
     // F37-F40: 断线重连辅助 Actions
     clearGameLogs,

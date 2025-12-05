@@ -236,6 +236,99 @@ export const useSocketStore = defineStore('socket', () => {
     })
   }
 
+  /**
+   * T20: 提交人类玩家发言
+   * @param {string} roomCode - 房间代码
+   * @param {string} playerId - 玩家ID
+   * @param {string} content - 发言内容
+   * @param {string|null} optionId - 选择的预设选项ID（可选）
+   */
+  function submitHumanSpeech(roomCode, playerId, content, optionId = null) {
+    if (!socket.value?.connected) {
+      throw new Error('WebSocket 未连接，无法提交发言')
+    }
+    socket.value.emit('werewolf_human_speech', {
+      room_code: roomCode,
+      player_id: playerId,
+      content: content.trim(),
+      option_id: optionId
+    })
+  }
+
+  /**
+   * T28: 提交人类玩家投票
+   * @param {string} roomCode - 房间代码
+   * @param {string} gameId - 游戏ID
+   * @param {number|null} targetSeat - 目标座位号（null 表示弃票）
+   */
+  function submitHumanVote(roomCode, gameId, targetSeat) {
+    if (!socket.value?.connected) {
+      throw new Error('WebSocket 未连接，无法提交投票')
+    }
+    socket.value.emit('werewolf_human_vote', {
+      room_code: roomCode,
+      game_id: gameId,
+      target_seat: targetSeat
+    })
+  }
+
+  /**
+   * T36: 人类玩家夜间行动
+   * 
+   * @param {string} roomCode - 房间代码
+   * @param {string} gameId - 游戏ID
+   * @param {string} actionType - 行动类型 ('werewolf_kill'|'seer_check'|'witch_action'|'hunter_shoot')
+   * @param {number|null} targetSeat - 目标座位号（null 表示不行动/空刀）
+   * @param {string|null} witchAction - 女巫行动类型 ('save'|'poison'|'pass')
+   */
+  function submitHumanNightAction(roomCode, gameId, actionType, targetSeat, witchAction = null) {
+    if (!socket.value?.connected) {
+      throw new Error('WebSocket 未连接，无法提交夜间行动')
+    }
+    const data = {
+      room_code: roomCode,
+      game_id: gameId,
+      action_type: actionType,
+      target_seat: targetSeat
+    }
+    if (witchAction) {
+      data.witch_action = witchAction
+    }
+    socket.value.emit('werewolf_human_night_action', data)
+  }
+
+  /**
+   * T44: 发送狼人私密讨论消息
+   * @param {string} roomCode - 房间代码
+   * @param {string} content - 消息内容
+   */
+  function sendWolfChatMessage(roomCode, content) {
+    if (!socket.value?.connected) {
+      throw new Error('WebSocket 未连接，无法发送狼人讨论消息')
+    }
+    socket.value.emit('werewolf_wolf_chat', {
+      room_code: roomCode,
+      content: content
+    })
+  }
+
+  /**
+   * T50: 提交人类玩家遗言
+   * @param {string} roomCode - 房间代码
+   * @param {string} gameId - 游戏ID
+   * @param {string} content - 遗言内容（空字符串表示跳过）
+   */
+  function submitLastWords(roomCode, gameId, content) {
+    if (!socket.value?.connected) {
+      throw new Error('WebSocket 未连接，无法提交遗言')
+    }
+    socket.value.emit('werewolf_human_last_words', {
+      room_code: roomCode,
+      game_id: gameId,
+      content: content
+    })
+  }
+
   // Register event listener
   function on(event, callback) {
     if (!socket.value) {
@@ -780,6 +873,11 @@ export const useSocketStore = defineStore('socket', () => {
     pauseGame,
     resumeGame,
     leaveWerewolfRoom,
-    submitSpeech
+    submitSpeech,
+    submitHumanSpeech,  // T20: 人类玩家发言
+    submitHumanVote,    // T28: 人类玩家投票
+    submitHumanNightAction,  // T36: 人类玩家夜间行动
+    sendWolfChatMessage,     // T44: 狼人私密讨论消息
+    submitLastWords          // T50: 人类玩家遗言
   }
 })

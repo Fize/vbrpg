@@ -694,3 +694,177 @@ class TestSpeechHistory:
         assert len(started_engine.state.speech_history) == 1
         assert started_engine.state.speech_history[0]["seat_number"] == 3
         assert started_engine.state.speech_history[0]["content"] == "我是好人"
+
+
+class TestHumanPlayerRoleSelection:
+    """Tests for human player role selection and seat assignment (T10)."""
+
+    def test_player_state_has_is_human_field(self, engine, player_names):
+        """Test that PlayerState has is_human field (T1)."""
+        engine.initialize_game(
+            room_code="TEST001",
+            player_names=player_names,
+        )
+        
+        for player in engine.state.players.values():
+            assert hasattr(player, 'is_human')
+            assert isinstance(player.is_human, bool)
+
+    def test_game_state_has_human_player_fields(self, engine, player_names):
+        """Test that WerewolfGameState has human player fields (T2)."""
+        engine.initialize_game(
+            room_code="TEST001",
+            player_names=player_names,
+        )
+        
+        state = engine.state
+        assert hasattr(state, 'human_player_seat')
+        assert hasattr(state, 'waiting_for_human_action')
+        assert hasattr(state, 'human_action_type')
+        assert hasattr(state, 'human_action_timeout')
+
+    def test_assign_random_seat(self, engine, player_names):
+        """Test _assign_random_seat method (T3)."""
+        engine.initialize_game(
+            room_code="TEST001",
+            player_names=player_names,
+        )
+        
+        # Run multiple times to verify randomness
+        seats_assigned = set()
+        for _ in range(50):
+            seat = engine._assign_random_seat()
+            assert 1 <= seat <= 10
+            seats_assigned.add(seat)
+        
+        # Should have some variation in assigned seats
+        assert len(seats_assigned) > 1
+
+    def test_initialize_game_with_human_player_specific_role(self, engine, player_names):
+        """Test initialize_game_with_human_player with specific role (T4)."""
+        state = engine.initialize_game_with_human_player(
+            room_code="TEST001",
+            player_names=player_names,
+            human_player_id="player_1",
+            human_role="seer"
+        )
+        
+        # Find the human player
+        human_player = None
+        for seat, player in state.players.items():
+            if player.is_human:
+                human_player = player
+                break
+        
+        assert human_player is not None
+        assert human_player.role == "seer"
+        assert state.human_player_seat is not None
+        assert state.human_player_seat == human_player.seat_number
+
+    def test_initialize_game_with_human_player_random_role(self, engine, player_names):
+        """Test initialize_game_with_human_player with random role (T4)."""
+        roles_seen = set()
+        
+        for _ in range(50):
+            state = engine.initialize_game_with_human_player(
+                room_code="TEST001",
+                player_names=player_names,
+                human_player_id="player_1",
+                human_role=None  # Random role
+            )
+            
+            # Find the human player
+            for seat, player in state.players.items():
+                if player.is_human:
+                    roles_seen.add(player.role)
+                    break
+        
+        # Should see multiple different roles (randomness check)
+        assert len(roles_seen) > 1
+
+    def test_initialize_game_with_human_player_marks_others_as_ai(self, engine, player_names):
+        """Test that other players are marked as AI when human player joins."""
+        state = engine.initialize_game_with_human_player(
+            room_code="TEST001",
+            player_names=player_names,
+            human_player_id="player_1",
+            human_role="werewolf"
+        )
+        
+        human_count = 0
+        ai_count = 0
+        
+        for player in state.players.values():
+            if player.is_human:
+                human_count += 1
+            else:
+                assert player.is_ai is True
+                ai_count += 1
+        
+        assert human_count == 1
+        assert ai_count == 9
+
+    def test_human_player_seat_within_valid_range(self, engine, player_names):
+        """Test that human player seat is within valid range."""
+        for _ in range(20):
+            state = engine.initialize_game_with_human_player(
+                room_code="TEST001",
+                player_names=player_names,
+                human_player_id="player_1",
+                human_role=None  # Random
+            )
+            
+            assert state.human_player_seat is not None
+            assert 1 <= state.human_player_seat <= 10
+
+    def test_werewolf_teammates_for_human_werewolf(self, engine, player_names):
+        """Test that werewolf teammates are correctly identified for human werewolf."""
+        state = engine.initialize_game_with_human_player(
+            room_code="TEST001",
+            player_names=player_names,
+            human_player_id="player_1",
+            human_role="werewolf"
+        )
+        
+        # Get werewolf teammates
+        teammates = engine.get_werewolf_teammates(state.human_player_seat)
+        
+        # Should have 2 teammates (3 werewolves total)
+        assert len(teammates) == 2
+        assert all(t.role == "werewolf" for t in teammates)
+        assert all(t.seat_number != state.human_player_seat for t in teammates)
+
+    def test_human_player_all_available_roles(self, engine, player_names):
+        """Test that human player can select all available roles."""
+        available_roles = ["werewolf", "seer", "witch", "hunter", "villager"]
+        
+        for role in available_roles:
+            state = engine.initialize_game_with_human_player(
+                room_code="TEST001",
+                player_names=player_names,
+                human_player_id="player_1",
+                human_role=role
+            )
+            
+            # Find the human player
+            human_player = None
+            for player in state.players.values():
+                if player.is_human:
+                    human_player = player
+                    break
+            
+            assert human_player is not None
+            assert human_player.role == role
+
+    def test_initial_waiting_for_human_action_is_false(self, engine, player_names):
+        """Test that waiting_for_human_action is initially False."""
+        state = engine.initialize_game_with_human_player(
+            room_code="TEST001",
+            player_names=player_names,
+            human_player_id="player_1",
+            human_role="werewolf"
+        )
+        
+        assert state.waiting_for_human_action is False
+        assert state.human_action_type is None
+        assert state.human_action_timeout is None
