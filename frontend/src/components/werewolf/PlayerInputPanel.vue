@@ -22,6 +22,23 @@
       </div>
     </div>
     
+    <!-- T19: 预设发言选项区域 -->
+    <div v-if="isMyTurn && speechOptions.length > 0" class="speech-options-area">
+      <div class="options-label">快速选择预设发言：</div>
+      <div class="options-grid">
+        <el-button
+          v-for="option in speechOptions"
+          :key="option.id"
+          size="small"
+          :type="selectedOptionId === option.id ? 'primary' : 'default'"
+          class="option-button"
+          @click="selectOption(option)"
+        >
+          {{ option.text }}
+        </el-button>
+      </div>
+    </div>
+    
     <!-- 输入区域 -->
     <div class="input-area">
       <el-input
@@ -146,6 +163,13 @@ const props = defineProps({
   currentRound: {
     type: Number,
     default: 1
+  },
+  /**
+   * T19: 预设发言选项
+   */
+  speechOptions: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -154,6 +178,7 @@ const emit = defineEmits(['submit', 'skip'])
 
 // 响应式数据
 const inputContent = ref('')
+const selectedOptionId = ref(null)
 
 // 计算属性
 const placeholderText = computed(() => {
@@ -188,14 +213,24 @@ watch(() => props.isMyTurn, (newVal, oldVal) => {
   // 当轮次结束时清空输入
   if (!newVal && oldVal) {
     inputContent.value = ''
+    selectedOptionId.value = null
   }
 })
+
+// T19: 选择预设发言选项
+const selectOption = (option) => {
+  selectedOptionId.value = option.id
+  inputContent.value = option.text
+}
 
 // 事件处理
 const handleSubmit = () => {
   if (!canSubmit.value) return
   
-  emit('submit', inputContent.value.trim())
+  emit('submit', {
+    content: inputContent.value.trim(),
+    optionId: selectedOptionId.value
+  })
 }
 
 const handleSkip = () => {
@@ -206,6 +241,7 @@ const handleSkip = () => {
 defineExpose({
   clearInput: () => {
     inputContent.value = ''
+    selectedOptionId.value = null
   },
   focusInput: () => {
     // 通过 ref 聚焦输入框（需要时实现）
@@ -302,6 +338,53 @@ defineExpose({
 /* 输入区域 */
 .input-area {
   margin-bottom: 10px;
+}
+
+/* T19: 预设发言选项样式 */
+.speech-options-area {
+  margin-bottom: 12px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.options-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 8px;
+}
+
+.options-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.option-button {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+  height: auto;
+  padding: 6px 12px;
+  line-height: 1.4;
+}
+
+:deep(.option-button.el-button--default) {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+:deep(.option-button.el-button--default:hover) {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(0, 240, 255, 0.3);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+:deep(.option-button.el-button--primary) {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.4), rgba(6, 182, 212, 0.4));
+  border: 1px solid rgba(0, 240, 255, 0.5);
 }
 
 :deep(.speech-input .el-textarea__inner) {

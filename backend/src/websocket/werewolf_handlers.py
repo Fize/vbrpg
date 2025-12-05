@@ -506,6 +506,232 @@ async def broadcast_role_assignment(
     logger.info(f"Role assignment broadcast to room {room_code}: {len(players)} players")
 
 
+async def broadcast_role_selected(
+    sid: str,
+    seat_number: int,
+    role: str,
+    team: str,
+    teammates: list[dict] | None = None
+):
+    """
+    向特定玩家广播角色分配结果。
+    
+    Args:
+        sid: Socket session ID（目标玩家）
+        seat_number: 玩家座位号
+        role: 分配的角色
+        team: 阵营（werewolf/villager）
+        teammates: 狼队友列表（仅狼人有）
+    """
+    # 角色中文名映射
+    role_name_map = {
+        "werewolf": "狼人",
+        "seer": "预言家",
+        "witch": "女巫",
+        "hunter": "猎人",
+        "villager": "村民",
+    }
+    
+    role_name = role_name_map.get(role, role)
+    team_name = "狼人阵营" if team == "werewolf" else "好人阵营"
+    
+    await sio.emit(
+        "werewolf:role_selected",
+        {
+            "seat_number": seat_number,
+            "role": role,
+            "role_name": role_name,
+            "team": team,
+            "team_name": team_name,
+            "teammates": teammates or [],
+            "message": f"你被分配到{seat_number}号座位，角色是{role_name}（{team_name}）",
+        },
+        room=sid
+    )
+    logger.info(f"Role selected broadcast to sid {sid}: seat={seat_number}, role={role}")
+
+
+async def broadcast_waiting_for_human(
+    room_code: str,
+    action_type: str,
+    seat_number: int,
+    timeout_seconds: int,
+    metadata: dict | None = None
+):
+    """
+    T18: 广播等待人类玩家行动状态.
+    
+    Args:
+        room_code: 房间代码
+        action_type: 行动类型（speech, vote, etc.）
+        seat_number: 玩家座位号
+        timeout_seconds: 超时时间（秒）
+        metadata: 额外元数据
+    """
+    await sio.emit(
+        "werewolf:waiting_for_human",
+        {
+            "action_type": action_type,
+            "seat_number": seat_number,
+            "timeout_seconds": timeout_seconds,
+            "metadata": metadata or {}
+        },
+        room=room_code
+    )
+    logger.info(
+        f"Waiting for human broadcast to room {room_code}: "
+        f"action={action_type}, seat={seat_number}, timeout={timeout_seconds}s"
+    )
+
+
+async def broadcast_speech_options(
+    room_code: str,
+    seat_number: int,
+    options: list[dict]
+):
+    """
+    T18: 广播发言选项给人类玩家.
+    
+    Args:
+        room_code: 房间代码
+        seat_number: 玩家座位号
+        options: 预设发言选项列表
+    """
+    await sio.emit(
+        "werewolf:speech_options",
+        {
+            "seat_number": seat_number,
+            "options": options
+        },
+        room=room_code
+    )
+    logger.info(
+        f"Speech options broadcast to room {room_code}: "
+        f"seat={seat_number}, {len(options)} options"
+    )
+
+
+async def broadcast_human_speech_complete(
+    room_code: str,
+    seat_number: int,
+    player_name: str,
+    content: str
+):
+    """
+    广播人类玩家发言完成.
+    
+    Args:
+        room_code: 房间代码
+        seat_number: 玩家座位号
+        player_name: 玩家名称
+        content: 发言内容
+    """
+    await sio.emit(
+        "werewolf:human_speech_complete",
+        {
+            "seat_number": seat_number,
+            "player_name": player_name,
+            "content": content
+        },
+        room=room_code
+    )
+    logger.info(
+        f"Human speech complete broadcast to room {room_code}: "
+        f"seat={seat_number}, content_length={len(content)}"
+    )
+
+
+async def broadcast_player_speech(
+    room_code: str,
+    seat_number: int,
+    player_name: str,
+    content: str,
+    speech_type: str = "speech"
+):
+    """
+    T49: 广播玩家发言（包括遗言）.
+    
+    Args:
+        room_code: 房间代码
+        seat_number: 玩家座位号
+        player_name: 玩家名称
+        content: 发言内容
+        speech_type: 发言类型（speech/last_words）
+    """
+    await sio.emit(
+        "werewolf:player_speech",
+        {
+            "seat_number": seat_number,
+            "player_name": player_name,
+            "content": content,
+            "speech_type": speech_type
+        },
+        room=room_code
+    )
+    logger.info(
+        f"Player {speech_type} broadcast to room {room_code}: "
+        f"seat={seat_number}, content_length={len(content)}"
+    )
+
+
+async def broadcast_last_words_options(
+    room_code: str,
+    seat_number: int,
+    options: list[dict],
+    death_reason: str
+):
+    """
+    T50: 广播遗言选项给人类玩家.
+    
+    Args:
+        room_code: 房间代码
+        seat_number: 玩家座位号
+        options: 预设遗言选项列表
+        death_reason: 死亡原因
+    """
+    await sio.emit(
+        "werewolf:last_words_options",
+        {
+            "seat_number": seat_number,
+            "options": options,
+            "death_reason": death_reason
+        },
+        room=room_code
+    )
+    logger.info(
+        f"Last words options broadcast to room {room_code}: "
+        f"seat={seat_number}, {len(options)} options, reason={death_reason}"
+    )
+
+
+async def broadcast_spectator_mode(
+    room_code: str,
+    player_id: str,
+    seat_number: int
+):
+    """
+    T53: 广播观战模式切换.
+    
+    Args:
+        room_code: 房间代码
+        player_id: 玩家ID
+        seat_number: 玩家座位号
+    """
+    await sio.emit(
+        "werewolf:spectator_mode",
+        {
+            "player_id": player_id,
+            "seat_number": seat_number,
+            "message": "你已阵亡，进入观战模式"
+        },
+        room=room_code
+    )
+    logger.info(
+        f"Spectator mode broadcast to room {room_code}: "
+        f"player={player_id}, seat={seat_number}"
+    )
+
+
 # ============================================================================
 # 用户操作事件处理器
 # ============================================================================
@@ -562,6 +788,100 @@ async def werewolf_action(sid: str, data: dict):
         await sio.emit(
             "werewolf:error",
             {"message": f"处理行动失败: {str(e)}"},
+            room=sid
+        )
+
+
+@sio.event
+async def werewolf_human_speech(sid: str, data: dict):
+    """
+    T17: 处理人类玩家发言.
+    
+    Args:
+        sid: Socket session ID
+        data: {
+            "room_code": str,
+            "player_id": str,
+            "content": str,  # 发言内容
+            "option_id": str | None  # 选择的预设选项ID（可选）
+        }
+    """
+    from src.api.werewolf_routes import _game_services
+    
+    try:
+        room_code = data.get("room_code")
+        player_id = data.get("player_id")
+        content = data.get("content", "").strip()
+        option_id = data.get("option_id")
+        
+        if not room_code or not player_id:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "缺少必要参数"},
+                room=sid
+            )
+            return
+        
+        if not content and not option_id:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "发言内容不能为空"},
+                room=sid
+            )
+            return
+        
+        logger.info(
+            f"Human speech received: player={player_id}, "
+            f"content_length={len(content)}, option_id={option_id}"
+        )
+        
+        # 获取游戏服务实例
+        service = _game_services.get(room_code)
+        if not service:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "游戏服务不存在"},
+                room=sid
+            )
+            return
+        
+        # 处理发言
+        result = await service.process_human_speech(
+            room_code=room_code,
+            player_id=player_id,
+            content=content
+        )
+        
+        if result.get("success"):
+            # 广播发言完成
+            await broadcast_human_speech_complete(
+                room_code=room_code,
+                seat_number=result["seat_number"],
+                player_name=result["player_name"],
+                content=result["content"]
+            )
+            
+            # 发送确认给发言者
+            await sio.emit(
+                "werewolf:speech_submitted",
+                {
+                    "success": True,
+                    "message": "发言已提交"
+                },
+                room=sid
+            )
+        else:
+            await sio.emit(
+                "werewolf:error",
+                {"message": result.get("error", "发言处理失败")},
+                room=sid
+            )
+        
+    except Exception as e:
+        logger.error(f"Error handling human speech: {e}")
+        await sio.emit(
+            "werewolf:error",
+            {"message": f"处理发言失败: {str(e)}"},
             room=sid
         )
 
@@ -985,6 +1305,134 @@ async def werewolf_player_speech(sid: str, data: dict):
         )
 
 
+@sio.event
+async def werewolf_select_role(sid: str, data: dict):
+    """
+    处理玩家角色选择事件。
+    
+    Args:
+        sid: Socket session ID
+        data: {
+            "room_code": str,
+            "player_id": str,
+            "role": str | None  # None 表示随机分配
+        }
+    """
+    from src.api.werewolf_routes import _game_services, WerewolfGameService
+    from src.database import get_db
+    from src.models.game import GameRoom
+    from sqlalchemy import select
+    
+    try:
+        room_code = data.get("room_code")
+        player_id = data.get("player_id")
+        role = data.get("role")  # 可以是 None（随机分配）
+        
+        if not room_code or not player_id:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "缺少必要参数"},
+                room=sid
+            )
+            return
+        
+        logger.info(
+            f"Role selection received: room={room_code}, player={player_id}, role={role}"
+        )
+        
+        # 获取或创建游戏服务
+        service = _game_services.get(room_code)
+        
+        if not service:
+            async for db in get_db():
+                # 检查房间是否存在
+                result = await db.execute(
+                    select(GameRoom).where(GameRoom.code == room_code)
+                )
+                room = result.scalar_one_or_none()
+                
+                if not room:
+                    await sio.emit(
+                        "werewolf:error",
+                        {"message": f"房间不存在: {room_code}"},
+                        room=sid
+                    )
+                    return
+                
+                # 创建新的游戏服务
+                service = WerewolfGameService(db)
+                _game_services[room_code] = service
+                break
+        
+        if not service:
+            await sio.emit(
+                "werewolf:error",
+                {"message": f"无法创建游戏服务: {room_code}"},
+                room=sid
+            )
+            return
+        
+        # 使用新的初始化方法（支持人类玩家角色选择）
+        player_names = [f"玩家{i}" for i in range(1, 11)]
+        game_state = service.engine.initialize_game_with_human_player(
+            room_code=room_code,
+            player_names=player_names,
+            human_player_id=player_id,
+            human_role=role,
+        )
+        
+        # 存储游戏状态
+        service._game_states[room_code] = game_state
+        
+        # 获取人类玩家信息
+        human_seat = game_state.human_player_seat
+        human_player = game_state.players.get(human_seat)
+        
+        if not human_player:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "初始化玩家失败"},
+                room=sid
+            )
+            return
+        
+        # 获取狼队友信息（如果人类是狼人）
+        teammates = []
+        if human_player.role == "werewolf":
+            for p in game_state.players.values():
+                if p.role == "werewolf" and p.seat_number != human_seat:
+                    teammates.append({
+                        "seat_number": p.seat_number,
+                        "player_name": p.player_name,
+                    })
+        
+        # 广播角色分配结果给该玩家
+        await sio.emit(
+            "werewolf:role_selected",
+            {
+                "seat_number": human_seat,
+                "role": human_player.role,
+                "team": human_player.team,
+                "teammates": teammates,
+                "message": f"你被分配到{human_seat}号座位，角色是{human_player.role}",
+            },
+            room=sid
+        )
+        
+        logger.info(
+            f"Role assigned: room={room_code}, player={player_id}, "
+            f"seat={human_seat}, role={human_player.role}"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error handling werewolf role selection: {e}", exc_info=True)
+        await sio.emit(
+            "werewolf:error",
+            {"message": f"角色选择失败: {str(e)}"},
+            room=sid
+        )
+
+
 # ============================================================================
 # 辅助函数
 # ============================================================================
@@ -1057,3 +1505,516 @@ async def broadcast_ai_action(
         logger.debug(f"Broadcasted ai_action for room {room_code}: {action.get('action_type')}")
     except Exception as e:
         logger.error(f"Error broadcasting ai_action: {e}")
+
+
+# ============================================================================
+# Phase 3: 投票交互 (T26-T27)
+# ============================================================================
+
+async def broadcast_vote_options(
+    room_code: str,
+    seat_number: int,
+    options: list[dict],
+    timeout_seconds: int = 60
+):
+    """
+    T27: 广播投票选项给人类玩家.
+    
+    Args:
+        room_code: 房间代码
+        seat_number: 玩家座位号
+        options: 可投票选项列表，每项包含 seat_number, player_name
+        timeout_seconds: 超时时间（秒）
+    """
+    await sio.emit(
+        "werewolf:vote_options",
+        {
+            "seat_number": seat_number,
+            "options": options,
+            "timeout_seconds": timeout_seconds,
+            "allow_abstain": True
+        },
+        room=room_code
+    )
+    logger.info(
+        f"Vote options broadcast to room {room_code}: "
+        f"seat={seat_number}, {len(options)} options, timeout={timeout_seconds}s"
+    )
+
+
+async def broadcast_human_vote_complete(
+    room_code: str,
+    voter_seat: int,
+    target_seat: int | None,
+    voter_name: str,
+    target_name: str | None
+):
+    """
+    广播人类玩家投票完成.
+    
+    Args:
+        room_code: 房间代码
+        voter_seat: 投票者座位号
+        target_seat: 目标座位号（None 表示弃票）
+        voter_name: 投票者名称
+        target_name: 目标名称
+    """
+    await sio.emit(
+        "werewolf:human_vote_complete",
+        {
+            "voter_seat": voter_seat,
+            "target_seat": target_seat,
+            "voter_name": voter_name,
+            "target_name": target_name,
+            "is_abstain": target_seat is None
+        },
+        room=room_code
+    )
+    logger.info(
+        f"Human vote complete broadcast to room {room_code}: "
+        f"voter={voter_seat}, target={target_seat}"
+    )
+
+
+async def broadcast_human_night_action_complete(
+    room_code: str,
+    seat_number: int,
+    action_type: str,
+    result: dict
+):
+    """
+    T35: 广播人类玩家夜间行动完成.
+    
+    Args:
+        room_code: 房间代码
+        seat_number: 玩家座位号
+        action_type: 行动类型 ('werewolf_kill', 'seer_check', 'witch_action', 'hunter_shoot')
+        result: 行动结果字典
+    """
+    await sio.emit(
+        "werewolf:human_night_action_complete",
+        {
+            "seat_number": seat_number,
+            "action_type": action_type,
+            "result": result
+        },
+        room=room_code
+    )
+    logger.info(
+        f"Human night action complete broadcast to room {room_code}: "
+        f"seat={seat_number}, action_type={action_type}"
+    )
+
+
+# ============================================================================
+# Phase 4.1: 狼人私密讨论 (T41-T42)
+# ============================================================================
+
+async def broadcast_wolf_chat_message(
+    room_code: str,
+    sender_seat: int,
+    sender_name: str,
+    content: str,
+    werewolf_player_ids: list[str]
+):
+    """
+    T42: 广播狼人私密讨论消息给所有狼人.
+    
+    Args:
+        room_code: 房间代码
+        sender_seat: 发送者座位号
+        sender_name: 发送者名称
+        content: 消息内容
+        werewolf_player_ids: 所有狼人的玩家ID列表
+    """
+    message_data = {
+        "sender_seat": sender_seat,
+        "sender_name": sender_name,
+        "content": content,
+        "room_code": room_code
+    }
+    
+    # 向每个狼人单独发送消息
+    for player_id in werewolf_player_ids:
+        sid = _get_sid_by_player_id(player_id)
+        if sid:
+            await sio.emit(
+                "werewolf:wolf_chat_message",
+                message_data,
+                room=sid
+            )
+    
+    logger.info(
+        f"Wolf chat message broadcast to {len(werewolf_player_ids)} werewolves in room {room_code}: "
+        f"sender={sender_seat}"
+    )
+
+
+async def broadcast_wolf_chat_history(
+    room_code: str,
+    chat_history: list[dict],
+    werewolf_player_ids: list[str]
+):
+    """
+    广播狼人私密讨论历史记录给所有狼人.
+    
+    Args:
+        room_code: 房间代码
+        chat_history: 讨论历史记录列表
+        werewolf_player_ids: 所有狼人的玩家ID列表
+    """
+    history_data = {
+        "chat_history": chat_history,
+        "room_code": room_code
+    }
+    
+    # 向每个狼人单独发送历史记录
+    for player_id in werewolf_player_ids:
+        sid = _get_sid_by_player_id(player_id)
+        if sid:
+            await sio.emit(
+                "werewolf:wolf_chat_history",
+                history_data,
+                room=sid
+            )
+    
+    logger.info(
+        f"Wolf chat history broadcast to {len(werewolf_player_ids)} werewolves in room {room_code}: "
+        f"{len(chat_history)} messages"
+    )
+
+
+@sio.event
+async def werewolf_human_vote(sid, data):
+    """
+    T26: 处理人类玩家的投票操作.
+    
+    客户端发送:
+    {
+        "room_code": "ABC123",
+        "game_id": "uuid",
+        "target_seat": 3 或 null  # null 表示弃票
+    }
+    """
+    try:
+        room_code = data.get("room_code")
+        game_id = data.get("game_id")
+        target_seat = data.get("target_seat")
+        
+        if not room_code:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "缺少房间代码"},
+                room=sid
+            )
+            return
+        
+        # 获取玩家ID
+        player_id = user_sessions.get(sid)
+        if not player_id:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "未找到玩家会话"},
+                room=sid
+            )
+            return
+        
+        # 导入服务（避免循环导入）
+        from src.services.werewolf_game_service import werewolf_game_service
+        
+        # 处理投票
+        await werewolf_game_service.process_human_vote(
+            room_code=room_code,
+            player_id=player_id,
+            target_seat=target_seat
+        )
+        
+        logger.info(
+            f"Human vote processed: room={room_code}, player={player_id}, "
+            f"target={target_seat}"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error handling werewolf human vote: {e}", exc_info=True)
+        await sio.emit(
+            "werewolf:error",
+            {"message": f"投票失败: {str(e)}"},
+            room=sid
+        )
+
+
+@sio.event
+async def werewolf_human_night_action(sid, data):
+    """
+    T36: 处理人类玩家的夜间行动.
+    
+    客户端发送:
+    {
+        "room_code": "ABC123",
+        "game_id": "uuid",
+        "action_type": "werewolf_kill" | "seer_check" | "witch_action" | "hunter_shoot",
+        "target_seat": 3 或 null,  # 目标座位号
+        "witch_action": "save" | "poison" | "pass"  # 仅女巫使用
+    }
+    """
+    try:
+        room_code = data.get("room_code")
+        game_id = data.get("game_id")
+        action_type = data.get("action_type")
+        target_seat = data.get("target_seat")
+        witch_action = data.get("witch_action")
+        
+        if not room_code:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "缺少房间代码"},
+                room=sid
+            )
+            return
+        
+        if not action_type:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "缺少行动类型"},
+                room=sid
+            )
+            return
+        
+        valid_action_types = ["werewolf_kill", "seer_check", "witch_action", "hunter_shoot"]
+        if action_type not in valid_action_types:
+            await sio.emit(
+                "werewolf:error",
+                {"message": f"无效的行动类型: {action_type}"},
+                room=sid
+            )
+            return
+        
+        # 获取玩家ID
+        player_id = user_sessions.get(sid)
+        if not player_id:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "未找到玩家会话"},
+                room=sid
+            )
+            return
+        
+        # 导入服务（避免循环导入）
+        from src.services.werewolf_game_service import werewolf_game_service
+        
+        # 处理夜间行动
+        result = await werewolf_game_service.process_human_night_action(
+            room_code=room_code,
+            player_id=player_id,
+            action_type=action_type,
+            target_seat=target_seat,
+            witch_action=witch_action
+        )
+        
+        if result.get("success"):
+            logger.info(
+                f"Human night action processed: room={room_code}, player={player_id}, "
+                f"action_type={action_type}, target={target_seat}"
+            )
+            
+            # 发送成功确认给玩家
+            await sio.emit(
+                "werewolf:night_action_result",
+                result,
+                room=sid
+            )
+        else:
+            await sio.emit(
+                "werewolf:error",
+                {"message": result.get("error", "夜间行动失败")},
+                room=sid
+            )
+        
+    except Exception as e:
+        logger.error(f"Error handling werewolf human night action: {e}", exc_info=True)
+        await sio.emit(
+            "werewolf:error",
+            {"message": f"夜间行动失败: {str(e)}"},
+            room=sid
+        )
+
+
+@sio.event
+async def werewolf_wolf_chat(sid, data):
+    """
+    T42: 处理狼人私密讨论消息.
+    
+    客户端发送:
+    {
+        "room_code": "ABC123",
+        "content": "我觉得我们应该杀3号"
+    }
+    """
+    try:
+        room_code = data.get("room_code")
+        content = data.get("content", "").strip()
+        
+        if not room_code:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "缺少房间代码"},
+                room=sid
+            )
+            return
+        
+        if not content:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "消息内容不能为空"},
+                room=sid
+            )
+            return
+        
+        # 获取玩家ID
+        player_id = user_sessions.get(sid)
+        if not player_id:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "未找到玩家会话"},
+                room=sid
+            )
+            return
+        
+        # 导入服务（避免循环导入）
+        from src.api.werewolf_routes import _game_services
+        
+        # 获取游戏服务
+        service = _game_services.get(room_code)
+        if not service:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "游戏服务不存在"},
+                room=sid
+            )
+            return
+        
+        # 处理狼人聊天消息
+        result = await service.process_werewolf_chat(
+            room_code=room_code,
+            player_id=player_id,
+            content=content
+        )
+        
+        if result.get("success"):
+            logger.info(
+                f"Wolf chat processed: room={room_code}, player={player_id}, "
+                f"content_length={len(content)}"
+            )
+            
+            # 发送确认给发送者
+            await sio.emit(
+                "werewolf:wolf_chat_sent",
+                {
+                    "success": True,
+                    "seat_number": result["seat_number"],
+                    "content": result["content"]
+                },
+                room=sid
+            )
+        else:
+            await sio.emit(
+                "werewolf:error",
+                {"message": result.get("error", "发送消息失败")},
+                room=sid
+            )
+        
+    except Exception as e:
+        logger.error(f"Error handling werewolf wolf chat: {e}", exc_info=True)
+        await sio.emit(
+            "werewolf:error",
+            {"message": f"发送消息失败: {str(e)}"},
+            room=sid
+        )
+
+
+@sio.event
+async def werewolf_human_last_words(sid, data):
+    """
+    T50: 处理人类玩家遗言.
+    
+    客户端发送:
+    {
+        "room_code": "ABC123",
+        "game_id": "uuid",
+        "content": "我是好人，你们投错了！"  # 可为空表示跳过遗言
+    }
+    """
+    try:
+        room_code = data.get("room_code")
+        game_id = data.get("game_id")
+        content = data.get("content", "").strip()
+        
+        if not room_code:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "缺少房间代码"},
+                room=sid
+            )
+            return
+        
+        # 获取玩家ID
+        player_id = user_sessions.get(sid)
+        if not player_id:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "未找到玩家会话"},
+                room=sid
+            )
+            return
+        
+        # 导入服务（避免循环导入）
+        from src.api.werewolf_routes import _game_services
+        
+        # 获取游戏服务
+        service = _game_services.get(room_code)
+        if not service:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "游戏服务不存在"},
+                room=sid
+            )
+            return
+        
+        # 处理遗言
+        result = await service.process_human_last_words(
+            room_code=room_code,
+            player_id=player_id,
+            content=content
+        )
+        
+        if result.get("success"):
+            logger.info(
+                f"Last words processed: room={room_code}, player={player_id}, "
+                f"seat={result['seat_number']}, spectator={result.get('is_spectator', False)}"
+            )
+            
+            # 发送确认给发送者
+            await sio.emit(
+                "werewolf:last_words_complete",
+                {
+                    "success": True,
+                    "seat_number": result["seat_number"],
+                    "content": result["content"],
+                    "is_spectator": result.get("is_spectator", False)
+                },
+                room=sid
+            )
+        else:
+            await sio.emit(
+                "werewolf:error",
+                {"message": result.get("error", "遗言提交失败")},
+                room=sid
+            )
+        
+    except Exception as e:
+        logger.error(f"Error handling human last words: {e}", exc_info=True)
+        await sio.emit(
+            "werewolf:error",
+            {"message": f"遗言提交失败: {str(e)}"},
+            room=sid
+        )

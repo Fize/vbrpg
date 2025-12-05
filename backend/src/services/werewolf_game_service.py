@@ -43,6 +43,15 @@ from src.websocket import (
     broadcast_game_over,
     broadcast_role_assignment,
     broadcast_ai_action,
+    broadcast_waiting_for_human,
+    broadcast_speech_options,
+    broadcast_human_speech_complete,
+    broadcast_player_speech,
+    broadcast_last_words_options,
+    broadcast_spectator_mode,
+    broadcast_vote_options,
+    broadcast_human_vote_complete,
+    broadcast_human_night_action_complete,
 )
 from src.utils.errors import BadRequestError, NotFoundError
 
@@ -83,6 +92,1018 @@ class WerewolfGameService:
         if game_state.is_stopped:
             return None
         return game_state
+
+    # =========================================================================
+    # T12-T16: 人类玩家交互辅助方法
+    # =========================================================================
+    
+    def _is_human_player(self, room_code: str, seat_number: int) -> bool:
+        """
+        T12: 检查指定座位号的玩家是否为人类玩家。
+        
+        判断逻辑：
+        1. 检查游戏状态中的 human_player_seat 字段
+        2. 或者检查该座位号是否不在 AI agents 字典中
+        
+        :param room_code: 房间代码
+        :param seat_number: 座位号
+        :return: 如果是人类玩家返回 True，否则返回 False
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return False
+        
+        # 优先使用 human_player_seat 字段判断
+        if game_state.human_player_seat is not None:
+            return seat_number == game_state.human_player_seat
+        
+        # 兼容旧逻辑：检查是否不在 AI agents 中
+        return seat_number not in self._ai_agents
+    
+    def _set_waiting_for_human(
+        self,
+        room_code: str,
+        action_type: str,
+        timeout: int = 60
+    ) -> bool:
+        """
+        T13: 设置等待人类玩家输入的状态。
+        
+        :param room_code: 房间代码
+        :param action_type: 动作类型，如 'speech', 'vote', 'night_action', 'last_words'
+        :param timeout: 超时时间（秒），默认60秒
+        :return: 设置成功返回 True，否则返回 False
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return False
+        
+        game_state.waiting_for_human_action = True
+        game_state.human_action_type = action_type
+        game_state.human_action_timeout = timeout
+        game_state.human_action_start_time = datetime.now()
+        
+        logger.info(f"Set waiting for human action: {action_type}, timeout: {timeout}s, room: {room_code}")
+        return True
+    
+    def _clear_waiting_for_human(self, room_code: str) -> bool:
+        """
+        清除等待人类玩家输入的状态。
+        
+        :param room_code: 房间代码
+        :return: 清除成功返回 True，否则返回 False
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return False
+        
+        game_state.waiting_for_human_action = False
+        game_state.human_action_type = None
+        game_state.human_action_timeout = None
+        game_state.human_action_start_time = None
+        
+        logger.info(f"Cleared waiting for human action, room: {room_code}")
+        return True
+    
+    def generate_speech_options(
+        self,
+        room_code: str,
+        seat_number: int
+    ) -> list[dict]:
+        """
+        T16: 生成动态预设发言选项。
+        
+        根据玩家角色和当前游戏状态生成适合的发言选项。
+        
+        :param room_code: 房间代码
+        :param seat_number: 玩家座位号
+        :return: 预设发言选项列表
+        """
+        game_state = self._game_states.get(room_code)
+        if not game_state:
+            return []
+        
+        player = game_state.players.get(seat_number)
+        if not player:
+            return []
+        
+        options = []
+        role = player.role
+        day_number = game_state.day_number
+        
+        # 获取存活玩家列表
+        alive_seats = [p.seat_number for p in game_state.players.values() if p.is_alive and p.seat_number != seat_number]
+        
+        # 通用选项
+        options.append({
+            "id": "pass",
+            "text": "我没什么想说的，过。",
+            "type": "neutral"
+        })
+        
+        options.append({
+            "id": "innocent",
+            "text": "我是好人，请大家相信我。",
+            "type": "defense"
+        })
+        
+        # 第一天特殊选项
+        if day_number == 1:
+            options.append({
+                "id": "first_day_peace",
+                "text": "第一天信息不足，建议大家多观察。",
+                "type": "neutral"
+            })
+        
+        # 根据角色生成特定选项
+        if role == "werewolf":
+            # 狼人伪装选项
+            options.append({
+                "id": "wolf_disguise_villager",
+                "text": "我是普通村民，昨晚没有任何信息。",
+                "type": "disguise"
+            })
+            options.append({
+                "id": "wolf_disguise_seer",
+                "text": "我是预言家，昨晚验了一个人，是好人。",
+                "type": "disguise"
+            })
+            if alive_seats:
+                suspect = alive_seats[0]
+                options.append({
+                    "id": f"wolf_accuse_{suspect}",
+                    "text": f"我觉得{suspect}号很可疑，建议大家重点关注。",
+                    "type": "accusation"
+                })
+        
+        elif role == "seer":
+            # 预言家选项
+            options.append({
+                "id": "seer_reveal",
+                "text": "我是预言家，我有查验信息要分享。",
+                "type": "reveal"
+            })
+            options.append({
+                "id": "seer_hide",
+                "text": "我昨晚的信息暂时不方便说，但我是好人。",
+                "type": "neutral"
+            })
+        
+        elif role == "witch":
+            # 女巫选项
+            options.append({
+                "id": "witch_reveal",
+                "text": "我是女巫，我有重要信息。",
+                "type": "reveal"
+            })
+            options.append({
+                "id": "witch_hide",
+                "text": "我是好人，但我的身份比较重要，暂时不方便说。",
+                "type": "neutral"
+            })
+        
+        elif role == "hunter":
+            # 猎人选项
+            options.append({
+                "id": "hunter_reveal",
+                "text": "我是猎人，如果我被投出去，我会带走一个人。",
+                "type": "reveal"
+            })
+            options.append({
+                "id": "hunter_hide",
+                "text": "我是好人，请不要投我。",
+                "type": "neutral"
+            })
+        
+        elif role == "villager":
+            # 村民选项
+            options.append({
+                "id": "villager_observe",
+                "text": "我是村民，我仔细听了大家的发言，我觉得...",
+                "type": "neutral"
+            })
+        
+        # 如果有死亡信息，添加相关选项
+        dead_players = [p for p in game_state.players.values() if not p.is_alive]
+        if dead_players and day_number > 1:
+            options.append({
+                "id": "analyze_death",
+                "text": "根据昨晚的死亡情况分析，我认为狼人可能是...",
+                "type": "analysis"
+            })
+        
+        return options
+
+    async def process_human_speech(
+        self,
+        room_code: str,
+        player_id: str,
+        content: str
+    ) -> dict:
+        """T14: 处理人类玩家发言.
+        
+        接收并处理人类玩家提交的发言内容，记录到发言历史，
+        并清除等待状态以继续游戏流程。
+        
+        Args:
+            room_code: 房间代码
+            player_id: 玩家ID
+            content: 发言内容
+            
+        Returns:
+            dict: 处理结果，包含success状态和相关信息
+        """
+        state = self._game_states.get(room_code)
+        if not state:
+            return {"success": False, "error": "游戏不存在"}
+        
+        # 验证是否在等待人类玩家发言
+        if not state.waiting_for_human_action:
+            return {"success": False, "error": "当前不在等待人类玩家行动"}
+        
+        if state.human_action_type != "speech":
+            return {"success": False, "error": f"当前等待的行动类型不是发言，而是 {state.human_action_type}"}
+        
+        # 验证是否是正确的玩家
+        human_seat = state.human_player_seat
+        if human_seat is None:
+            return {"success": False, "error": "找不到人类玩家座位"}
+        
+        # 验证player_id对应的座位
+        player_seat = None
+        for seat_num, player_state in state.players.items():
+            if player_state.player_id == player_id:
+                player_seat = seat_num
+                break
+        
+        if player_seat != human_seat:
+            return {"success": False, "error": "只有人类玩家可以提交发言"}
+        
+        # 获取玩家信息
+        player_state = state.players.get(human_seat)
+        if not player_state:
+            return {"success": False, "error": "找不到玩家状态"}
+        
+        # 记录发言到历史
+        speech_entry = {
+            "day": state.day_number,
+            "phase": "day",
+            "seat_number": human_seat,
+            "player_name": player_state.player_name,
+            "content": content,
+            "is_human": True
+        }
+        state.speech_history.append(speech_entry)
+        
+        # 清除等待状态
+        self._clear_waiting_for_human(room_code)
+        
+        return {
+            "success": True,
+            "seat_number": human_seat,
+            "player_name": player_state.player_name,
+            "content": content,
+            "day": state.day_number
+        }
+
+    # =========================================================================
+    # Phase 3: 投票交互 (T23-T25)
+    # =========================================================================
+
+    def generate_vote_options(self, room_code: str, voter_seat: int) -> list[dict]:
+        """T24: 生成投票选项列表.
+        
+        生成当前可以投票的玩家列表（排除自己）。
+        
+        Args:
+            room_code: 房间代码
+            voter_seat: 投票者座位号
+            
+        Returns:
+            可投票选项列表，每项包含 seat_number, player_name
+        """
+        state = self._game_states.get(room_code)
+        if not state:
+            return []
+        
+        options = []
+        for seat_num, player_state in state.players.items():
+            # 排除自己和已死亡玩家
+            if seat_num != voter_seat and player_state.is_alive:
+                options.append({
+                    "seat_number": seat_num,
+                    "player_name": player_state.player_name,
+                    "player_id": player_state.player_id
+                })
+        
+        # 按座位号排序
+        options.sort(key=lambda x: x["seat_number"])
+        return options
+
+    async def process_human_vote(
+        self,
+        room_code: str,
+        player_id: str,
+        target_seat: int | None
+    ) -> dict:
+        """T24: 处理人类玩家投票.
+        
+        接收并处理人类玩家提交的投票，记录投票结果，
+        并清除等待状态以继续游戏流程。
+        
+        Args:
+            room_code: 房间代码
+            player_id: 玩家ID
+            target_seat: 目标座位号（None 表示弃票）
+            
+        Returns:
+            dict: 处理结果，包含success状态和相关信息
+        """
+        state = self._game_states.get(room_code)
+        if not state:
+            return {"success": False, "error": "游戏不存在"}
+        
+        # 验证是否在等待人类玩家投票
+        if not state.waiting_for_human_action:
+            return {"success": False, "error": "当前不在等待人类玩家行动"}
+        
+        if state.human_action_type != "vote":
+            return {"success": False, "error": f"当前等待的行动类型不是投票，而是 {state.human_action_type}"}
+        
+        # 验证是否是正确的玩家
+        human_seat = state.human_player_seat
+        if human_seat is None:
+            return {"success": False, "error": "找不到人类玩家座位"}
+        
+        # 验证player_id对应的座位
+        player_seat = None
+        for seat_num, player_state in state.players.items():
+            if player_state.player_id == player_id:
+                player_seat = seat_num
+                break
+        
+        if player_seat != human_seat:
+            return {"success": False, "error": "只有人类玩家可以提交投票"}
+        
+        # 获取玩家信息
+        player_state = state.players.get(human_seat)
+        if not player_state:
+            return {"success": False, "error": "找不到玩家状态"}
+        
+        # 验证投票目标（如果不是弃票）
+        normalized_target = self._normalize_seat_number(target_seat)
+        if normalized_target is not None:
+            target_player = state.players.get(normalized_target)
+            if not target_player:
+                return {"success": False, "error": f"找不到目标玩家 {normalized_target}"}
+            if not target_player.is_alive:
+                return {"success": False, "error": f"目标玩家 {normalized_target} 已死亡"}
+            if normalized_target == human_seat:
+                return {"success": False, "error": "不能投票给自己"}
+        
+        # 处理投票
+        self.engine.process_vote(state, human_seat, normalized_target)
+        
+        # 记录日志
+        target_name = f"玩家{normalized_target}" if normalized_target else None
+        state.game_logs.append(
+            f"投票: {human_seat}号投给{normalized_target}号" if normalized_target 
+            else f"投票: {human_seat}号弃票"
+        )
+        
+        # 广播投票结果
+        await broadcast_vote_update(
+            room_code=room_code,
+            voter_seat=human_seat,
+            voter_name=f"玩家{human_seat}",
+            target_seat=normalized_target,
+            target_name=target_name
+        )
+        
+        # 广播人类投票完成
+        await broadcast_human_vote_complete(
+            room_code=room_code,
+            voter_seat=human_seat,
+            target_seat=normalized_target,
+            voter_name=player_state.player_name,
+            target_name=target_name
+        )
+        
+        # 清除等待状态
+        self._clear_waiting_for_human(room_code)
+        
+        return {
+            "success": True,
+            "seat_number": human_seat,
+            "player_name": player_state.player_name,
+            "target_seat": normalized_target,
+            "day": state.day_number
+        }
+
+    async def process_human_night_action(
+        self,
+        room_code: str,
+        player_id: str,
+        action_type: str,
+        target_seat: int | None = None,
+        witch_action: str | None = None
+    ) -> dict:
+        """T35: 处理人类玩家夜间行动.
+        
+        统一处理所有角色的夜间行动：狼人杀人、预言家查验、女巫救毒、猎人开枪。
+        
+        Args:
+            room_code: 房间代码
+            player_id: 玩家ID
+            action_type: 行动类型 ('werewolf_kill', 'seer_check', 'witch_action', 'hunter_shoot')
+            target_seat: 目标座位号（None表示不行动）
+            witch_action: 女巫专用 - 'save'|'poison'|'pass'
+            
+        Returns:
+            dict: 处理结果，包含success状态和相关信息
+        """
+        state = self._game_states.get(room_code)
+        if not state:
+            return {"success": False, "error": "游戏不存在"}
+        
+        # 验证是否在等待人类玩家行动
+        if not state.waiting_for_human_action:
+            return {"success": False, "error": "当前不在等待人类玩家行动"}
+        
+        # 验证行动类型是否匹配
+        expected_types = {
+            "werewolf_kill": "werewolf_kill",
+            "seer_check": "seer_check", 
+            "witch_action": "witch_action",
+            "hunter_shoot": "hunter_shoot"
+        }
+        if state.human_action_type != expected_types.get(action_type):
+            return {"success": False, "error": f"行动类型不匹配，期望 {state.human_action_type}，收到 {action_type}"}
+        
+        # 获取人类玩家座位
+        human_seat = state.human_player_seat
+        if human_seat is None:
+            return {"success": False, "error": "找不到人类玩家座位"}
+        
+        # 验证player_id对应的座位
+        player_seat = None
+        for seat_num, player_state in state.players.items():
+            if player_state.player_id == player_id:
+                player_seat = seat_num
+                break
+        
+        if player_seat != human_seat:
+            return {"success": False, "error": "只有人类玩家可以提交夜间行动"}
+        
+        # 获取玩家信息
+        player = state.players.get(human_seat)
+        if not player:
+            return {"success": False, "error": "找不到玩家状态"}
+        
+        # 验证玩家角色与行动类型匹配
+        role_action_map = {
+            "werewolf": "werewolf_kill",
+            "seer": "seer_check",
+            "witch": "witch_action",
+            "hunter": "hunter_shoot"
+        }
+        expected_role = None
+        for role, act in role_action_map.items():
+            if act == action_type:
+                expected_role = role
+                break
+        
+        if expected_role and player.role != expected_role:
+            return {"success": False, "error": f"角色不匹配，期望 {expected_role}，实际 {player.role}"}
+        
+        # 规范化目标座位号
+        normalized_target = self._normalize_seat_number(target_seat)
+        
+        # 根据行动类型处理
+        result = {"success": True}
+        
+        if action_type == "werewolf_kill":
+            # 狼人杀人
+            if normalized_target is not None:
+                target_player = state.players.get(normalized_target)
+                if not target_player:
+                    return {"success": False, "error": f"找不到目标玩家 {normalized_target}"}
+                if not target_player.is_alive:
+                    return {"success": False, "error": f"目标玩家 {normalized_target} 已死亡"}
+                # 狼人不能杀同伴
+                if target_player.role == "werewolf":
+                    return {"success": False, "error": "不能击杀狼人同伴"}
+            
+            self.engine.process_werewolf_action(state, normalized_target)
+            if normalized_target:
+                state.game_logs.append(f"夜晚：狼人选择击杀{normalized_target}号玩家")
+            else:
+                state.game_logs.append("夜晚：狼人选择空刀")
+            
+            result["target_seat"] = normalized_target
+            result["action"] = "kill" if normalized_target else "skip"
+            
+        elif action_type == "seer_check":
+            # 预言家查验
+            if normalized_target is not None:
+                target_player = state.players.get(normalized_target)
+                if not target_player:
+                    return {"success": False, "error": f"找不到目标玩家 {normalized_target}"}
+                if not target_player.is_alive:
+                    return {"success": False, "error": f"目标玩家 {normalized_target} 已死亡"}
+                if normalized_target == human_seat:
+                    return {"success": False, "error": "不能查验自己"}
+                
+                is_werewolf = self.engine.process_seer_action(state, normalized_target)
+                state.game_logs.append(f"夜晚：预言家查验了{normalized_target}号玩家，结果是{'狼人' if is_werewolf else '好人'}")
+                
+                result["target_seat"] = normalized_target
+                result["is_werewolf"] = is_werewolf
+                result["check_result"] = "狼人" if is_werewolf else "好人"
+            else:
+                state.game_logs.append("夜晚：预言家未查验任何人")
+                result["target_seat"] = None
+                result["check_result"] = None
+                
+        elif action_type == "witch_action":
+            # 女巫救毒
+            if witch_action not in ["save", "poison", "pass", None]:
+                return {"success": False, "error": f"无效的女巫行动: {witch_action}"}
+            
+            save_target = None
+            poison_target = None
+            
+            if witch_action == "save":
+                # 救人
+                if not state.witch_has_antidote:
+                    return {"success": False, "error": "解药已用完"}
+                killed_seat = state.current_night_actions.werewolf_kill_target
+                if normalized_target != killed_seat:
+                    return {"success": False, "error": "只能救今晚被杀的玩家"}
+                # 检查自救限制
+                if normalized_target == human_seat and state.day_number > 1:
+                    return {"success": False, "error": "首夜之后不能自救"}
+                save_target = normalized_target
+                state.game_logs.append(f"夜晚：女巫救了{save_target}号玩家")
+                
+            elif witch_action == "poison":
+                # 毒人
+                if not state.witch_has_poison:
+                    return {"success": False, "error": "毒药已用完"}
+                if normalized_target is None:
+                    return {"success": False, "error": "毒人必须指定目标"}
+                target_player = state.players.get(normalized_target)
+                if not target_player:
+                    return {"success": False, "error": f"找不到目标玩家 {normalized_target}"}
+                if not target_player.is_alive:
+                    return {"success": False, "error": f"目标玩家 {normalized_target} 已死亡"}
+                if normalized_target == human_seat:
+                    return {"success": False, "error": "不能毒自己"}
+                poison_target = normalized_target
+                state.game_logs.append(f"夜晚：女巫毒了{poison_target}号玩家")
+            else:
+                # pass - 不使用药水
+                state.game_logs.append("夜晚：女巫未使用任何药水")
+            
+            self.engine.process_witch_action(state, save_target=save_target, poison_target=poison_target)
+            
+            # 更新药水状态
+            if save_target:
+                state.witch_has_antidote = False
+            if poison_target:
+                state.witch_has_poison = False
+            
+            result["witch_action"] = witch_action
+            result["save_target"] = save_target
+            result["poison_target"] = poison_target
+            
+        elif action_type == "hunter_shoot":
+            # 猎人开枪
+            if normalized_target is not None:
+                target_player = state.players.get(normalized_target)
+                if not target_player:
+                    return {"success": False, "error": f"找不到目标玩家 {normalized_target}"}
+                if not target_player.is_alive:
+                    return {"success": False, "error": f"目标玩家 {normalized_target} 已死亡"}
+                
+                self.engine.process_hunter_shoot(state, normalized_target)
+                state.game_logs.append(f"猎人开枪带走了{normalized_target}号玩家")
+                
+                # 广播猎人开枪
+                await broadcast_host_announcement(
+                    room_code=room_code,
+                    announcement_type="hunter_shoot",
+                    content=f"猎人发动技能，带走了{normalized_target}号玩家！",
+                    metadata={"target_seat": normalized_target}
+                )
+            else:
+                state.game_logs.append("猎人选择不开枪")
+            
+            result["target_seat"] = normalized_target
+            result["action"] = "shoot" if normalized_target else "skip"
+        
+        # 广播人类夜间行动完成
+        await broadcast_human_night_action_complete(
+            room_code=room_code,
+            seat_number=human_seat,
+            action_type=action_type,
+            result=result
+        )
+        
+        # 清除等待状态
+        self._clear_waiting_for_human(room_code)
+        
+        result["seat_number"] = human_seat
+        result["player_name"] = player.player_name
+        return result
+
+    # =========================================================================
+    # Phase 4.1: 狼人私密讨论 (T40-T45)
+    # =========================================================================
+
+    def _get_werewolf_teammates(self, room_code: str, seat_number: int) -> list[dict]:
+        """
+        获取指定狼人玩家的狼队友列表。
+        
+        Args:
+            room_code: 房间代码
+            seat_number: 当前狼人座位号
+            
+        Returns:
+            狼队友列表，每项包含 seat_number, player_name
+        """
+        state = self._game_states.get(room_code)
+        if not state:
+            return []
+        
+        teammates = []
+        for seat_num, player in state.players.items():
+            if player.role == "werewolf" and player.is_alive and seat_num != seat_number:
+                teammates.append({
+                    "seat_number": seat_num,
+                    "player_name": player.player_name,
+                    "player_id": player.player_id
+                })
+        
+        return teammates
+
+    def _get_all_werewolves(self, room_code: str) -> list[dict]:
+        """
+        获取所有存活的狼人玩家列表。
+        
+        Args:
+            room_code: 房间代码
+            
+        Returns:
+            狼人列表，每项包含 seat_number, player_name, player_id
+        """
+        state = self._game_states.get(room_code)
+        if not state:
+            return []
+        
+        werewolves = []
+        for seat_num, player in state.players.items():
+            if player.role == "werewolf" and player.is_alive:
+                werewolves.append({
+                    "seat_number": seat_num,
+                    "player_name": player.player_name,
+                    "player_id": player.player_id
+                })
+        
+        return werewolves
+
+    async def process_werewolf_chat(
+        self,
+        room_code: str,
+        player_id: str,
+        content: str
+    ) -> dict:
+        """
+        T41: 处理狼人私密讨论消息。
+        
+        接收狼人玩家的讨论消息，记录到 werewolf_private_chat，
+        并广播给所有狼人（仅狼人可见）。
+        
+        Args:
+            room_code: 房间代码
+            player_id: 发言狼人的玩家ID
+            content: 消息内容
+            
+        Returns:
+            dict: 处理结果，包含success状态和消息信息
+        """
+        from src.websocket import broadcast_wolf_chat_message
+        
+        state = self._game_states.get(room_code)
+        if not state:
+            return {"success": False, "error": "游戏不存在"}
+        
+        # 验证当前是狼人行动阶段
+        if state.phase != WerewolfPhase.NIGHT_WEREWOLF:
+            return {"success": False, "error": "当前不是狼人行动阶段"}
+        
+        # 查找发言者座位号
+        sender_seat = None
+        sender_player = None
+        for seat_num, player in state.players.items():
+            if player.player_id == player_id:
+                sender_seat = seat_num
+                sender_player = player
+                break
+        
+        if sender_seat is None:
+            return {"success": False, "error": "找不到玩家"}
+        
+        # 验证发言者是狼人
+        if sender_player.role != "werewolf":
+            return {"success": False, "error": "只有狼人可以使用私密讨论"}
+        
+        # 验证发言者存活
+        if not sender_player.is_alive:
+            return {"success": False, "error": "已死亡的玩家不能发言"}
+        
+        # 验证消息内容
+        if not content or not content.strip():
+            return {"success": False, "error": "消息内容不能为空"}
+        
+        content = content.strip()
+        
+        # 创建讨论消息记录
+        chat_entry = {
+            "night_number": state.day_number,
+            "seat_number": sender_seat,
+            "player_name": sender_player.player_name,
+            "player_id": player_id,
+            "content": content,
+            "timestamp": datetime.now().isoformat(),
+            "is_human": sender_seat == state.human_player_seat
+        }
+        
+        # 记录到 werewolf_private_chat
+        state.werewolf_private_chat.append(chat_entry)
+        
+        logger.info(f"Werewolf chat recorded: seat={sender_seat}, content_length={len(content)}")
+        
+        # 获取所有狼人的 player_id 用于广播
+        werewolves = self._get_all_werewolves(room_code)
+        werewolf_player_ids = [w["player_id"] for w in werewolves]
+        
+        # 广播给所有狼人
+        await broadcast_wolf_chat_message(
+            room_code=room_code,
+            sender_seat=sender_seat,
+            sender_name=sender_player.player_name,
+            content=content,
+            werewolf_player_ids=werewolf_player_ids
+        )
+        
+        return {
+            "success": True,
+            "seat_number": sender_seat,
+            "player_name": sender_player.player_name,
+            "content": content,
+            "night_number": state.day_number
+        }
+
+    def get_werewolf_chat_history(
+        self,
+        room_code: str,
+        night_number: int | None = None
+    ) -> list[dict]:
+        """
+        获取狼人私密讨论历史记录。
+        
+        Args:
+            room_code: 房间代码
+            night_number: 指定夜晚（可选，None 表示所有夜晚）
+            
+        Returns:
+            讨论记录列表
+        """
+        state = self._game_states.get(room_code)
+        if not state:
+            return []
+        
+        if night_number is None:
+            return list(state.werewolf_private_chat)
+        
+        return [
+            entry for entry in state.werewolf_private_chat
+            if entry.get("night_number") == night_number
+        ]
+
+    # =========================================================================
+    # T48-T49: 遗言处理方法
+    # =========================================================================
+
+    def _generate_last_words_options(
+        self,
+        game_state: WerewolfGameState,
+        seat_number: int,
+        death_reason: str
+    ) -> list[dict]:
+        """
+        T48: 生成遗言预设选项。
+        
+        Args:
+            game_state: 游戏状态
+            seat_number: 玩家座位号
+            death_reason: 死亡原因
+            
+        Returns:
+            预设选项列表
+        """
+        player = game_state.players.get(seat_number)
+        if not player:
+            return []
+        
+        role = player.role
+        options = []
+        
+        # 通用选项
+        options.append({
+            "id": "no_words",
+            "text": "我没什么想说的，走了。",
+            "type": "skip"
+        })
+        
+        # 根据角色生成特定选项
+        if role == "werewolf":
+            # 狼人遗言选项 - 可能需要保护队友
+            options.extend([
+                {
+                    "id": "protect_teammate",
+                    "text": "我是好人，请相信我的发言，找到真正的狼人。",
+                    "type": "deception"
+                },
+                {
+                    "id": "fake_seer",
+                    "text": "我是预言家，我验过的人里面有狼！",
+                    "type": "deception"
+                },
+                {
+                    "id": "random_accusation",
+                    "text": "我确定X号就是狼人，请大家投他！",
+                    "type": "accusation",
+                    "needs_target": True
+                }
+            ])
+        elif role == "seer":
+            # 预言家遗言选项 - 需要传递信息
+            options.extend([
+                {
+                    "id": "reveal_identity",
+                    "text": "我是真预言家！请相信我的验人结果！",
+                    "type": "reveal"
+                },
+                {
+                    "id": "share_check_result",
+                    "text": "我验过X号，他是好人/狼人！",
+                    "type": "information",
+                    "needs_target": True
+                }
+            ])
+        elif role == "witch":
+            # 女巫遗言选项
+            options.extend([
+                {
+                    "id": "reveal_identity",
+                    "text": "我是女巫，我的药已经用完了。",
+                    "type": "reveal"
+                },
+                {
+                    "id": "share_poison_info",
+                    "text": "我毒过X号，他是狼人！",
+                    "type": "information",
+                    "needs_target": True
+                }
+            ])
+        elif role == "hunter":
+            # 猎人遗言选项（猎人死亡后会有开枪环节）
+            options.extend([
+                {
+                    "id": "reveal_identity",
+                    "text": "我是猎人，我会带走一个狼人！",
+                    "type": "reveal"
+                }
+            ])
+        else:
+            # 村民遗言选项
+            options.extend([
+                {
+                    "id": "innocent_plea",
+                    "text": "我是好人，你们投错了！",
+                    "type": "plea"
+                },
+                {
+                    "id": "suspicion",
+                    "text": "我怀疑X号是狼人，请大家注意。",
+                    "type": "suspicion",
+                    "needs_target": True
+                }
+            ])
+        
+        # 根据死亡原因添加特定选项
+        if death_reason == "vote":
+            options.append({
+                "id": "wrongful_death",
+                "text": "你们会后悔的，我是好人！",
+                "type": "plea"
+            })
+        elif death_reason == "night_kill":
+            options.append({
+                "id": "wolf_analysis",
+                "text": "杀我的狼人可能是昨天发言中最可疑的那个...",
+                "type": "analysis"
+            })
+        
+        return options
+
+    async def process_human_last_words(
+        self,
+        room_code: str,
+        player_id: str,
+        content: str
+    ) -> dict:
+        """
+        T49: 处理人类玩家的遗言输入。
+        
+        Args:
+            room_code: 房间代码
+            player_id: 玩家ID
+            content: 遗言内容
+            
+        Returns:
+            处理结果字典
+        """
+        state = self._game_states.get(room_code)
+        if not state:
+            return {"success": False, "error": "游戏不存在"}
+        
+        # 验证是否在等待遗言
+        if not state.waiting_for_human_action or state.human_action_type != "last_words":
+            return {"success": False, "error": "当前不是遗言阶段"}
+        
+        # 验证玩家
+        dead_seat = state.last_words_seat
+        if dead_seat is None:
+            return {"success": False, "error": "没有等待遗言的玩家"}
+        
+        player = state.players.get(dead_seat)
+        if not player:
+            return {"success": False, "error": "玩家不存在"}
+        
+        # 验证玩家身份
+        if player.player_id != player_id:
+            return {"success": False, "error": "不是你的遗言回合"}
+        
+        # 记录遗言
+        if content and content.strip():
+            state.game_logs.append(
+                f"第{state.day_number}天 - {dead_seat}号遗言: {content}"
+            )
+            self._record_speech_entry(
+                state,
+                seat_number=dead_seat,
+                player_name=player.player_name,
+                content=content,
+                speech_type="last_words"
+            )
+            
+            # 广播遗言
+            await broadcast_player_speech(
+                room_code=room_code,
+                seat_number=dead_seat,
+                player_name=player.player_name,
+                content=content,
+                speech_type="last_words"
+            )
+        else:
+            # 跳过遗言
+            state.game_logs.append(
+                f"第{state.day_number}天 - {dead_seat}号选择不发表遗言"
+            )
+        
+        # 清除等待状态
+        self._clear_waiting_for_human(room_code)
+        state.last_words_seat = None
+        state.last_words_reason = None
+        
+        # T53: 切换到观战模式
+        if state.human_player_seat == dead_seat:
+            state.is_spectator_after_death = True
+            await broadcast_spectator_mode(
+                room_code=room_code,
+                player_id=player_id,
+                seat_number=dead_seat
+            )
+        
+        return {
+            "success": True,
+            "seat_number": dead_seat,
+            "content": content,
+            "is_spectator": state.is_spectator_after_death
+        }
 
     # =========================================================================
     # B34: 游戏启动流程
@@ -494,13 +1515,83 @@ class WerewolfGameService:
                 human_werewolf = wolf
         
         if human_werewolf:
-            # Notify human to make decision
+            # T31: 人类狼人夜间行动 - 等待玩家选择击杀目标
+            timeout_seconds = 60  # 60秒超时
+            self._set_waiting_for_human(room_code, "werewolf_kill", timeout_seconds)
+            
+            # 生成击杀目标选项（排除自己和其他狼人）
+            kill_options = [
+                {
+                    "seat_number": p.seat_number,
+                    "display_name": f"玩家{p.seat_number}",
+                    "player_name": p.player_name
+                }
+                for p in game_state.players.values()
+                if p.is_alive and p.role != "werewolf"
+            ]
+            # 添加空刀选项
+            kill_options.append({
+                "seat_number": None,
+                "display_name": "空刀（不击杀任何人）",
+                "player_name": None
+            })
+            
+            # 广播等待人类狼人行动
+            await broadcast_waiting_for_human(
+                room_code=room_code,
+                action_type="werewolf_kill",
+                seat_number=human_werewolf.seat_number,
+                timeout_seconds=timeout_seconds,
+                metadata={
+                    "role": "werewolf",
+                    "night_number": game_state.day_number,
+                    "options": kill_options
+                }
+            )
+            
+            # 通知人类狼人该行动了
             await notify_werewolf_turn(
                 room_code=room_code,
                 werewolf_player_ids=[human_werewolf.player_id],
                 alive_targets=targets
             )
-            # Wait for human input via werewolf_action event
+            
+            # 等待人类玩家输入或超时
+            start_time = asyncio.get_event_loop().time()
+            while game_state.waiting_for_human_action:
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed >= timeout_seconds:
+                    # 超时，自动空刀
+                    self._clear_waiting_for_human(room_code)
+                    self.engine.process_werewolf_action(game_state, None)
+                    game_state.game_logs.append("夜晚：狼人行动超时，自动空刀")
+                    await broadcast_host_announcement(
+                        room_code=room_code,
+                        announcement_type="night_action_timeout",
+                        content="狼人行动超时，自动空刀。",
+                        metadata={"role": "werewolf", "seat_number": human_werewolf.seat_number}
+                    )
+                    break
+                
+                # 检查是否暂停或停止
+                if not await self._check_paused_or_stopped(room_code, game_id):
+                    return
+                
+                # 短暂休眠，避免忙等待
+                await asyncio.sleep(0.1)
+            
+            # 狼人闭眼公告
+            werewolf_sleep_stream = self.host.announce_werewolf_sleep(stream=True)
+            await stream_host_announcement(
+                room_code=room_code,
+                announcement_type="werewolf_sleep",
+                content_stream=werewolf_sleep_stream,
+                metadata={"phase": "night_werewolf_end"}
+            )
+            await asyncio.sleep(1.0)
+            
+            # 进入预言家阶段
+            await self._execute_seer_action(room_code, game_id)
             return
         
         # All werewolves are AI - let them discuss and decide together
@@ -787,13 +1878,76 @@ class WerewolfGameService:
             # Move to witch
             await self._execute_witch_action(room_code, game_id)
         else:
-            # Human seer
+            # T32: 人类预言家夜间行动 - 等待玩家选择查验目标
+            timeout_seconds = 60  # 60秒超时
+            self._set_waiting_for_human(room_code, "seer_check", timeout_seconds)
+            
+            # 生成查验目标选项
+            check_options = [
+                {
+                    "seat_number": p.seat_number,
+                    "display_name": f"玩家{p.seat_number}",
+                    "player_name": p.player_name
+                }
+                for p in game_state.players.values()
+                if p.is_alive and p.seat_number != seer.seat_number
+            ]
+            
+            # 广播等待人类预言家行动
+            await broadcast_waiting_for_human(
+                room_code=room_code,
+                action_type="seer_check",
+                seat_number=seer.seat_number,
+                timeout_seconds=timeout_seconds,
+                metadata={
+                    "role": "seer",
+                    "night_number": game_state.day_number,
+                    "options": check_options
+                }
+            )
+            
+            # 通知人类预言家该行动了
             await notify_seer_turn(
                 room_code=room_code,
                 seer_player_id=seer.player_id,
                 alive_targets=targets
             )
-            # Wait for human input
+            
+            # 等待人类玩家输入或超时
+            start_time = asyncio.get_event_loop().time()
+            while game_state.waiting_for_human_action:
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed >= timeout_seconds:
+                    # 超时，自动跳过（不查验）
+                    self._clear_waiting_for_human(room_code)
+                    game_state.game_logs.append("夜晚：预言家行动超时，未查验任何人")
+                    await broadcast_host_announcement(
+                        room_code=room_code,
+                        announcement_type="night_action_timeout",
+                        content="预言家行动超时，本夜未查验任何人。",
+                        metadata={"role": "seer", "seat_number": seer.seat_number}
+                    )
+                    break
+                
+                # 检查是否暂停或停止
+                if not await self._check_paused_or_stopped(room_code, game_id):
+                    return
+                
+                # 短暂休眠，避免忙等待
+                await asyncio.sleep(0.1)
+            
+            # 预言家闭眼公告
+            seer_sleep_stream = self.host.announce_seer_sleep(stream=True)
+            await stream_host_announcement(
+                room_code=room_code,
+                announcement_type="seer_sleep",
+                content_stream=seer_sleep_stream,
+                metadata={"phase": "night_seer_end"}
+            )
+            await asyncio.sleep(1.0)
+            
+            # 进入女巫阶段
+            await self._execute_witch_action(room_code, game_id)
     
     async def _execute_witch_action(self, room_code: str, game_id: str):
         """Execute witch save/poison action."""
@@ -992,7 +2146,62 @@ class WerewolfGameService:
             # End night
             await self._end_night_phase(room_code, game_id)
         else:
-            # Human witch
+            # T33: 人类女巫夜间行动 - 等待玩家选择救人/毒人
+            timeout_seconds = 60  # 60秒超时
+            self._set_waiting_for_human(room_code, "witch_action", timeout_seconds)
+            
+            # 生成女巫行动选项
+            witch_options = []
+            
+            # 救人选项（如果有解药且有人被杀）
+            if has_antidote and killed_seat:
+                killed_p = game_state.players.get(killed_seat)
+                # 检查是否能自救（首夜可以自救，后续不能）
+                if killed_seat != witch.seat_number or can_self_save:
+                    witch_options.append({
+                        "action": "save",
+                        "target_seat": killed_seat,
+                        "display_name": f"使用解药救{killed_seat}号玩家" + (f"({killed_p.player_name})" if killed_p else ""),
+                        "description": "使用解药救活今晚被狼人杀死的玩家"
+                    })
+            
+            # 毒人选项（如果有毒药）
+            if has_poison:
+                for p in game_state.players.values():
+                    if p.is_alive and p.seat_number != witch.seat_number:
+                        witch_options.append({
+                            "action": "poison",
+                            "target_seat": p.seat_number,
+                            "display_name": f"毒杀{p.seat_number}号玩家({p.player_name})",
+                            "description": "使用毒药毒杀该玩家"
+                        })
+            
+            # 不行动选项
+            witch_options.append({
+                "action": "pass",
+                "target_seat": None,
+                "display_name": "不使用任何药水",
+                "description": "本夜不使用解药和毒药"
+            })
+            
+            # 广播等待人类女巫行动
+            await broadcast_waiting_for_human(
+                room_code=room_code,
+                action_type="witch_action",
+                seat_number=witch.seat_number,
+                timeout_seconds=timeout_seconds,
+                metadata={
+                    "role": "witch",
+                    "night_number": game_state.day_number,
+                    "has_antidote": has_antidote,
+                    "has_poison": has_poison,
+                    "killed_seat": killed_seat,
+                    "can_self_save": can_self_save,
+                    "options": witch_options
+                }
+            )
+            
+            # 通知人类女巫该行动了
             await notify_witch_turn(
                 room_code=room_code,
                 witch_player_id=witch.player_id,
@@ -1002,7 +2211,42 @@ class WerewolfGameService:
                 can_self_save=can_self_save,
                 alive_targets=targets
             )
-            # Wait for human input
+            
+            # 等待人类玩家输入或超时
+            start_time = asyncio.get_event_loop().time()
+            while game_state.waiting_for_human_action:
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed >= timeout_seconds:
+                    # 超时，自动跳过（不使用任何药水）
+                    self._clear_waiting_for_human(room_code)
+                    game_state.game_logs.append("夜晚：女巫行动超时，未使用任何药水")
+                    await broadcast_host_announcement(
+                        room_code=room_code,
+                        announcement_type="night_action_timeout",
+                        content="女巫行动超时，本夜未使用任何药水。",
+                        metadata={"role": "witch", "seat_number": witch.seat_number}
+                    )
+                    break
+                
+                # 检查是否暂停或停止
+                if not await self._check_paused_or_stopped(room_code, game_id):
+                    return
+                
+                # 短暂休眠，避免忙等待
+                await asyncio.sleep(0.1)
+            
+            # 女巫闭眼公告
+            witch_sleep_stream = self.host.announce_witch_sleep(stream=True)
+            await stream_host_announcement(
+                room_code=room_code,
+                announcement_type="witch_sleep",
+                content_stream=witch_sleep_stream,
+                metadata={"phase": "night_witch_end"}
+            )
+            await asyncio.sleep(1.0)
+            
+            # 结束夜晚
+            await self._end_night_phase(room_code, game_id)
     
     async def _end_night_phase(self, room_code: str, game_id: str):
         """End night phase and transition to day."""
@@ -1185,16 +2429,55 @@ class WerewolfGameService:
                 # AI发言间隔：每个AI之间等待1秒
                 await asyncio.sleep(1)
             else:
-                # Human player - in single player mode, human can choose to skip or just listen
-                # For simplicity, we'll broadcast that it's human's turn
-                await broadcast_host_announcement(
+                # T15: 人类玩家发言 - 等待玩家输入
+                # 1. 设置等待状态
+                timeout_seconds = 120  # 2分钟超时
+                self._set_waiting_for_human(room_code, "speech", timeout_seconds)
+                
+                # 2. 生成发言选项
+                speech_options = self.generate_speech_options(room_code, player.seat_number)
+                
+                # 3. 广播等待人类玩家发言
+                await broadcast_waiting_for_human(
                     room_code=room_code,
-                    announcement_type="your_turn_speech",
-                    content=f"轮到你发言了（{player.seat_number}号）",
-                    metadata={"seat_number": player.seat_number}
+                    action_type="speech",
+                    seat_number=player.seat_number,
+                    timeout_seconds=timeout_seconds,
+                    metadata={"day_number": game_state.day_number}
                 )
-                # In auto mode, we skip human speech after a brief pause
-                await asyncio.sleep(2)
+                
+                # 4. 发送发言选项
+                await broadcast_speech_options(
+                    room_code=room_code,
+                    seat_number=player.seat_number,
+                    options=speech_options
+                )
+                
+                # 5. 等待人类玩家发言或超时
+                # 轮询检查 waiting_for_human_action 状态
+                start_time = asyncio.get_event_loop().time()
+                while game_state.waiting_for_human_action:
+                    elapsed = asyncio.get_event_loop().time() - start_time
+                    if elapsed >= timeout_seconds:
+                        # 超时，自动跳过
+                        self._clear_waiting_for_human(room_code)
+                        await broadcast_host_announcement(
+                            room_code=room_code,
+                            announcement_type="speech_timeout",
+                            content=f"{player.seat_number}号玩家发言超时，自动跳过。",
+                            metadata={"seat_number": player.seat_number}
+                        )
+                        break
+                    
+                    # 检查是否暂停或停止
+                    if not await self._check_paused_or_stopped(room_code, game_id):
+                        return
+                    
+                    # 短暂休眠，避免忙等待
+                    await asyncio.sleep(0.1)
+                
+                # 如果发言成功，广播发言完成
+                # （发言内容已经在 process_human_speech 中记录）
             
             # 2. 清除当前发言者
             game_state.current_speaker_seat = None
@@ -1317,16 +2600,66 @@ class WerewolfGameService:
                 
                 await asyncio.sleep(0.3)
             else:
-                # Human player - wait for input or auto-abstain
-                # For simplicity in auto mode, human abstains
-                self.engine.process_vote(game_state, player.seat_number, None)
-                await broadcast_vote_update(
+                # T23-T25: 人类玩家投票 - 等待玩家输入
+                # 1. 设置等待状态
+                timeout_seconds = 60  # 1分钟超时
+                self._set_waiting_for_human(room_code, "vote", timeout_seconds)
+                
+                # 2. 生成投票选项（排除自己）
+                vote_options = self.generate_vote_options(room_code, player.seat_number)
+                
+                # 3. 广播等待人类玩家投票
+                await broadcast_waiting_for_human(
                     room_code=room_code,
-                    voter_seat=player.seat_number,
-                    voter_name=f"玩家{player.seat_number}",
-                    target_seat=None,
-                    target_name=None
+                    action_type="vote",
+                    seat_number=player.seat_number,
+                    timeout_seconds=timeout_seconds,
+                    metadata={"day_number": game_state.day_number}
                 )
+                
+                # 4. 发送投票选项
+                await broadcast_vote_options(
+                    room_code=room_code,
+                    seat_number=player.seat_number,
+                    options=vote_options,
+                    timeout_seconds=timeout_seconds
+                )
+                
+                # 5. 等待人类玩家投票或超时
+                start_time = asyncio.get_event_loop().time()
+                while game_state.waiting_for_human_action:
+                    elapsed = asyncio.get_event_loop().time() - start_time
+                    if elapsed >= timeout_seconds:
+                        # 超时，自动弃票
+                        self._clear_waiting_for_human(room_code)
+                        self.engine.process_vote(game_state, player.seat_number, None)
+                        
+                        await broadcast_host_announcement(
+                            room_code=room_code,
+                            announcement_type="vote_timeout",
+                            content=f"{player.seat_number}号玩家投票超时，自动弃票。",
+                            metadata={"seat_number": player.seat_number}
+                        )
+                        
+                        await broadcast_vote_update(
+                            room_code=room_code,
+                            voter_seat=player.seat_number,
+                            voter_name=f"玩家{player.seat_number}",
+                            target_seat=None,
+                            target_name=None
+                        )
+                        
+                        game_state.game_logs.append(
+                            f"投票: {player.seat_number}号弃票（超时）"
+                        )
+                        break
+                    
+                    # 检查是否暂停或停止
+                    if not await self._check_paused_or_stopped(room_code, game_id):
+                        return
+                    
+                    # 短暂休眠，避免忙等待
+                    await asyncio.sleep(0.1)
         
         # Process vote result
         await self._process_vote_result(room_code, game_id)
@@ -1670,8 +3003,42 @@ class WerewolfGameService:
                 speech_type="last_words"
             )
         else:
-            # Human player - for now, skip last words (TODO: implement human input)
-            logger.info(f"Human player {dead_seat} last words - skipping for now")
+            # T48: 人类玩家遗言 - 等待玩家输入
+            timeout_seconds = 60  # 60秒超时
+            self._set_waiting_for_human(room_code, "last_words", timeout_seconds)
+            
+            # 设置遗言元数据
+            game_state.last_words_seat = dead_seat
+            game_state.last_words_reason = death_reason
+            
+            # 生成遗言预设选项
+            last_words_options = self._generate_last_words_options(game_state, dead_seat, death_reason)
+            
+            # 广播等待人类遗言
+            await broadcast_waiting_for_human(
+                room_code=room_code,
+                action_type="last_words",
+                seat_number=dead_seat,
+                timeout_seconds=timeout_seconds,
+                metadata={
+                    "death_reason": death_reason,
+                    "options": last_words_options
+                }
+            )
+            
+            # 广播遗言选项
+            await broadcast_last_words_options(
+                room_code=room_code,
+                seat_number=dead_seat,
+                options=last_words_options,
+                death_reason=death_reason
+            )
+            
+            logger.info(f"Waiting for human player {dead_seat} last words, timeout: {timeout_seconds}s")
+            
+            # 等待人类输入（通过 WebSocket 事件处理）
+            # 超时处理将由 _check_human_timeout 处理
+            await self._wait_for_human_action(room_code, "last_words")
     
     # =========================================================================
     # B39: 猎人技能和游戏结束
@@ -1760,12 +3127,69 @@ class WerewolfGameService:
             # Note: Win check and next phase transition is handled by the caller
             # (_end_night_phase or vote processing)
         else:
-            # Human hunter - notify and wait
+            # T34: 人类猎人开枪 - 等待玩家选择目标
+            timeout_seconds = 30  # 30秒超时（猎人开枪需要快速决定）
+            self._set_waiting_for_human(room_code, "hunter_shoot", timeout_seconds)
+            
+            # 生成开枪目标选项
+            shoot_options = [
+                {
+                    "seat_number": p.seat_number,
+                    "display_name": f"玩家{p.seat_number}",
+                    "player_name": p.player_name
+                }
+                for p in game_state.players.values()
+                if p.is_alive and p.seat_number != hunter_seat
+            ]
+            # 添加不开枪选项
+            shoot_options.append({
+                "seat_number": None,
+                "display_name": "不开枪",
+                "player_name": None
+            })
+            
+            # 广播等待人类猎人行动
+            await broadcast_waiting_for_human(
+                room_code=room_code,
+                action_type="hunter_shoot",
+                seat_number=hunter_seat,
+                timeout_seconds=timeout_seconds,
+                metadata={
+                    "role": "hunter",
+                    "death_reason": hunter.death_reason.value if hunter.death_reason else "unknown",
+                    "options": shoot_options
+                }
+            )
+            
+            # 通知人类猎人该开枪了
             await notify_hunter_shoot(
                 room_code=room_code,
                 hunter_player_id=hunter.player_id,
                 alive_targets=targets
             )
+            
+            # 等待人类玩家输入或超时
+            start_time = asyncio.get_event_loop().time()
+            while game_state.waiting_for_human_action:
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed >= timeout_seconds:
+                    # 超时，自动不开枪
+                    self._clear_waiting_for_human(room_code)
+                    game_state.game_logs.append("猎人开枪超时，未开枪")
+                    await broadcast_host_announcement(
+                        room_code=room_code,
+                        announcement_type="night_action_timeout",
+                        content="猎人开枪超时，放弃开枪。",
+                        metadata={"role": "hunter", "seat_number": hunter_seat}
+                    )
+                    break
+                
+                # 检查是否暂停或停止
+                if not await self._check_paused_or_stopped(room_code, game_id):
+                    return
+                
+                # 短暂休眠，避免忙等待
+                await asyncio.sleep(0.1)
     
     async def _end_game(self, room_code: str, winner: str):
         """End the game and announce winner."""
@@ -1845,6 +3269,36 @@ class WerewolfGameService:
         )
         
         game_state.game_logs.append(f"游戏结束，{'狼人阵营' if winner == 'werewolf' else '好人阵营'}获胜！")
+        
+        # T45: 游戏结束时公开狼人私密讨论记录
+        if game_state.werewolf_private_chat:
+            # 添加分隔标记
+            game_state.game_logs.append("===== 狼人私密讨论记录 =====")
+            
+            # 按夜晚分组公开讨论记录
+            chat_by_night: dict[int, list[dict]] = {}
+            for entry in game_state.werewolf_private_chat:
+                night = entry.get("night_number", 1)
+                if night not in chat_by_night:
+                    chat_by_night[night] = []
+                chat_by_night[night].append(entry)
+            
+            # 按夜晚顺序添加到日志
+            for night in sorted(chat_by_night.keys()):
+                game_state.game_logs.append(f"--- 第{night}夜 ---")
+                for entry in chat_by_night[night]:
+                    seat = entry.get("seat_number", "?")
+                    player_name = entry.get("player_name", f"玩家{seat}")
+                    content = entry.get("content", "")
+                    is_human = entry.get("is_human", False)
+                    human_marker = "[人类]" if is_human else "[AI]"
+                    game_state.game_logs.append(
+                        f"{seat}号{player_name}{human_marker}: {content}"
+                    )
+            
+            game_state.game_logs.append("===== 讨论记录结束 =====")
+            
+            logger.info(f"Published {len(game_state.werewolf_private_chat)} wolf chat messages for room {room_code}")
         
         logger.info(f"Game ended in room {room_code}: {winner} wins")
         
