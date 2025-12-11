@@ -13,7 +13,8 @@
         </el-button>
         <span class="divider">|</span>
         <span class="room-code">房间: {{ roomCode }}</span>
-        <el-tag v-if="isSpectator" type="info">观战中</el-tag>
+        <el-tag v-if="gameStore.isSpectatorMode" type="danger" effect="dark">已阵亡 - 观战中</el-tag>
+        <el-tag v-else-if="isSpectator" type="info">观战中</el-tag>
         <el-tag v-if="mode" :type="mode === 'player' ? 'success' : 'warning'" size="small">
           {{ mode === 'player' ? '玩家模式' : '观战模式' }}
         </el-tag>
@@ -59,6 +60,16 @@
             <span class="role-team">{{ getTeamName(myRole.team) }}</span>
           </div>
           <p class="role-desc">{{ myRole.description }}</p>
+        </div>
+        
+        <!-- T54: 观战模式提示卡 -->
+        <div v-if="gameStore.isSpectatorMode" class="spectator-card">
+          <h4 class="card-title">观战模式</h4>
+          <div class="spectator-info">
+            <el-icon class="spectator-icon"><View /></el-icon>
+            <p class="spectator-text">你已被淘汰</p>
+            <p class="spectator-desc">以观战者身份继续观看游戏</p>
+          </div>
         </div>
         
         <!-- 行动面板 -->
@@ -134,7 +145,7 @@
         
         <!-- 新增：玩家发言输入面板 -->
         <PlayerInputPanel
-          v-if="!isSpectator"
+          v-if="!isSpectator && !gameStore.isSpectatorMode"
           :visible="showPlayerInput"
           :is-my-turn="isMyTurnToSpeak"
           :is-submitting="isSubmittingSpeech"
@@ -145,6 +156,12 @@
           :speech-options="speechOptions"
           @submit="handleSubmitSpeech"
           @skip="handleSkipSpeech"
+        />
+        
+        <!-- T54: 遗言面板 -->
+        <LastWordsPanel
+          v-if="gameStore.isLastWordsPhase"
+          :room-code="roomCode"
         />
       </div>
     </div>
@@ -178,7 +195,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { VideoPause, VideoPlay, Loading, Setting, HomeFilled } from '@element-plus/icons-vue'
+import { VideoPause, VideoPlay, Loading, Setting, HomeFilled, View } from '@element-plus/icons-vue'
 import { useGameStore } from '@/stores/game'
 import { useSocketStore } from '@/stores/socket'
 import { roomsApi, gamesApi } from '@/services/api'
@@ -192,6 +209,7 @@ import GameControlBar from '@/components/werewolf/GameControlBar.vue'
 import HostAnnouncementPanel from '@/components/werewolf/HostAnnouncementPanel.vue'
 // SpeechBubble 已移除，使用日志面板显示发言
 import PlayerInputPanel from '@/components/werewolf/PlayerInputPanel.vue'
+import LastWordsPanel from '@/components/werewolf/LastWordsPanel.vue'
 import LogLevelSwitch from '@/components/werewolf/LogLevelSwitch.vue'
 
 const route = useRoute()
@@ -456,6 +474,7 @@ function setupSocketListeners() {
   socketStore.on('werewolf:speech_options', handleSpeechOptions)
   socketStore.on('werewolf:human_speech_complete', handleHumanSpeechComplete)
   socketStore.on('werewolf:speech_submitted', handleSpeechSubmitted)
+  socketStore.on('werewolf:ai_takeover', handleAiTakeover)
   
   // T28: 人类玩家投票相关事件
   socketStore.on('werewolf:vote_options', handleVoteOptions)
@@ -464,6 +483,10 @@ function setupSocketListeners() {
   // T37: 人类玩家夜间行动相关事件
   socketStore.on('werewolf:human_night_action_complete', handleHumanNightActionComplete)
   socketStore.on('werewolf:night_action_result', handleNightActionResult)
+  
+  // T54: 观战模式事件
+  socketStore.on('werewolf:spectator_mode', handleSpectatorMode)
+  socketStore.on('werewolf:last_words_options', handleLastWordsOptions)
   
   // 旧的事件监听（兼容）
   socketStore.on('game_state_update', handleGameStateUpdate)
@@ -536,6 +559,45 @@ function handleWaitingForHuman(data) {
       })
     }
   }
+}
+
+// T62: 处理 AI 代打事件
+function handleAiTakeover(data) {
+  const actionLabels = {
+    speech: '发言',
+    vote: '投票',
+    werewolf_kill: '狼人行动',
+    seer_check: '预言家查验',
+    witch_action: '女巫行动',
+    hunter_shoot: '猎人开枪'
+  }
+  const actionText = actionLabels[data.action_type] || '行动'
+  const isMe = data.seat_number === gameStore.mySeatNumber
+  const logText = `${data.seat_number}号玩家超时，AI 代打${actionText}`
+
+  if (isMe) {
+    gameStore.setWaitingForInput(false)
+
+    if (data.action_type === 'speech') {
+      gameStore.clearSpeechState()
+    } else if (data.action_type === 'vote') {
+      gameStore.setVote(null)
+      gameStore.clearVoteState()
+    } else if (['werewolf_kill', 'seer_check', 'witch_action', 'hunter_shoot'].includes(data.action_type)) {
+      gameStore.clearNightActionState()
+    }
+
+    ElMessage.warning({
+      message: `你已超时，AI 已代打${actionText}`,
+      duration: 4000
+    })
+  }
+
+  gameStore.addGameLog({
+    type: 'system',
+    content: logText,
+    seat_number: data.seat_number
+  })
 }
 
 /**
@@ -685,6 +747,67 @@ function handleNightActionResult(data) {
     ElMessage.success('行动成功！')
   } else if (data.error) {
     ElMessage.error(data.error)
+  }
+}
+
+/**
+ * T54: 处理观战模式切换事件
+ */
+function handleSpectatorMode(data) {
+  console.log('切换到观战模式:', data)
+  
+  // 设置观战模式
+  gameStore.setSpectatorMode(true)
+  gameStore.setIsAlive(false)
+  
+  // 清除所有等待状态
+  gameStore.clearSpeechState()
+  gameStore.clearVoteState()
+  gameStore.clearNightActionState()
+  gameStore.clearLastWordsState()
+  
+  // 显示提示
+  ElNotification({
+    title: '已进入观战模式',
+    message: '你已被淘汰，现在以观战者身份观看游戏',
+    type: 'info',
+    duration: 5000,
+    position: 'top-right'
+  })
+  
+  // 添加日志
+  gameStore.addGameLog({
+    type: 'system',
+    content: '你已进入观战模式',
+    player_id: null,
+    player_name: '系统',
+    seat_number: data.seat_number
+  })
+}
+
+/**
+ * T54: 处理遗言选项事件
+ */
+function handleLastWordsOptions(data) {
+  console.log('收到遗言选项:', data)
+  
+  // 设置遗言阶段状态
+  gameStore.setLastWordsPhase(true, {
+    seat_number: data.seat_number,
+    options: data.options || [],
+    death_reason: data.death_reason,
+    timeout_seconds: data.timeout_seconds || 60
+  })
+  
+  // 如果是自己的遗言回合，显示提示
+  if (data.seat_number === gameStore.mySeatNumber) {
+    ElNotification({
+      title: '发表遗言',
+      message: '你已被淘汰，现在可以发表遗言',
+      type: 'warning',
+      duration: 3000,
+      position: 'top-right'
+    })
   }
 }
 
@@ -1268,6 +1391,7 @@ onUnmounted(() => {
   socketStore.off('game_ended', handleGameEnded)
   socketStore.off('game_log', handleGameLog)
   socketStore.off('reconnect', handleReconnect)
+  socketStore.off('werewolf:ai_takeover', handleAiTakeover)
   
   // T28: 清理投票相关事件监听
   socketStore.off('werewolf:vote_options', handleVoteOptions)
@@ -1569,6 +1693,58 @@ function resetGameState() {
   margin: 0;
   line-height: 1.7;
   text-align: center;
+}
+
+/* T54: 观战模式卡片样式 */
+.spectator-card {
+  background: rgba(10, 10, 20, .9);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  border: 1px solid rgba(150, 150, 150, .3);
+  padding: 18px;
+  position: relative;
+  overflow: hidden;
+}
+
+.spectator-card:before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, rgba(150, 150, 150, .5), rgba(100, 100, 100, .5), rgba(150, 150, 150, .5));
+}
+
+.spectator-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(100, 100, 100, .15), rgba(80, 80, 80, .15));
+  border: 1px solid rgba(150, 150, 150, .3);
+  text-align: center;
+}
+
+.spectator-icon {
+  font-size: 48px;
+  color: rgba(150, 150, 150, .8);
+  margin-bottom: 12px;
+}
+
+.spectator-text {
+  font-size: 18px;
+  font-weight: 700;
+  color: rgba(150, 150, 150, .9);
+  margin: 0 0 8px;
+}
+
+.spectator-desc {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: 1.7;
 }
 
 .action-panel {

@@ -1035,6 +1035,9 @@ export const useGameStore = defineStore('game', () => {
     logLevel.value = 'basic'
     currentSpeaker.value = { seatNumber: null, playerName: '', isHuman: false }
     waitingForInput.value = false
+    
+    // Phase 5: 重置观战模式
+    isSpectatorMode.value = false
   }
 
   function reset() {
@@ -1100,6 +1103,9 @@ export const useGameStore = defineStore('game', () => {
     // 清理发言者状态
     currentSpeaker.value = { seatNumber: null, playerName: '', isHuman: false }
     waitingForInput.value = false
+    
+    // Phase 5: 清理观战模式
+    isSpectatorMode.value = false
     
     console.log('Game state reset for new game')
   }
