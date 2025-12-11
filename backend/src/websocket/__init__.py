@@ -37,6 +37,7 @@ def __getattr__(name):
         "broadcast_human_night_action_complete",
         "broadcast_wolf_chat_message",
         "broadcast_wolf_chat_history",
+        "broadcast_ai_takeover",
     ]
     
     if name in werewolf_funcs:
@@ -76,4 +77,5 @@ __all__ = [
     "broadcast_human_night_action_complete",
     "broadcast_wolf_chat_message",
     "broadcast_wolf_chat_history",
+    "broadcast_ai_takeover",
 ]

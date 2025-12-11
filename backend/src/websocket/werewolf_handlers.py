@@ -1507,6 +1507,34 @@ async def broadcast_ai_action(
         logger.error(f"Error broadcasting ai_action: {e}")
 
 
+async def broadcast_ai_takeover(
+    room_code: str,
+    seat_number: int,
+    action_type: str,
+    metadata: dict[str, Any] | None = None
+):
+    """广播 AI 代打事件。"""
+    try:
+        await sio.emit(
+            "werewolf:ai_takeover",
+            {
+                "room_code": room_code,
+                "seat_number": seat_number,
+                "action_type": action_type,
+                "metadata": metadata or {},
+            },
+            room=room_code,
+        )
+        logger.info(
+            "Broadcasted ai_takeover for room %s seat %s action %s",
+            room_code,
+            seat_number,
+            action_type,
+        )
+    except Exception as error:
+        logger.error("Error broadcasting ai_takeover: %s", error)
+
+
 # ============================================================================
 # Phase 3: 投票交互 (T26-T27)
 # ============================================================================

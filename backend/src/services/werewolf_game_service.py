@@ -52,6 +52,7 @@ from src.websocket import (
     broadcast_vote_options,
     broadcast_human_vote_complete,
     broadcast_human_night_action_complete,
+    broadcast_ai_takeover,
 )
 from src.utils.errors import BadRequestError, NotFoundError
 
@@ -163,6 +164,452 @@ class WerewolfGameService:
         game_state.human_action_start_time = None
         
         logger.info(f"Cleared waiting for human action, room: {room_code}")
+        return True
+
+    def _create_temp_agent(self, game_state: WerewolfGameState, player: PlayerState):
+        """为人类玩家创建临时 AI 代理，用于超时代打。"""
+        agent = self._create_agent_for_role(
+            role=player.role,
+            seat_number=player.seat_number,
+            player_name=player.player_name,
+            player_id=player.player_id,
+        )
+
+        if not agent:
+            return None
+
+        if player.role == "werewolf":
+            teammates = [
+                {"seat_number": p.seat_number, "name": p.player_name}
+                for p in game_state.players.values()
+                if p.role == "werewolf" and p.seat_number != player.seat_number
+            ]
+            if hasattr(agent, "set_teammates"):
+                agent.set_teammates(teammates)
+
+        if player.role == "witch":
+            # 同步药水剩余数量，避免临时代理使用不存在的药水
+            try:
+                if not game_state.witch_has_antidote and hasattr(agent, "use_antidote"):
+                    agent.use_antidote()
+                if not game_state.witch_has_poison and hasattr(agent, "use_poison"):
+                    agent.use_poison()
+            except Exception as error:
+                logger.warning("Sync witch potions for temp agent failed: %s", error)
+
+        return agent
+
+    @staticmethod
+    def _build_player_lists(game_state: WerewolfGameState) -> tuple[list[dict], list[dict]]:
+        alive_players = [
+            {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+            for p in game_state.players.values()
+            if p.is_alive
+        ]
+        dead_players = [
+            {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+            for p in game_state.players.values()
+            if not p.is_alive
+        ]
+        return alive_players, dead_players
+
+    def _build_speech_summary(self, game_state: WerewolfGameState, limit: int = 12) -> str:
+        recent_speeches = self._format_speech_entries(game_state.speech_history, limit=limit)
+        return self._speeches_to_text(recent_speeches)
+
+    async def _ai_takeover_speech(self, room_code: str, game_state: WerewolfGameState, player: PlayerState):
+        agent = self._create_temp_agent(game_state, player)
+        if not agent:
+            logger.warning("AI takeover speech skipped: temp agent missing")
+            await broadcast_ai_takeover(
+                room_code=room_code,
+                seat_number=player.seat_number,
+                action_type="speech",
+                metadata={"reason": "agent_missing"},
+            )
+            self._clear_waiting_for_human(room_code)
+            return
+
+        alive_players, dead_players = self._build_player_lists(game_state)
+        agent_game_state = {
+            "day_number": game_state.day_number,
+            "alive_players": alive_players,
+            "dead_players": dead_players,
+        }
+        previous_speeches = self._format_speech_entries(game_state.speech_history, limit=12)
+
+        speech_stream = agent.generate_speech_stream(
+            game_state=agent_game_state,
+            previous_speeches=previous_speeches,
+        )
+        speech_content = await stream_ai_speech(
+            room_code=room_code,
+            speaker_seat=player.seat_number,
+            speaker_name=player.player_name,
+            speech_stream=speech_stream,
+        )
+
+        game_state.game_logs.append(
+            f"第{game_state.day_number}天 - {player.seat_number}号发言: {speech_content} (AI代打)"
+        )
+        self._record_speech_entry(
+            game_state,
+            seat_number=player.seat_number,
+            player_name=player.player_name,
+            content=speech_content,
+        )
+
+        await broadcast_ai_takeover(
+            room_code=room_code,
+            seat_number=player.seat_number,
+            action_type="speech",
+        )
+        self._clear_waiting_for_human(room_code)
+
+    async def _ai_takeover_vote(self, room_code: str, game_state: WerewolfGameState, player: PlayerState):
+        agent = self._create_temp_agent(game_state, player)
+        vote_target: int | None = None
+
+        if agent:
+            alive_players, dead_players = self._build_player_lists(game_state)
+            agent_game_state = {
+                "day_number": game_state.day_number,
+                "alive_players": alive_players,
+                "dead_players": dead_players,
+            }
+            speech_summary = self._build_speech_summary(game_state)
+            voteable_players = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values()
+                if p.is_alive and p.seat_number != player.seat_number
+            ]
+
+            try:
+                result = await agent.decide_vote(
+                    game_state=agent_game_state,
+                    speech_summary=speech_summary,
+                    voteable_players=voteable_players,
+                )
+                raw_target = result.get("target") if isinstance(result, dict) else result
+                vote_target = self._normalize_seat_number(raw_target)
+            except Exception as error:
+                logger.error("AI takeover vote decision failed: %s", error)
+
+        self.engine.process_vote(game_state, player.seat_number, vote_target)
+
+        await broadcast_vote_update(
+            room_code=room_code,
+            voter_seat=player.seat_number,
+            voter_name=player.player_name,
+            target_seat=vote_target,
+            target_name=f"玩家{vote_target}" if vote_target else None,
+        )
+        await broadcast_human_vote_complete(
+            room_code=room_code,
+            voter_seat=player.seat_number,
+            target_seat=vote_target,
+            voter_name=player.player_name,
+            target_name=f"玩家{vote_target}" if vote_target else None,
+        )
+
+        game_state.game_logs.append(
+            f"投票: {player.seat_number}号投给{vote_target}号 (AI代打)" if vote_target else f"投票: {player.seat_number}号弃票 (AI代打)"
+        )
+
+        await broadcast_ai_takeover(
+            room_code=room_code,
+            seat_number=player.seat_number,
+            action_type="vote",
+            metadata={"target_seat": vote_target},
+        )
+        self._clear_waiting_for_human(room_code)
+
+    async def _ai_takeover_werewolf_kill(
+        self,
+        room_code: str,
+        game_state: WerewolfGameState,
+        player: PlayerState,
+    ) -> None:
+        agent = self._create_temp_agent(game_state, player)
+        target_seat: int | None = None
+
+        if agent:
+            alive_players, dead_players = self._build_player_lists(game_state)
+            speech_history_text = ""
+            if game_state.day_number > 1 and game_state.speech_history:
+                speech_history_text = self._speeches_to_text(game_state.speech_history)
+
+            agent_game_state = {
+                "day_number": game_state.day_number,
+                "alive_players": alive_players,
+                "dead_players": dead_players,
+                "speech_history": speech_history_text,
+            }
+            available_targets = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values()
+                if p.is_alive and p.role != "werewolf"
+            ]
+            try:
+                result = await agent.decide_night_action(
+                    game_state=agent_game_state,
+                    available_targets=available_targets,
+                )
+                raw_target = result.get("target") if isinstance(result, dict) else result
+                target_seat = self._normalize_seat_number(raw_target)
+            except Exception as error:
+                logger.error("AI takeover werewolf decision failed: %s", error)
+
+        self.engine.process_werewolf_action(game_state, target_seat)
+        game_state.game_logs.append(
+            f"夜晚：狼人AI代打选择击杀{target_seat if target_seat is not None else '空刀'}"
+        )
+        await broadcast_ai_takeover(
+            room_code=room_code,
+            seat_number=player.seat_number,
+            action_type="werewolf_kill",
+            metadata={"target_seat": target_seat},
+        )
+        self._clear_waiting_for_human(room_code)
+
+    async def _ai_takeover_seer_check(
+        self,
+        room_code: str,
+        game_state: WerewolfGameState,
+        player: PlayerState,
+    ) -> None:
+        agent = self._create_temp_agent(game_state, player)
+        target_seat: int | None = None
+        is_werewolf = False
+
+        if agent:
+            alive_players, dead_players = self._build_player_lists(game_state)
+            speech_history_text = ""
+            if game_state.day_number > 1 and game_state.speech_history:
+                speech_history_text = self._speeches_to_text(game_state.speech_history)
+
+            agent_game_state = {
+                "day_number": game_state.day_number,
+                "alive_players": alive_players,
+                "dead_players": dead_players,
+                "speech_history": speech_history_text,
+            }
+            available_targets = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values()
+                if p.is_alive and p.seat_number != player.seat_number
+            ]
+            try:
+                result = await agent.decide_night_action(
+                    game_state=agent_game_state,
+                    available_targets=available_targets,
+                )
+                raw_target = result.get("target") if isinstance(result, dict) else result
+                target_seat = self._normalize_seat_number(raw_target)
+            except Exception as error:
+                logger.error("AI takeover seer decision failed: %s", error)
+
+        if target_seat:
+            is_werewolf = self.engine.process_seer_action(game_state, target_seat)
+            target_player = game_state.players.get(target_seat)
+            target_name = target_player.player_name if target_player else f"玩家{target_seat}"
+            if agent and hasattr(agent, "add_check_result"):
+                agent.add_check_result(target_seat, target_name, is_werewolf, game_state.day_number)
+            game_state.game_logs.append(
+                f"夜晚：预言家AI代打查验{target_seat}号，结果是{'狼人' if is_werewolf else '好人'}"
+            )
+
+        await broadcast_ai_takeover(
+            room_code=room_code,
+            seat_number=player.seat_number,
+            action_type="seer_check",
+            metadata={"target_seat": target_seat, "result": "werewolf" if is_werewolf else "villager"},
+        )
+        self._clear_waiting_for_human(room_code)
+
+    async def _ai_takeover_witch_action(
+        self,
+        room_code: str,
+        game_state: WerewolfGameState,
+        player: PlayerState,
+    ) -> None:
+        agent = self._create_temp_agent(game_state, player)
+        save_target = None
+        poison_target = None
+
+        killed_seat = game_state.current_night_actions.werewolf_kill_target
+
+        if agent:
+            alive_players, dead_players = self._build_player_lists(game_state)
+            agent_game_state = {
+                "day_number": game_state.day_number,
+                "alive_players": alive_players,
+                "dead_players": dead_players,
+            }
+            available_targets = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values()
+                if p.is_alive and p.seat_number != player.seat_number
+            ]
+            killed_player_info = None
+            if killed_seat:
+                killed_p = game_state.players.get(killed_seat)
+                if killed_p:
+                    killed_player_info = {
+                        "seat_number": killed_p.seat_number,
+                        "name": killed_p.player_name,
+                        "player_id": killed_p.player_id,
+                    }
+
+            try:
+                result = await agent.decide_night_action(
+                    game_state=agent_game_state,
+                    available_targets=available_targets,
+                    killed_player=killed_player_info,
+                )
+                if isinstance(result, dict):
+                    action = result.get("action", "pass")
+                    raw_target = result.get("target")
+                    if action == "save":
+                        save_target = self._normalize_seat_number(raw_target)
+                    elif action == "poison":
+                        poison_target = self._normalize_seat_number(raw_target)
+            except Exception as error:
+                logger.error("AI takeover witch decision failed: %s", error)
+
+        self.engine.process_witch_action(
+            game_state,
+            save_target=save_target,
+            poison_target=poison_target,
+        )
+
+        if save_target:
+            game_state.game_logs.append(f"夜晚：女巫AI代打使用解药救了{save_target}号")
+        if poison_target:
+            game_state.game_logs.append(f"夜晚：女巫AI代打使用毒药毒了{poison_target}号")
+        if not save_target and not poison_target:
+            game_state.game_logs.append("夜晚：女巫AI代打未使用任何药水")
+
+        await broadcast_ai_takeover(
+            room_code=room_code,
+            seat_number=player.seat_number,
+            action_type="witch_action",
+            metadata={"save_target": save_target, "poison_target": poison_target},
+        )
+        self._clear_waiting_for_human(room_code)
+
+    async def _ai_takeover_hunter_shoot(
+        self,
+        room_code: str,
+        game_state: WerewolfGameState,
+        player: PlayerState,
+    ) -> None:
+        agent = self._create_temp_agent(game_state, player)
+        shoot_target: int | None = None
+
+        if agent:
+            alive_players, dead_players = self._build_player_lists(game_state)
+            speech_history_text = self._speeches_to_text(game_state.speech_history) if game_state.speech_history else ""
+            agent_game_state = {
+                "day_number": game_state.day_number,
+                "alive_players": alive_players,
+                "dead_players": dead_players,
+                "speech_history": speech_history_text,
+            }
+            available_targets = [
+                {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
+                for p in game_state.players.values()
+                if p.is_alive and p.seat_number != player.seat_number
+            ]
+            death_reason = player.death_reason.value if player.death_reason else "unknown"
+            try:
+                result = await agent.decide_shoot(
+                    game_state=agent_game_state,
+                    death_reason=death_reason,
+                    available_targets=available_targets,
+                )
+                raw_target = result.get("target") if isinstance(result, dict) else result
+                shoot_target = self._normalize_seat_number(raw_target)
+            except Exception as error:
+                logger.error("AI takeover hunter decision failed: %s", error)
+
+        if shoot_target:
+            self.engine.process_hunter_shoot(game_state, shoot_target)
+            game_state.game_logs.append(f"猎人AI代打开枪带走了{shoot_target}号")
+            await broadcast_host_announcement(
+                room_code=room_code,
+                announcement_type="hunter_shoot",
+                content=f"猎人AI代打，带走了{shoot_target}号玩家！",
+                metadata={"target_seat": shoot_target},
+            )
+        else:
+            game_state.game_logs.append("猎人AI代打放弃开枪")
+
+        await broadcast_ai_takeover(
+            room_code=room_code,
+            seat_number=player.seat_number,
+            action_type="hunter_shoot",
+            metadata={"target_seat": shoot_target},
+        )
+        self._clear_waiting_for_human(room_code)
+
+    async def _ai_takeover_night_action(
+        self,
+        room_code: str,
+        game_state: WerewolfGameState,
+        player: PlayerState,
+        action_type: str,
+    ) -> None:
+        if action_type == "werewolf_kill":
+            await self._ai_takeover_werewolf_kill(room_code, game_state, player)
+        elif action_type == "seer_check":
+            await self._ai_takeover_seer_check(room_code, game_state, player)
+        elif action_type == "witch_action":
+            await self._ai_takeover_witch_action(room_code, game_state, player)
+        elif action_type == "hunter_shoot":
+            await self._ai_takeover_hunter_shoot(room_code, game_state, player)
+        else:
+            logger.warning("Unsupported night action for AI takeover: %s", action_type)
+            self._clear_waiting_for_human(room_code)
+
+    async def _check_human_timeout(self, room_code: str, game_id: str) -> bool:
+        """检查人类玩家等待是否超时，超时则触发AI代打。"""
+        game_state = self._validate_game_state(room_code, game_id)
+        if not game_state or not game_state.waiting_for_human_action:
+            return False
+
+        if not game_state.human_action_start_time or not game_state.human_action_timeout:
+            return False
+
+        elapsed = (datetime.now() - game_state.human_action_start_time).total_seconds()
+        if elapsed < game_state.human_action_timeout:
+            return False
+
+        human_seat = game_state.human_player_seat
+        if human_seat is None:
+            logger.warning("Human seat missing during timeout check")
+            self._clear_waiting_for_human(room_code)
+            return True
+
+        player = game_state.players.get(human_seat)
+        if not player:
+            logger.warning("Player state missing during timeout check")
+            self._clear_waiting_for_human(room_code)
+            return True
+
+        action_type = game_state.human_action_type
+        logger.info(
+            "Human action timeout detected: room=%s seat=%s action=%s", room_code, human_seat, action_type
+        )
+
+        if action_type == "speech":
+            await self._ai_takeover_speech(room_code, game_state, player)
+        elif action_type == "vote":
+            await self._ai_takeover_vote(room_code, game_state, player)
+        elif action_type in {"werewolf_kill", "seer_check", "witch_action", "hunter_shoot"}:
+            await self._ai_takeover_night_action(room_code, game_state, player, action_type)
+        else:
+            self._clear_waiting_for_human(room_code)
         return True
     
     def generate_speech_options(
@@ -1557,20 +2004,8 @@ class WerewolfGameService:
             )
             
             # 等待人类玩家输入或超时
-            start_time = asyncio.get_event_loop().time()
             while game_state.waiting_for_human_action:
-                elapsed = asyncio.get_event_loop().time() - start_time
-                if elapsed >= timeout_seconds:
-                    # 超时，自动空刀
-                    self._clear_waiting_for_human(room_code)
-                    self.engine.process_werewolf_action(game_state, None)
-                    game_state.game_logs.append("夜晚：狼人行动超时，自动空刀")
-                    await broadcast_host_announcement(
-                        room_code=room_code,
-                        announcement_type="night_action_timeout",
-                        content="狼人行动超时，自动空刀。",
-                        metadata={"role": "werewolf", "seat_number": human_werewolf.seat_number}
-                    )
+                if await self._check_human_timeout(room_code, game_id):
                     break
                 
                 # 检查是否暂停或停止
@@ -1914,19 +2349,8 @@ class WerewolfGameService:
             )
             
             # 等待人类玩家输入或超时
-            start_time = asyncio.get_event_loop().time()
             while game_state.waiting_for_human_action:
-                elapsed = asyncio.get_event_loop().time() - start_time
-                if elapsed >= timeout_seconds:
-                    # 超时，自动跳过（不查验）
-                    self._clear_waiting_for_human(room_code)
-                    game_state.game_logs.append("夜晚：预言家行动超时，未查验任何人")
-                    await broadcast_host_announcement(
-                        room_code=room_code,
-                        announcement_type="night_action_timeout",
-                        content="预言家行动超时，本夜未查验任何人。",
-                        metadata={"role": "seer", "seat_number": seer.seat_number}
-                    )
+                if await self._check_human_timeout(room_code, game_id):
                     break
                 
                 # 检查是否暂停或停止
@@ -2213,19 +2637,8 @@ class WerewolfGameService:
             )
             
             # 等待人类玩家输入或超时
-            start_time = asyncio.get_event_loop().time()
             while game_state.waiting_for_human_action:
-                elapsed = asyncio.get_event_loop().time() - start_time
-                if elapsed >= timeout_seconds:
-                    # 超时，自动跳过（不使用任何药水）
-                    self._clear_waiting_for_human(room_code)
-                    game_state.game_logs.append("夜晚：女巫行动超时，未使用任何药水")
-                    await broadcast_host_announcement(
-                        room_code=room_code,
-                        announcement_type="night_action_timeout",
-                        content="女巫行动超时，本夜未使用任何药水。",
-                        metadata={"role": "witch", "seat_number": witch.seat_number}
-                    )
+                if await self._check_human_timeout(room_code, game_id):
                     break
                 
                 # 检查是否暂停或停止
@@ -2455,18 +2868,8 @@ class WerewolfGameService:
                 
                 # 5. 等待人类玩家发言或超时
                 # 轮询检查 waiting_for_human_action 状态
-                start_time = asyncio.get_event_loop().time()
                 while game_state.waiting_for_human_action:
-                    elapsed = asyncio.get_event_loop().time() - start_time
-                    if elapsed >= timeout_seconds:
-                        # 超时，自动跳过
-                        self._clear_waiting_for_human(room_code)
-                        await broadcast_host_announcement(
-                            room_code=room_code,
-                            announcement_type="speech_timeout",
-                            content=f"{player.seat_number}号玩家发言超时，自动跳过。",
-                            metadata={"seat_number": player.seat_number}
-                        )
+                    if await self._check_human_timeout(room_code, game_id):
                         break
                     
                     # 检查是否暂停或停止
@@ -2626,32 +3029,8 @@ class WerewolfGameService:
                 )
                 
                 # 5. 等待人类玩家投票或超时
-                start_time = asyncio.get_event_loop().time()
                 while game_state.waiting_for_human_action:
-                    elapsed = asyncio.get_event_loop().time() - start_time
-                    if elapsed >= timeout_seconds:
-                        # 超时，自动弃票
-                        self._clear_waiting_for_human(room_code)
-                        self.engine.process_vote(game_state, player.seat_number, None)
-                        
-                        await broadcast_host_announcement(
-                            room_code=room_code,
-                            announcement_type="vote_timeout",
-                            content=f"{player.seat_number}号玩家投票超时，自动弃票。",
-                            metadata={"seat_number": player.seat_number}
-                        )
-                        
-                        await broadcast_vote_update(
-                            room_code=room_code,
-                            voter_seat=player.seat_number,
-                            voter_name=f"玩家{player.seat_number}",
-                            target_seat=None,
-                            target_name=None
-                        )
-                        
-                        game_state.game_logs.append(
-                            f"投票: {player.seat_number}号弃票（超时）"
-                        )
+                    if await self._check_human_timeout(room_code, game_id):
                         break
                     
                     # 检查是否暂停或停止
@@ -3169,19 +3548,8 @@ class WerewolfGameService:
             )
             
             # 等待人类玩家输入或超时
-            start_time = asyncio.get_event_loop().time()
             while game_state.waiting_for_human_action:
-                elapsed = asyncio.get_event_loop().time() - start_time
-                if elapsed >= timeout_seconds:
-                    # 超时，自动不开枪
-                    self._clear_waiting_for_human(room_code)
-                    game_state.game_logs.append("猎人开枪超时，未开枪")
-                    await broadcast_host_announcement(
-                        room_code=room_code,
-                        announcement_type="night_action_timeout",
-                        content="猎人开枪超时，放弃开枪。",
-                        metadata={"role": "hunter", "seat_number": hunter_seat}
-                    )
+                if await self._check_human_timeout(room_code, game_id):
                     break
                 
                 # 检查是否暂停或停止
