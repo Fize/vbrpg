@@ -1591,12 +1591,12 @@ class WerewolfGameService:
             # Give the old loop a chance to see the flag and exit
             await asyncio.sleep(0.5)
 
-        # Initialize game state
-        game_state = self.engine.initialize_game(
+        # Initialize game state with human player support
+        game_state = self.engine.initialize_game_with_human_player(
             room_code=room_code,
             player_names=player_names,
-            user_role=human_role,
-            is_spectator=is_spectator
+            human_player_id=human_player_id,
+            human_role=human_role
         )
         
         # Store state

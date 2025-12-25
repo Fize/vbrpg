@@ -47,8 +47,21 @@ def setup_logging():
     except Exception as e:
         print(f"Warning: Could not setup file logging to {settings.LOG_FILE}: {e}", file=sys.stderr)
 
-    # Configure third-party loggers to not propagate excessively
-    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    # Configure third-party loggers to not propagate excessively.
+    # NOTE: SQLAlchemy may attach handlers early (e.g. when echo=True).
+    # Clean them up to avoid duplicate log lines.
+    sqlalchemy_level = logging.INFO if settings.SQLALCHEMY_ECHO else logging.WARNING
+    for logger_name in [
+        "sqlalchemy.engine",
+        "sqlalchemy.engine.Engine",
+        "sqlalchemy.pool",
+    ]:
+        sqlalchemy_logger = logging.getLogger(logger_name)
+        for handler in sqlalchemy_logger.handlers[:]:
+            sqlalchemy_logger.removeHandler(handler)
+        sqlalchemy_logger.propagate = True
+        sqlalchemy_logger.setLevel(sqlalchemy_level)
+
     logging.getLogger("uvicorn").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("socketio").setLevel(logging.WARNING)

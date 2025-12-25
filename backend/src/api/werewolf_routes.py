@@ -491,3 +491,70 @@ async def control_game(
     except Exception as e:
         logger.error(f"Error controlling game: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# 测试辅助端点：人类玩家发言
+# =============================================================================
+
+@router.post("/rooms/{room_code}/test/speech")
+async def test_submit_human_speech(
+    room_code: str,
+    player_id: str,
+    content: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    测试端点：直接提交人类玩家发言（绕过WebSocket）。
+    
+    用于调试和测试真人玩家发言功能。
+    
+    Args:
+        room_code: 房间代码
+        player_id: 玩家ID
+        content: 发言内容
+        
+    Returns:
+        发言结果
+    """
+    try:
+        service = _game_services.get(room_code)
+        if not service:
+            raise NotFoundError(f"Game not found for room {room_code}")
+        
+        logger.info(f"Test speech submission: room={room_code}, player={player_id}, content={content}")
+        
+        # 处理发言
+        result = await service.process_human_speech(
+            room_code=room_code,
+            player_id=player_id,
+            content=content
+        )
+        
+        if not result.get("success"):
+            raise BadRequestError(result.get("error", "发言处理失败"))
+        
+        # 使用 WebSocket 广播（如果需要）
+        from src.websocket.werewolf_handlers import broadcast_human_speech_complete
+        await broadcast_human_speech_complete(
+            room_code=room_code,
+            seat_number=result["seat_number"],
+            player_name=result["player_name"],
+            content=result["content"]
+        )
+        
+        return {
+            "success": True,
+            "message": "发言已提交",
+            "seat_number": result["seat_number"],
+            "player_name": result["player_name"],
+            "content": result["content"]
+        }
+        
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except BadRequestError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error submitting test speech: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

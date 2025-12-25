@@ -192,7 +192,7 @@ export const useGameStore = defineStore('game', () => {
     if (room) {
       const normalizedParticipants = (room.participants || []).map((participant, index) => {
         const seatNumber = participant.seat_number ?? index + 1
-        const participantId = participant.id || participant.player_id || `seat_${seatNumber}`
+        const participantId = participant.player?.id || participant.player_id || participant.id || `seat_${seatNumber}`
         const displayName = participant.name || participant.player?.username || `玩家${seatNumber}`
         seatPlayerMap.value[seatNumber] = participantId
         if (!playerStates.value[participantId]) {
@@ -232,7 +232,7 @@ export const useGameStore = defineStore('game', () => {
   function setParticipants(participantsList) {
     const normalizedParticipants = participantsList.map((participant, index) => {
       const seatNumber = participant.seat_number ?? index + 1
-      const participantId = participant.id || participant.player_id || `seat_${seatNumber}`
+      const participantId = participant.player?.id || participant.player_id || participant.id || `seat_${seatNumber}`
       const displayName = participant.name || participant.player?.username || `玩家${seatNumber}`
       seatPlayerMap.value[seatNumber] = participantId
       if (!playerStates.value[participantId]) {

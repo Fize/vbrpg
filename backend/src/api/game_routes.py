@@ -159,26 +159,10 @@ async def create_room(
         room = await service.create_room(
             game_type_slug=request.game_type_slug,
             max_players=request.max_players,
-            min_players=request.min_players
+            min_players=request.min_players,
+            user_role=request.user_role,
+            is_spectator_mode=request.is_spectator_mode,
         )
-        room_code = room.code
-        
-        # 自动填充 AI 玩家（单人模式）
-        ai_count = request.max_players  # 狼人杀固定10人
-        for _ in range(ai_count):
-            try:
-                await service.create_ai_agent(room.id)
-            except Exception as e:
-                # 如果添加 AI 失败（如已满），跳过
-                import logging
-                logging.warning(f"Failed to add AI agent: {e}")
-                break
-        
-        # 清除会话缓存，确保获取最新数据
-        db.expire_all()
-        
-        # 重新获取房间数据（包含所有 AI）
-        room = await service.get_room(room_code)
         return map_room_to_detailed_response(room)
     except APIError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -402,6 +386,9 @@ async def select_role(
     单人模式下，用户选择角色后将锁定，游戏自动开始。
     """
     try:
+        from src.models.game import GameRoomParticipant
+        from src.models.user import Player
+
         service = GameRoomService(db)
         room = await service.get_room(room_code)
 
@@ -416,9 +403,66 @@ async def select_role(
             room.user_role = request.role_id
             room.is_spectator_mode = False
 
-        await db.commit()
-        await db.refresh(room)
+            if not request.player_id:
+                raise HTTPException(status_code=400, detail="player_id is required for player mode")
 
+            # Ensure human player exists
+            human_player = await db.get(Player, request.player_id)
+            if not human_player:
+                human_player = Player(
+                    id=request.player_id,
+                    username=f"玩家_{request.player_id[:8]}",
+                    is_guest=True,
+                )
+                db.add(human_player)
+                await db.flush()
+
+            # Ensure human participant exists
+            has_human_participant = any(
+                (p.left_at is None and p.player_id == request.player_id and not p.is_ai_agent)
+                for p in room.participants
+            )
+            logger.info(
+                f"select_role check: room={room_code}, has_human_participant={has_human_participant}, "
+                f"player_id={request.player_id}, participant_count_before={room.get_active_participants_count()}"
+            )
+            if not has_human_participant:
+                human_participant = GameRoomParticipant(
+                    game_room_id=room.id,
+                    player_id=human_player.id,
+                    is_ai_agent=False,
+                    is_owner=True,
+                )
+                db.add(human_participant)
+                logger.info(f"Created human participant for player_id={request.player_id} in room {room_code}")
+
+        await db.flush()  # Flush to database before commit
+        await db.commit()
+
+        # Fill AI participants after role selection
+        # Expire the room object to force reload from database
+        db.expire(room)
+        room = await service.get_room(room_code)
+        current_count = room.get_active_participants_count()
+        target_total = room.max_players
+        needed = target_total - current_count
+        
+        logger.info(
+            f"select_role AI fill: room={room_code}, current_count={current_count}, "
+            f"target_total={target_total}, needed={needed}, "
+            f"participants={[(p.player_id, p.is_ai_agent, p.left_at) for p in room.participants]}"
+        )
+
+        for i in range(needed):
+            try:
+                await service.create_ai_agent(room.id)
+                logger.info(f"Created AI agent {i + 1}/{needed} for room {room_code}")
+            except Exception as e:
+                logger.warning("Failed to add AI agent: %s", e)
+                break
+
+        # Refresh room with all participants
+        room = await service.get_room(room_code)
         return map_room_to_detailed_response(room)
     except APIError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)

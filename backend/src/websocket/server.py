@@ -6,7 +6,7 @@ from src.utils.config import settings
 # Create Socket.IO server
 sio = socketio.AsyncServer(
     async_mode='asgi',
-    cors_allowed_origins=settings.CORS_ORIGINS.split(","),
+    cors_allowed_origins="*",  # 临时允许所有来源用于测试
     logger=settings.ENVIRONMENT == "development",
     engineio_logger=settings.ENVIRONMENT == "development"
 )

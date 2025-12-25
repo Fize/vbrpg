@@ -132,6 +132,22 @@ export const roomsApi = {
   },
 
   /**
+   * Select a role in the room (player mode)
+   * @param {string} roomCode - Room code
+   * @param {string|null} roleId - Role ID to select, null for random
+   * @param {string|null} playerId - Player ID for human participant
+   * @returns {Promise<Object>} Updated room data
+   */
+  async selectRoleAsPlayer(roomCode, roleId, playerId) {
+    const response = await apiClient.post(`/rooms/${roomCode}/select-role`, {
+      role_id: roleId,
+      is_spectator: false,
+      player_id: playerId
+    })
+    return response.data
+  },
+
+  /**
    * Pause a game
    * @param {string} roomCode - Room code
    * @returns {Promise<Object>} Game control response

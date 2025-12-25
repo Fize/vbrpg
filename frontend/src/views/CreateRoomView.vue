@@ -189,10 +189,20 @@ async function handleCreateRoom() {
     
     // 选择角色（如果是玩家模式）
     if (participationType.value === 'player') {
-      await roomsApi.selectRole(
-        roomCode, 
+      let playerId = localStorage.getItem('playerId')
+      if (!playerId) {
+        if (globalThis.crypto?.randomUUID) {
+          playerId = globalThis.crypto.randomUUID()
+        } else {
+          playerId = `${Date.now()}_${Math.random().toString(16).slice(2)}`
+        }
+        localStorage.setItem('playerId', playerId)
+      }
+
+      await roomsApi.selectRoleAsPlayer(
+        roomCode,
         selectedRole.value?.id || null,
-        false
+        playerId
       )
     } else {
       // 观战模式

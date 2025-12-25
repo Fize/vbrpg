@@ -1014,12 +1014,16 @@ async def werewolf_start_game(sid: str, data: dict):
                 # 重新创建服务并初始化游戏
                 service = WerewolfGameService(db)
                 _game_services[room_code] = service
-                
-                # 对于观战模式，human_player_id 可以是任意一个玩家ID
+
+                # 玩家模式：尊重房间中选择的角色；观战模式：不指定角色
+                human_role = None
+                if not room.is_spectator_mode:
+                    human_role = room.user_role
+
                 await service.start_game(
                     room_code=room_code,
                     human_player_id=str(human_participant.player_id),
-                    human_role=None  # 观战模式不指定角色
+                    human_role=human_role,
                 )
                 
                 print(f"[DEBUG] Game service recreated for room {room_code}")
