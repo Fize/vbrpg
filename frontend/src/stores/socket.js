@@ -15,6 +15,7 @@ export const useSocketStore = defineStore('socket', () => {
   const reconnectAttempts = ref(0)
   const error = ref(null)
   const roomCode = ref(null)
+  const playerId = ref(null)
   
   // Event listeners map
   const eventListeners = ref(new Map())
@@ -34,15 +35,26 @@ export const useSocketStore = defineStore('socket', () => {
 
     return new Promise((resolve, reject) => {
       try {
-        socket.value = io(SOCKET_URL, {
-          transports: ['websocket', 'polling'],
-          reconnection: true,
-          reconnectionAttempts: 10,
-          reconnectionDelay: 1000,
-          reconnectionDelayMax: 5000,
-          timeout: 20000,
-          ...options
-        })
+        // Import auth store to get player_id
+        import('./auth.js').then(({ useAuthStore }) => {
+          const authStore = useAuthStore()
+          const currentPlayerId = authStore.playerId || playerId.value || localStorage.getItem('player_id')
+          
+          socket.value = io(SOCKET_URL, {
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionAttempts: 10,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            timeout: 20000,
+            auth: currentPlayerId ? { player_id: currentPlayerId } : {},
+            ...options
+          })
+
+          // Store player_id for later use
+          if (currentPlayerId) {
+            playerId.value = currentPlayerId
+          }
 
         // Connection events
         socket.value.on('connect', () => {
@@ -85,7 +97,7 @@ export const useSocketStore = defineStore('socket', () => {
           
           // Rejoin room if previously joined
           if (roomCode.value) {
-            joinRoom(roomCode.value)
+            joinRoom(roomCode.value, playerId.value)
           }
         })
 
@@ -94,7 +106,7 @@ export const useSocketStore = defineStore('socket', () => {
           isReconnecting.value = false
           error.value = 'Connection failed after multiple attempts'
         })
-
+        })
       } catch (err) {
         console.error('Socket initialization error:', err)
         error.value = err.message
@@ -115,14 +127,15 @@ export const useSocketStore = defineStore('socket', () => {
   }
 
   // Join a room
-  function joinRoom(code) {
+  function joinRoom(code, currentPlayerId = null) {
     if (!socket.value?.connected) {
       console.warn('Cannot join room: socket not connected')
       return
     }
     
     roomCode.value = code
-    socket.value.emit('join_room', { room_code: code })
+    playerId.value = currentPlayerId
+    socket.value.emit('join_room', { room_code: code, player_id: currentPlayerId })
     console.log('Joining room:', code)
   }
 

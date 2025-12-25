@@ -168,10 +168,12 @@ const props = defineProps({
 
 const emit = defineEmits(['select'])
 
-// 获取角色图片（只在 showRole 为 true 时显示角色图片）
+// 获取角色图片（游戏结束时显示所有角色图片，或真人玩家始终显示角色图片）
 const roleImage = computed(() => {
-  // 如果不显示角色，返回 null（显示默认图标）
-  if (!props.showRole) return null
+  // 真人玩家始终显示角色图片，AI玩家只在 showRole 为 true 时显示
+  const shouldShowRole = props.showRole || !props.player.is_ai
+  
+  if (!shouldShowRole) return null
   
   const roleName = props.player.role_name || props.player.role
   const roleId = props.player.role_id || ''
@@ -213,7 +215,7 @@ const roleImage = computed(() => {
   return null
 })
 
-// 显示名称 - 游戏结束前只显示座位号，结束后显示角色名
+// 显示名称 - 真人玩家显示名称，AI玩家显示座位号，游戏结束后显示角色名
 const displayName = computed(() => {
   // 如果有角色名且允许显示角色，优先显示角色名
   const roleName = props.player.role_name || props.player.role
@@ -221,7 +223,13 @@ const displayName = computed(() => {
     return roleName
   }
   
-  // 游戏进行中只显示座位号
+  // 真人玩家显示玩家名称 + 座位号
+  if (!props.player.is_ai) {
+    const playerName = props.player.name || props.player.username || '玩家'
+    return `${playerName}(${props.seatNumber}号)`
+  }
+  
+  // AI玩家游戏进行中只显示座位号
   return `${props.seatNumber}号`
 })
 

@@ -7,7 +7,7 @@ from src.utils.config import settings
 # Create async engine with MySQL
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.ENVIRONMENT == "development",
+    echo=settings.SQLALCHEMY_ECHO,
     pool_size=5,
     max_overflow=10,
     pool_recycle=3600,

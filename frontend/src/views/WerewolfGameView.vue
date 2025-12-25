@@ -326,9 +326,21 @@ const showRoles = computed(() => gameEnded.value)
 const isMyTurnToSpeak = computed(() => {
   // activeSpeechBubbles 是对象格式: { [seatNumber]: { content, isStreaming, ... } }
   // 检查当前发言者是否是自己（真人玩家）
-  return gameStore.currentSpeaker?.isHuman && 
-         gameStore.currentSpeaker?.seatNumber === gameStore.user_seat_number &&
+  const result = gameStore.currentSpeaker?.isHuman && 
+         gameStore.currentSpeaker?.seatNumber === gameStore.mySeatNumber &&
          gameStore.waitingForInput
+  
+  // 调试日志
+  if (gameStore.currentSpeaker?.isHuman) {
+    console.log('发言轮次检查:', {
+      currentSpeakerSeat: gameStore.currentSpeaker?.seatNumber,
+      mySeatNumber: gameStore.mySeatNumber,
+      waitingForInput: gameStore.waitingForInput,
+      isMyTurn: result
+    })
+  }
+  
+  return result
 })
 
 // T20: 发言选项和超时
@@ -419,7 +431,7 @@ async function loadGameState() {
     const participants = participantsWithSeats
     const playerStates = {}
     participants.forEach((p) => {
-      const playerId = p.id || p.player_id || `seat_${p.seat_number}`
+      const playerId = p.player?.id || p.player_id || p.id || `seat_${p.seat_number}`
       playerStates[playerId] = {
         seat_number: p.seat_number,
         display_name: p.name || p.player?.username || `玩家${p.seat_number}`,
@@ -443,7 +455,7 @@ async function loadGameState() {
     // 后端会处理服务器重启后的状态恢复
     setTimeout(() => {
       console.log('发送开始游戏事件...', room.status)
-      socketStore.startGame(roomCode.value)
+      socketStore.startGame(roomCode.value, myPlayerId.value)
       gameStore.setGameStarted(true)
     }, 500)
     
@@ -498,7 +510,7 @@ function setupSocketListeners() {
  * T20: 处理等待人类玩家行动事件
  */
 function handleWaitingForHuman(data) {
-  console.log('收到等待人类玩家事件:', data)
+  console.log('收到等待人类玩家事件:', data, '我的座位号:', gameStore.mySeatNumber)
   
   if (data.action_type === 'speech' && data.seat_number === gameStore.mySeatNumber) {
     // 设置等待输入状态
@@ -1366,7 +1378,7 @@ onMounted(async () => {
   }
   
   // 连接后加入房间，确保能收到广播消息
-  socketStore.joinRoom(roomCode.value)
+  socketStore.joinRoom(roomCode.value, myPlayerId.value)
   
   // Socket 连接后再注册监听器
   setupSocketListeners()

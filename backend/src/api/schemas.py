@@ -125,6 +125,7 @@ class SelectRoleRequest(BaseModel):
     """角色选择请求"""
     role_id: str | None = None  # None 表示旁观者
     is_spectator: bool = True
+    player_id: str | None = None  # 玩家模式需要提供玩家ID
 
 
 class GameControlResponse(BaseModel):
