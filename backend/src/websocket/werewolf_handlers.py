@@ -1250,6 +1250,9 @@ async def werewolf_player_speech(sid: str, data: dict):
             "content": str
         }
     """
+    from src.api.werewolf_routes import _game_services
+    from src.utils.errors import BadRequestError, NotFoundError
+
     try:
         room_code = data.get("room_code")
         player_id = data.get("player_id")
@@ -1277,29 +1280,39 @@ async def werewolf_player_speech(sid: str, data: dict):
             f"content length={len(content)}"
         )
         
-        # 发送确认
+        service = _game_services.get(room_code)
+        if not service:
+            await sio.emit(
+                "werewolf:error",
+                {"message": "游戏服务不存在"},
+                room=sid,
+            )
+            return
+
+        # 由服务层校验轮次、记录日志、广播发言，并触发等待事件
+        await service.process_player_speech(
+            room_code=room_code,
+            player_id=player_id,
+            seat_number=int(seat_number),
+            content=content.strip(),
+        )
+
+        # 给发言者单独回 ACK
         await sio.emit(
             "werewolf:speech_received",
             {
                 "seat_number": seat_number,
                 "message": "发言已收到",
             },
-            room=sid
+            room=sid,
         )
         
-        # 广播发言内容到房间
+    except (BadRequestError, NotFoundError) as e:
         await sio.emit(
-            "werewolf:player_speech",
-            {
-                "seat_number": seat_number,
-                "player_name": f"玩家{seat_number}",
-                "content": content.strip(),
-            },
-            room=room_code
+            "werewolf:error",
+            {"message": str(e)},
+            room=sid,
         )
-        
-        # 实际的发言处理将由 WerewolfGameService.process_player_speech() 处理
-        
     except Exception as e:
         logger.error(f"Error handling werewolf player speech: {e}")
         await sio.emit(
@@ -1410,17 +1423,13 @@ async def werewolf_select_role(sid: str, data: dict):
                         "player_name": p.player_name,
                     })
         
-        # 广播角色分配结果给该玩家
-        await sio.emit(
-            "werewolf:role_selected",
-            {
-                "seat_number": human_seat,
-                "role": human_player.role,
-                "team": human_player.team,
-                "teammates": teammates,
-                "message": f"你被分配到{human_seat}号座位，角色是{human_player.role}",
-            },
-            room=sid
+        # 广播角色分配结果给该玩家（统一格式，包含 role_name/team_name）
+        await broadcast_role_selected(
+            sid=sid,
+            seat_number=human_seat,
+            role=human_player.role,
+            team=human_player.team,
+            teammates=teammates,
         )
         
         logger.info(

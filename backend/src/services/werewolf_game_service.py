@@ -4127,7 +4127,7 @@ class WerewolfGameService:
         if not game_state:
             return
 
-        is_human = player.seat_number not in self._ai_agents
+        is_human = bool(getattr(player, "is_human", False))
         player_name = f"玩家{player.seat_number}"
 
         # 1. 广播点名公告

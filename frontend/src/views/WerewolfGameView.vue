@@ -267,10 +267,14 @@ const playersWithState = computed(() => {
   const players = gameStore.players.map((player, index) => {
     const state = gameStore.playerStates[player.id] || {}
     const seatNumber = state.seat_number || player.seat_number || index + 1
+    const isMySeat = gameStore.mySeatNumber !== null && seatNumber === gameStore.mySeatNumber
     return {
       ...player,
       ...state,
       seat_number: seatNumber,
+      // 单人真人参与时，房间座位数据可能来自 AI 占位信息。
+      // 为确保真人玩家头像/角色图正确显示，强制将我的座位标记为非 AI。
+      is_ai: isMySeat ? false : player.is_ai,
       display_name: state.display_name || player.name || player.username,
       is_online: true // TODO: 从 socket 获取
     }
@@ -473,6 +477,7 @@ function setupSocketListeners() {
   // 使用统一事件处理器（已包含主持人发言处理）
   socketStore.setupHostHandlers(gameStore)
   socketStore.setupWerewolfHandlers(gameStore)
+  socketStore.setupSpeechHandlers(gameStore)
   socketStore.setupGameControlHandlers(gameStore)  // 游戏控制事件（暂停/继续）
   
   // 角色选择确认事件
@@ -513,6 +518,13 @@ function handleWaitingForHuman(data) {
   console.log('收到等待人类玩家事件:', data, '我的座位号:', gameStore.mySeatNumber)
   
   if (data.action_type === 'speech' && data.seat_number === gameStore.mySeatNumber) {
+    const speakerName =
+      playersWithState.value.find(p => Number(p.seat_number) === Number(data.seat_number))?.display_name
+      || `${data.seat_number}号玩家`
+
+    // 关键：设置当前发言者为“真人”，使输入面板判定为我的回合。
+    gameStore.setCurrentSpeaker(data.seat_number, speakerName, true)
+
     // 设置等待输入状态
     gameStore.setWaitingForInput(true)
     gameStore.setSpeechTimeout(data.timeout_seconds)
@@ -628,6 +640,12 @@ function handleSpeechOptions(data) {
  */
 function handleHumanSpeechComplete(data) {
   console.log('人类玩家发言完成:', data)
+
+  if (data.seat_number === gameStore.mySeatNumber) {
+    gameStore.setWaitingForInput(false)
+    gameStore.clearSpeechState()
+    gameStore.clearCurrentSpeaker()
+  }
   
   // 添加发言到日志
   gameStore.addGameLog({
@@ -645,6 +663,8 @@ function handleHumanSpeechComplete(data) {
 function handleSpeechSubmitted(data) {
   if (data.success) {
     console.log('发言提交成功')
+    gameStore.setWaitingForInput(false)
+    gameStore.clearSpeechState()
   }
 }
 
@@ -833,12 +853,23 @@ function handleLastWordsOptions(data) {
  */
 function handleRoleSelected(data) {
   console.log('收到角色选择确认:', data)
+
+  const roleSlugOrName = data.role
+  const roleNameMap = {
+    werewolf: '狼人',
+    seer: '预言家',
+    witch: '女巫',
+    hunter: '猎人',
+    villager: '村民'
+  }
+  const normalizedRoleName = data.role_name || roleNameMap[roleSlugOrName] || roleSlugOrName
+  const normalizedTeam = data.team || getRoleTeam(normalizedRoleName)
   
   // 更新当前玩家角色信息
   gameStore.setMyRole({
-    name: data.role,
-    type: getRoleType(data.role),
-    team: getRoleTeam(data.role),
+    name: normalizedRoleName,
+    type: getRoleType(normalizedRoleName),
+    team: normalizedTeam,
     description: data.role_description || ''
   })
   
@@ -849,8 +880,26 @@ function handleRoleSelected(data) {
   gameStore.setIsAlive(true)
   
   // 如果是狼人，更新狼人队友列表
-  if (data.werewolf_teammates && data.werewolf_teammates.length > 0) {
-    gameStore.setWerewolfTeammates(data.werewolf_teammates)
+  const teammates = data.teammates || data.werewolf_teammates
+  if (teammates && teammates.length > 0) {
+    gameStore.setWerewolfTeammates(teammates)
+  }
+
+  // 关键：把我的座位的角色写入 playerStates，确保座位头像/角色图能渲染。
+  try {
+    const displayName =
+      playersWithState.value.find(p => Number(p.seat_number) === Number(data.seat_number))?.display_name
+      || `玩家${data.seat_number}`
+    gameStore.updatePlayerRoles([
+      {
+        seat_number: data.seat_number,
+        player_name: displayName,
+        role: roleSlugOrName,
+        team: normalizedTeam
+      }
+    ])
+  } catch (err) {
+    console.warn('更新玩家角色信息失败:', err)
   }
   
   // 添加游戏日志
@@ -861,7 +910,7 @@ function handleRoleSelected(data) {
     player_name: '系统'
   })
   
-  ElMessage.success(`角色分配成功：${data.role}，座位号 ${data.seat_number}`)
+  ElMessage.success(`角色分配成功：${normalizedRoleName}，座位号 ${data.seat_number}`)
 }
 
 /**
@@ -870,9 +919,14 @@ function handleRoleSelected(data) {
 function getRoleType(roleName) {
   const roleTypes = {
     '狼人': 'werewolf',
+    'werewolf': 'werewolf',
     '预言家': 'god',
+    'seer': 'god',
+    'prophet': 'god',
     '女巫': 'god',
+    'witch': 'god',
     '猎人': 'god',
+    'hunter': 'god',
     '村民': 'villager'
   }
   return roleTypes[roleName] || 'villager'
@@ -884,10 +938,16 @@ function getRoleType(roleName) {
 function getRoleTeam(roleName) {
   const roleTeams = {
     '狼人': 'werewolf',
+    'werewolf': 'werewolf',
     '预言家': 'villager',
+    'seer': 'villager',
+    'prophet': 'villager',
     '女巫': 'villager',
+    'witch': 'villager',
     '猎人': 'villager',
-    '村民': 'villager'
+    'hunter': 'villager',
+    '村民': 'villager',
+    'villager': 'villager'
   }
   return roleTeams[roleName] || 'villager'
 }
@@ -1162,12 +1222,12 @@ async function handleSubmitSpeech(data) {
   
   isSubmittingSpeech.value = true
   try {
-    // T20: 使用新的人类玩家发言提交方法
-    socketStore.submitHumanSpeech(
+    // 使用后端当前接入的发言流程（werewolf:request_speech -> werewolf_player_speech）
+    socketStore.submitSpeech(
       roomCode.value,
       myPlayerId.value,
-      content,
-      optionId
+      gameStore.mySeatNumber,
+      content
     )
     ElMessage.success('发言已提交')
     // 清除发言状态
@@ -1182,11 +1242,11 @@ async function handleSubmitSpeech(data) {
 // 新增：跳过发言
 function handleSkipSpeech() {
   try {
-    socketStore.submitHumanSpeech(
+    socketStore.submitSpeech(
       roomCode.value,
       myPlayerId.value,
-      '（跳过发言）',
-      'pass'
+      gameStore.mySeatNumber,
+      '（跳过发言）'
     )
     ElMessage.info('已跳过发言')
     gameStore.clearSpeechState()
