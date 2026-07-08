@@ -13,7 +13,7 @@ from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
 def service_with_seer_state():
     """创建带人类玩家的游戏状态，固定随机种子保证座位与角色可预期。"""
     random.seed(42)
-    service = WerewolfGameOrchestrator(db=MagicMock())
+    service = WerewolfGameOrchestrator()
     player_names = [f"玩家{i}" for i in range(1, 11)]
     state = service.engine.initialize_game_with_human_player(
         room_code="ROOM_TEST",

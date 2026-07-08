@@ -19,7 +19,7 @@ def mock_db():
 
 @pytest.fixture
 def game_service(mock_db):
-    return WerewolfGameOrchestrator(db=mock_db)
+    return WerewolfGameOrchestrator()
 
 
 def _build_basic_state(action_type: str) -> WerewolfGameState:

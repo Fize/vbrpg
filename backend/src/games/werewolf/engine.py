@@ -117,6 +117,7 @@ class WerewolfEngine(BaseGameEngine):
             human_seat,
             state.players[human_seat].role if human_seat else "N/A",
         )
+        self.state = state
         return state
 
     def check_winner(self, state: BaseGameState) -> Optional[str]:
@@ -174,6 +175,234 @@ class WerewolfEngine(BaseGameEngine):
             graph = self.build_graph()
             self._compiled_graph = graph.compile()
         return self._compiled_graph
+
+    # ------------------------------------------------------------------
+    # Backward-compatible API  (old WerewolfEngine methods)
+    # ------------------------------------------------------------------
+
+    def start_game(self) -> None:
+        """Start the game — backward compat with old API. Sets day=1, phase=NIGHT."""
+        state = self.state if hasattr(self, 'state') else None
+        if state:
+            state.day_number = 1
+            state.phase = "night"
+            state.is_started = True
+
+    def get_alive_players(self) -> list:
+        """Get alive players from self.state."""
+        if not hasattr(self, 'state') or not self.state:
+            return []
+        return [p for p in self.state.players.values() if p.is_alive]
+
+    def get_player_by_seat(self, seat: int):
+        """Get player by seat number."""
+        if not hasattr(self, 'state') or not self.state:
+            return None
+        return self.state.players.get(seat)
+
+    def get_alive_player_by_seat(self, seat: int):
+        """Get alive player by seat."""
+        if not hasattr(self, 'state') or not self.state:
+            return None
+        player = self.state.players.get(seat)
+        if player and player.is_alive:
+            return player
+        return None
+
+    def get_werewolf_teammates(self, seat: int) -> list:
+        """Get werewolf teammates."""
+        if not hasattr(self, 'state') or not self.state:
+            return []
+        player = self.state.players.get(seat)
+        if not player or player.role != "werewolf":
+            return []
+        return [p for p in self.state.players.values() 
+                if p.role == "werewolf" and p.seat_number != seat]
+
+    def count_teams(self) -> tuple:
+        """Count alive teams. Returns (werewolf_count, good_count)."""
+        if not hasattr(self, 'state') or not self.state:
+            return (0, 0)
+        werewolves = sum(1 for p in self.state.players.values() 
+                        if p.is_alive and p.team == "werewolf")
+        good = sum(1 for p in self.state.players.values() 
+                   if p.is_alive and p.team == "villager")
+        return (werewolves, good)
+
+    def set_werewolf_kill(self, target_seat: int | None) -> None:
+        """Set werewolf kill target."""
+        if not hasattr(self, 'state') or not self.state:
+            return
+        self.state.current_night_actions.werewolf_kill_target = target_seat
+
+    def set_seer_check(self, target_seat: int) -> bool:
+        """Set seer check target. Returns True if target is werewolf."""
+        if not hasattr(self, 'state') or not self.state:
+            return False
+        self.state.current_night_actions.seer_check_target = target_seat
+        player = self.state.players.get(target_seat)
+        return player.role == "werewolf" if player else False
+
+    def set_witch_action(self, save: bool = False, poison_target: int | None = None) -> None:
+        """Set witch save/poison action."""
+        if not hasattr(self, 'state') or not self.state:
+            return
+        if save and self.state.witch_has_antidote:
+            self.state.current_night_actions.witch_save = True
+            self.state.witch_has_antidote = False
+        if poison_target and self.state.witch_has_poison:
+            self.state.current_night_actions.witch_poison_target = poison_target
+            self.state.witch_has_poison = False
+
+    def process_night(self) -> list:
+        """Process night actions, return deaths list."""
+        if not hasattr(self, 'state') or not self.state:
+            return []
+        deaths = []
+        actions = self.state.current_night_actions
+        if actions.werewolf_kill_target and not actions.witch_save:
+            target = self.state.players.get(actions.werewolf_kill_target)
+            if target and target.is_alive:
+                target.is_alive = False
+                target.death_reason = DeathReason.KILLED
+                target.death_day = self.state.day_number
+                deaths.append({"seat_number": target.seat_number, "player_name": target.player_name, "reason": DeathReason.KILLED.value})
+        if actions.witch_poison_target:
+            target = self.state.players.get(actions.witch_poison_target)
+            if target and target.is_alive:
+                target.is_alive = False
+                target.death_reason = DeathReason.POISONED
+                target.death_day = self.state.day_number
+                deaths.append({"seat_number": target.seat_number, "player_name": target.player_name, "reason": DeathReason.POISONED.value})
+        self.state.death_history.extend([{**d, "day": self.state.day_number, "phase": "night"} for d in deaths])
+        self.state.current_night_actions = NightActions()
+        return deaths
+
+    def start_day(self) -> None:
+        """Transition to day phase."""
+        if self.state: self.state.phase = WerewolfPhase.DAY.value
+
+    def start_discussion(self, speaking_order=None) -> list:
+        """Start discussion. Returns speaking order."""
+        if not self.state: return []
+        self.state.phase = WerewolfPhase.DISCUSSION.value if hasattr(WerewolfPhase, 'DISCUSSION') else "day_discussion"
+        if speaking_order: return speaking_order
+        return [p.seat_number for p in self.get_alive_players()]
+
+    def add_speech(self, seat: int, content: str) -> None:
+        """Record a speech."""
+        if not self.state: return
+        player = self.state.players.get(seat)
+        if player:
+            self.state.speech_history.append({"day": self.state.day_number, "seat_number": seat, "player_name": player.player_name, "content": content})
+
+    def start_vote(self) -> None:
+        """Start voting."""
+        if self.state: 
+            self.state.phase = WerewolfPhase.VOTE.value if hasattr(WerewolfPhase, 'VOTE') else "day_vote"
+            self.state.current_votes = {}
+
+    def cast_vote(self, voter_seat: int, target_seat: int | None) -> None:
+        """Cast a vote."""
+        if self.state and target_seat is not None:
+            self.state.current_votes[voter_seat] = target_seat
+
+    def tally_votes(self) -> tuple:
+        """Tally votes. Returns (vote_counts, eliminated_seat, is_tie)."""
+        if not self.state: return ({}, None, False)
+        vote_counts = {}
+        for target in self.state.current_votes.values():
+            vote_counts[target] = vote_counts.get(target, 0) + 1
+        if not vote_counts: return ({}, None, True)
+        max_votes = max(vote_counts.values())
+        top = [s for s, c in vote_counts.items() if c == max_votes]
+        if len(top) > 1: return (vote_counts, None, True)
+        return (vote_counts, top[0], False)
+
+    def execute_vote_result(self, eliminated_seat: int | None) -> dict | None:
+        """Execute vote elimination."""
+        if not self.state or not eliminated_seat: return None
+        target = self.state.players.get(eliminated_seat)
+        if not target or not target.is_alive: return None
+        target.is_alive = False
+        target.death_reason = DeathReason.VOTED
+        target.death_day = self.state.day_number
+        result = {"seat_number": eliminated_seat, "player_name": target.player_name, "role": target.role, "reason": DeathReason.VOTED.value}
+        self.state.death_history.append({**result, "day": self.state.day_number, "phase": "vote"})
+        self.state.vote_history.append({"day": self.state.day_number, "votes": dict(self.state.current_votes), "eliminated": eliminated_seat})
+        return result
+
+    def can_hunter_shoot(self, seat: int, death_reason) -> bool:
+        """Check if hunter can shoot."""
+        if not self.state: return False
+        player = self.state.players.get(seat)
+        if not player or player.role != "hunter": return False
+        reason = death_reason if isinstance(death_reason, DeathReason) else DeathReason(death_reason) if hasattr(DeathReason, '__call__') else death_reason
+        return reason != DeathReason.POISONED
+
+    def hunter_shoot(self, hunter_seat: int, target_seat: int) -> dict | None:
+        """Execute hunter shoot."""
+        if not self.state: return None
+        target = self.state.players.get(target_seat)
+        if not target or not target.is_alive: return None
+        target.is_alive = False
+        target.death_reason = DeathReason.SHOT
+        target.death_day = self.state.day_number
+        return {"seat_number": target_seat, "player_name": target.player_name, "role": target.role, "reason": DeathReason.SHOT.value, "hunter_seat": hunter_seat}
+
+    def advance_night_sub_phase(self) -> str | None:
+        """Advance night sub-phase, return next or None."""
+        if not self.state: return None
+        current = self.state.sub_phase
+        sub = NightSubPhase
+        if hasattr(sub, 'WEREWOLF_ACTION'):
+            if current == sub.WEREWOLF_ACTION.value: self.state.sub_phase = sub.SEER_ACTION.value; return self.state.sub_phase
+            elif current == sub.SEER_ACTION.value: self.state.sub_phase = sub.WITCH_ACTION.value; return self.state.sub_phase
+            elif current == sub.WITCH_ACTION.value: return None
+        return None
+
+    def transition_to_next_night(self) -> None:
+        """Transition to next night."""
+        if not self.state: return
+        self.state.day_number += 1
+        self.state.phase = "night"
+        self.state.current_night_actions = NightActions()
+        self.state.current_votes = {}
+
+    def get_public_state(self) -> dict:
+        """Get public game state."""
+        if not self.state: return {}
+        alive = [{"seat_number": p.seat_number, "player_name": p.player_name, "is_alive": p.is_alive, "is_ai": p.is_ai} for p in self.state.players.values() if p.is_alive]
+        dead = [{"seat_number": p.seat_number, "player_name": p.player_name, "role": p.role if self.state.winner else None, "death_reason": p.death_reason.value if p.death_reason else None, "death_day": p.death_day} for p in self.state.players.values() if not p.is_alive]
+        return {"room_code": self.state.room_code, "day_number": self.state.day_number, "phase": self.state.phase, "alive_players": alive, "dead_players": dead, "winner": self.state.winner}
+
+    def get_player_state(self, seat: int) -> dict | None:
+        """Get state for a specific player."""
+        if not self.state: return None
+        p = self.state.players.get(seat)
+        if not p: return None
+        result = {"seat_number": p.seat_number, "player_name": p.player_name, "role": p.role, "team": p.team, "is_alive": p.is_alive}
+        if p.role == "werewolf":
+            result["teammates"] = [{"seat_number": t.seat_number, "player_name": t.player_name, "is_alive": t.is_alive} for t in self.get_werewolf_teammates(seat)]
+        return result
+
+    def add_game_log(self, log_type: str, content: str, player_id=None, player_name=None, seat_number=None, metadata=None, is_public=True):
+        """Add a game log entry."""
+        if not self.state: return None
+        from src.games.werewolf.state import GameLogEntry
+        entry = GameLogEntry.create(log_type=log_type, content=content, day=self.state.day_number, phase=self.state.phase, player_id=player_id, player_name=player_name, seat_number=seat_number, metadata=metadata, is_public=is_public)
+        self.state.game_logs.append(entry)
+        return entry
+
+    def get_game_logs(self, log_type=None, player_id=None, day=None, limit=None) -> list:
+        """Get filtered game logs."""
+        if not self.state: return []
+        logs = list(self.state.game_logs)
+        if log_type: logs = [l for l in logs if l.type == log_type]
+        if player_id: logs = [l for l in logs if l.player_id == player_id]
+        if day: logs = [l for l in logs if l.day == day]
+        if limit: logs = logs[-limit:]
+        return logs
 
     # ------------------------------------------------------------------
     # Node implementations  (all pure — transform state in place)
