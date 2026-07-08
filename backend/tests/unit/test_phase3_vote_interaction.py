@@ -20,8 +20,8 @@ class TestGenerateVoteOptions:
     @pytest.fixture
     def mock_game_service(self):
         """创建模拟游戏服务."""
-        from src.games.werewolf.orchestrator import WerewolfGameService
-        service = WerewolfGameService.__new__(WerewolfGameService)
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
+        service = WerewolfGameOrchestrator.__new__(WerewolfGameOrchestrator)
         service._game_states = {}
         service._ai_agents = {}
         service.engine = MagicMock()
@@ -105,8 +105,8 @@ class TestProcessHumanVote:
     @pytest.fixture
     def mock_game_service(self):
         """创建模拟游戏服务."""
-        from src.games.werewolf.orchestrator import WerewolfGameService
-        service = WerewolfGameService.__new__(WerewolfGameService)
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
+        service = WerewolfGameOrchestrator.__new__(WerewolfGameOrchestrator)
         service._game_states = {}
         service._ai_agents = {}
         service.engine = MagicMock()
@@ -251,8 +251,8 @@ class TestExecuteVotesHumanPlayer:
     @pytest.fixture
     def mock_game_service(self):
         """创建模拟游戏服务."""
-        from src.games.werewolf.orchestrator import WerewolfGameService
-        service = WerewolfGameService.__new__(WerewolfGameService)
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
+        service = WerewolfGameOrchestrator.__new__(WerewolfGameOrchestrator)
         service._game_states = {}
         service._ai_agents = {2: MagicMock()}  # 座位2是AI
         service.engine = MagicMock()
