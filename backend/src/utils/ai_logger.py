@@ -28,8 +28,8 @@ class AICallLogger:
         :param log_file: Path to the log file. Defaults to settings.AI_LOG_FILE.
         :param log_level: Log level. Defaults to settings.AI_LOG_LEVEL.
         """
-        self.log_file = log_file or settings.AI_LOG_FILE
-        self.log_level = log_level or settings.AI_LOG_LEVEL
+        self.log_file = log_file or "logs/ai_calls.log"
+        self.log_level = log_level or "INFO"
         self._logger = self._setup_logger()
 
     def _setup_logger(self) -> logging.Logger:

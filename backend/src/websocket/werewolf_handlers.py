@@ -941,7 +941,7 @@ async def werewolf_start_game(sid: str, data: dict):
         sid: Socket session ID
         data: {"room_code": str, "player_id": str}
     """
-    from src.api.werewolf_routes import _game_services, WerewolfGameService
+    from src.api.werewolf_routes import _game_services, WerewolfGameOrchestrator
     from src.database import get_db
     from src.models.game import GameRoom
     from sqlalchemy import select
@@ -1012,7 +1012,7 @@ async def werewolf_start_game(sid: str, data: dict):
                     return
                 
                 # 重新创建服务并初始化游戏
-                service = WerewolfGameService(db)
+                service = WerewolfGameOrchestrator()
                 _game_services[room_code] = service
 
                 # 玩家模式：尊重房间中选择的角色；观战模式：不指定角色
@@ -1335,7 +1335,7 @@ async def werewolf_select_role(sid: str, data: dict):
             "role": str | None  # None 表示随机分配
         }
     """
-    from src.api.werewolf_routes import _game_services, WerewolfGameService
+    from src.api.werewolf_routes import _game_services, WerewolfGameOrchestrator
     from src.database import get_db
     from src.models.game import GameRoom
     from sqlalchemy import select
@@ -1377,7 +1377,7 @@ async def werewolf_select_role(sid: str, data: dict):
                     return
                 
                 # 创建新的游戏服务
-                service = WerewolfGameService(db)
+                service = WerewolfGameOrchestrator()
                 _game_services[room_code] = service
                 break
         
@@ -1761,7 +1761,7 @@ async def werewolf_human_vote(sid, data):
             return
         
         # 导入服务（避免循环导入）
-        from src.services.werewolf_game_service import werewolf_game_service
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator as werewolf_game_service
         
         # 处理投票
         await werewolf_game_service.process_human_vote(
@@ -1841,7 +1841,7 @@ async def werewolf_human_night_action(sid, data):
             return
         
         # 导入服务（避免循环导入）
-        from src.services.werewolf_game_service import werewolf_game_service
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator as werewolf_game_service
         
         # 处理夜间行动
         result = await werewolf_game_service.process_human_night_action(

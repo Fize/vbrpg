@@ -11,13 +11,13 @@ Phase 4.1: 狼人私密讨论后端单元测试
 import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, patch, MagicMock
-from src.services.games.werewolf_engine import (
-    WerewolfEngine,
+from src.games.werewolf.engine import WerewolfEngine
+from src.games.werewolf.state import (
     WerewolfGameState,
     WerewolfPhase,
     PlayerState,
 )
-from src.services.werewolf_game_service import WerewolfGameService
+from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
 
 
 class TestWerewolfPrivateChatField:
@@ -71,7 +71,7 @@ class TestWerewolfChatHelperMethods:
     @pytest.fixture
     def game_service(self, mock_db):
         """创建游戏服务实例"""
-        return WerewolfGameService(mock_db)
+        return WerewolfGameOrchestrator(mock_db)
     
     @pytest.fixture
     def game_state_with_werewolves(self, game_service):
@@ -146,7 +146,7 @@ class TestProcessWerewolfChat:
     
     @pytest.fixture
     def game_service(self, mock_db):
-        return WerewolfGameService(mock_db)
+        return WerewolfGameOrchestrator(mock_db)
     
     @pytest.fixture
     def game_state_with_werewolves(self, game_service):
@@ -248,7 +248,7 @@ class TestGetWerewolfChatHistory:
     
     @pytest.fixture
     def game_service(self, mock_db):
-        return WerewolfGameService(mock_db)
+        return WerewolfGameOrchestrator(mock_db)
     
     @pytest.fixture
     def game_state_with_chat(self, game_service):
@@ -289,7 +289,7 @@ class TestPublishChatOnGameEnd:
     
     @pytest.fixture
     def game_service(self, mock_db):
-        return WerewolfGameService(mock_db)
+        return WerewolfGameOrchestrator(mock_db)
     
     @pytest.fixture
     def game_state_with_chat(self, game_service):

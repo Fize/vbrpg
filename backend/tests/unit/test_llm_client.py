@@ -1,7 +1,7 @@
 import os
 import pytest
 
-from src.integrations.llm_client import LLMClient
+from src.llm import LLMClient
 from src.utils.config import settings
 
 

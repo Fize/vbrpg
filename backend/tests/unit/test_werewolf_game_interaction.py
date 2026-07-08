@@ -15,9 +15,9 @@ import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.services.games.werewolf_engine import (
+from src.games.werewolf.engine import WerewolfEngine
+from src.games.werewolf.state import (
     GameLogEntry,
-    WerewolfEngine,
     WerewolfGameState,
     WerewolfPhase,
 )

@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.services.werewolf_game_service import WerewolfGameService
+from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
 
 
 @pytest.fixture
 def service_with_seer_state():
     """创建带人类玩家的游戏状态，固定随机种子保证座位与角色可预期。"""
     random.seed(42)
-    service = WerewolfGameService(db=MagicMock())
+    service = WerewolfGameOrchestrator(db=MagicMock())
     player_names = [f"玩家{i}" for i in range(1, 11)]
     state = service.engine.initialize_game_with_human_player(
         room_code="ROOM_TEST",

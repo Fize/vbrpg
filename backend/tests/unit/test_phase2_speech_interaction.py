@@ -14,8 +14,8 @@ import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.services.games.werewolf_engine import (
-    WerewolfEngine,
+from src.games.werewolf.engine import WerewolfEngine
+from src.games.werewolf.state import (
     WerewolfGameState,
     WerewolfPhase,
     PlayerState,
@@ -51,9 +51,9 @@ class TestIsHumanPlayer:
         self, mock_db, game_state_with_human
     ):
         """测试人类玩家座位返回 True."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state_with_human
         
         human_seat = game_state_with_human.human_player_seat
@@ -63,9 +63,9 @@ class TestIsHumanPlayer:
         self, mock_db, game_state_with_human
     ):
         """测试 AI 玩家座位返回 False."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state_with_human
         
         human_seat = game_state_with_human.human_player_seat
@@ -75,9 +75,9 @@ class TestIsHumanPlayer:
     
     def test_is_human_player_returns_false_for_invalid_room(self, mock_db):
         """测试无效房间返回 False."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         assert service._is_human_player("nonexistent-room", 1) is False
 
 
@@ -107,9 +107,9 @@ class TestWaitingForHumanState:
     
     def test_set_waiting_for_human_sets_state(self, mock_db, game_state):
         """测试设置等待状态."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         
         result = service._set_waiting_for_human("test-room", "speech", 120)
@@ -122,18 +122,18 @@ class TestWaitingForHumanState:
     
     def test_set_waiting_for_human_invalid_room_returns_false(self, mock_db):
         """测试无效房间返回 False."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         result = service._set_waiting_for_human("nonexistent-room", "speech", 120)
         
         assert result is False
     
     def test_clear_waiting_for_human_clears_state(self, mock_db, game_state):
         """测试清除等待状态."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         
         # 先设置等待状态
@@ -177,9 +177,9 @@ class TestGenerateSpeechOptions:
     
     def test_generate_speech_options_returns_list(self, mock_db, game_state):
         """测试返回选项列表."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         
         human_seat = game_state.human_player_seat
@@ -190,9 +190,9 @@ class TestGenerateSpeechOptions:
     
     def test_generate_speech_options_contains_required_fields(self, mock_db, game_state):
         """测试选项包含必要字段."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         
         human_seat = game_state.human_player_seat
@@ -205,9 +205,9 @@ class TestGenerateSpeechOptions:
     
     def test_generate_speech_options_day1_has_self_intro(self, mock_db, game_state):
         """测试第一天包含和平选项."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         game_state.day_number = 1
         
@@ -220,9 +220,9 @@ class TestGenerateSpeechOptions:
     
     def test_generate_speech_options_later_days_have_analysis(self, mock_db, game_state):
         """测试第二天及以后包含观察选项."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         game_state.day_number = 2
         
@@ -235,9 +235,9 @@ class TestGenerateSpeechOptions:
     
     def test_generate_speech_options_invalid_room_returns_empty(self, mock_db):
         """测试无效房间返回空列表."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         options = service.generate_speech_options("nonexistent-room", 1)
         
         assert options == []
@@ -277,9 +277,9 @@ class TestProcessHumanSpeech:
     @pytest.mark.asyncio
     async def test_process_human_speech_success(self, mock_db, game_state_waiting):
         """测试成功处理发言."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state_waiting
         
         result = await service.process_human_speech(
@@ -302,9 +302,9 @@ class TestProcessHumanSpeech:
         self, mock_db, game_state_waiting
     ):
         """测试发言被记录到历史."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state_waiting
         
         initial_history_length = len(game_state_waiting.speech_history)
@@ -326,9 +326,9 @@ class TestProcessHumanSpeech:
         self, mock_db, game_state_waiting
     ):
         """测试未等待时发言失败."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         game_state_waiting.waiting_for_human_action = False
         service._game_states["test-room"] = game_state_waiting
         
@@ -346,9 +346,9 @@ class TestProcessHumanSpeech:
         self, mock_db, game_state_waiting
     ):
         """测试行动类型不匹配时失败."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         game_state_waiting.human_action_type = "vote"
         service._game_states["test-room"] = game_state_waiting
         
@@ -366,9 +366,9 @@ class TestProcessHumanSpeech:
         self, mock_db, game_state_waiting
     ):
         """测试非人类玩家发言失败."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state_waiting
         
         result = await service.process_human_speech(
@@ -383,9 +383,9 @@ class TestProcessHumanSpeech:
     @pytest.mark.asyncio
     async def test_process_human_speech_invalid_room(self, mock_db):
         """测试无效房间返回错误."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
         
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         
         result = await service.process_human_speech(
             room_code="nonexistent-room",

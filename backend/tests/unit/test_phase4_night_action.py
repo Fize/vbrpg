@@ -13,8 +13,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
-from src.services.werewolf_game_service import WerewolfGameService
-from src.services.games.werewolf_engine import WerewolfGameState, PlayerState, WerewolfPhase
+from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
+from src.games.werewolf.state import WerewolfGameState, PlayerState, WerewolfPhase
 
 
 @pytest.fixture
@@ -74,7 +74,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_werewolf_kill_success(self, mock_db, game_state):
         """测试狼人杀人成功."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {2: MagicMock()}  # 另一个狼人是 AI
         
@@ -97,7 +97,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_werewolf_empty_kill(self, mock_db, game_state):
         """测试狼人空刀."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {2: MagicMock()}
         
@@ -119,7 +119,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_werewolf_cannot_kill_teammate(self, mock_db, game_state):
         """测试狼人不能杀队友."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {2: MagicMock()}
         
@@ -139,7 +139,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_seer_check_success(self, mock_db, game_state):
         """测试预言家查验成功."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {i: MagicMock() for i in range(1, 7) if i != 3}
         
@@ -164,7 +164,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_seer_check_villager(self, mock_db, game_state):
         """测试预言家查验村民（好人）."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {i: MagicMock() for i in range(1, 7) if i != 3}
         
@@ -189,7 +189,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_seer_cannot_check_self(self, mock_db, game_state):
         """测试预言家不能查验自己."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {i: MagicMock() for i in range(1, 7) if i != 3}
         
@@ -210,7 +210,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_witch_save_success(self, mock_db, game_state):
         """测试女巫救人成功."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {i: MagicMock() for i in range(1, 7) if i != 4}
         
@@ -237,7 +237,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_witch_poison_success(self, mock_db, game_state):
         """测试女巫毒人成功."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {i: MagicMock() for i in range(1, 7) if i != 4}
         
@@ -263,7 +263,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_witch_pass_success(self, mock_db, game_state):
         """测试女巫不使用药水."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {i: MagicMock() for i in range(1, 7) if i != 4}
         
@@ -290,7 +290,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_witch_save_no_antidote(self, mock_db, game_state):
         """测试女巫没有解药时不能救人."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {i: MagicMock() for i in range(1, 7) if i != 4}
         
@@ -314,7 +314,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_witch_self_save_first_night(self, mock_db, game_state):
         """测试女巫首夜可以自救."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {i: MagicMock() for i in range(1, 7) if i != 4}
         
@@ -339,7 +339,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_witch_no_self_save_after_first_night(self, mock_db, game_state):
         """测试女巫首夜后不能自救."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {i: MagicMock() for i in range(1, 7) if i != 4}
         
@@ -363,7 +363,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_hunter_shoot_success(self, mock_db, game_state):
         """测试猎人开枪成功."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {i: MagicMock() for i in range(1, 7) if i != 5}
         
@@ -388,7 +388,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_hunter_no_shoot(self, mock_db, game_state):
         """测试猎人不开枪."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {i: MagicMock() for i in range(1, 7) if i != 5}
         
@@ -412,7 +412,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_action_type_mismatch(self, mock_db, game_state):
         """测试行动类型不匹配."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         service._ai_agents = {2: MagicMock()}
         
@@ -432,7 +432,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_not_waiting_for_action(self, mock_db, game_state):
         """测试不在等待行动状态."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         service._game_states["test-room"] = game_state
         
         game_state.waiting_for_human_action = False
@@ -450,7 +450,7 @@ class TestProcessHumanNightAction:
     @pytest.mark.asyncio
     async def test_game_not_found(self, mock_db):
         """测试游戏不存在."""
-        service = WerewolfGameService(mock_db)
+        service = WerewolfGameOrchestrator(mock_db)
         
         result = await service.process_human_night_action(
             room_code="nonexistent-room",

@@ -1,12 +1,21 @@
 # -*- coding: utf-8 -*-
-"""Werewolf game host AI agent."""
+"""Werewolf game host AI agent — narrates game flow.
+
+Fused from the old:
+  - src/services/ai_agents/host/base_host.py
+  - src/services/ai_agents/host/werewolf_host.py
+
+Changes from old:
+  - Single concrete class (no abstract base)
+  - Imports LLMClient from src.llm
+  - Imports prompts from src.games.werewolf.prompts.host
+"""
 
 import logging
 from typing import Any, AsyncIterator, Dict, List, Optional
 
-from src.integrations.llm_client import LLMClient
-from src.services.ai_agents.host.base_host import BaseGameHost
-from src.services.ai_agents.prompts.host_prompts import (
+from src.llm import LLMClient
+from src.games.werewolf.prompts.host import (
     HOST_ANNOUNCEMENT_PROMPTS,
     HOST_SYSTEM_PROMPT,
 )
@@ -14,23 +23,30 @@ from src.services.ai_agents.prompts.host_prompts import (
 logger = logging.getLogger(__name__)
 
 
-class WerewolfHost(BaseGameHost):
-    """AI host for werewolf game."""
+class WerewolfHost:
+    """AI host for werewolf game — narrates game flow and makes announcements.
 
-    def __init__(
-        self,
-        llm_client: Optional[LLMClient] = None,
-    ):
+    The host is responsible for:
+    - Narrating the game flow
+    - Announcing game events (night start, dawn, vote results, etc.)
+    - Creating atmosphere
+    """
+
+    def __init__(self, llm_client: Optional[LLMClient] = None) -> None:
         """
         Initialize werewolf host.
 
         :param llm_client: LLM client for generating announcements.
         """
-        super().__init__(llm_client)
+        self.llm_client = llm_client or LLMClient()
 
     def get_system_prompt(self) -> str:
         """Get host system prompt."""
         return HOST_SYSTEM_PROMPT
+
+    # ------------------------------------------------------------------
+    # Core generation
+    # ------------------------------------------------------------------
 
     async def announce(
         self,
@@ -46,17 +62,17 @@ class WerewolfHost(BaseGameHost):
         """
         prompt_template = HOST_ANNOUNCEMENT_PROMPTS.get(announcement_type)
         if not prompt_template:
-            logger.warning(f"Unknown announcement type: {announcement_type}")
+            logger.warning("Unknown announcement type: %s", announcement_type)
             return self._get_fallback_announcement(announcement_type, context)
 
         try:
             prompt = prompt_template.format(**context)
             return await self._generate(prompt)
         except KeyError as e:
-            logger.error(f"Missing context key for {announcement_type}: {e}")
+            logger.error("Missing context key for %s: %s", announcement_type, e)
             return self._get_fallback_announcement(announcement_type, context)
         except Exception as e:
-            logger.error(f"Announcement generation failed: {e}")
+            logger.error("Announcement generation failed: %s", e)
             return self._get_fallback_announcement(announcement_type, context)
 
     async def announce_stream(
@@ -73,7 +89,7 @@ class WerewolfHost(BaseGameHost):
         """
         prompt_template = HOST_ANNOUNCEMENT_PROMPTS.get(announcement_type)
         if not prompt_template:
-            logger.warning(f"Unknown announcement type: {announcement_type}")
+            logger.warning("Unknown announcement type: %s", announcement_type)
             yield self._get_fallback_announcement(announcement_type, context)
             return
 
@@ -82,54 +98,15 @@ class WerewolfHost(BaseGameHost):
             async for chunk in self._generate_stream(prompt):
                 yield chunk
         except KeyError as e:
-            logger.error(f"Missing context key for {announcement_type}: {e}")
+            logger.error("Missing context key for %s: %s", announcement_type, e)
             yield self._get_fallback_announcement(announcement_type, context)
         except Exception as e:
-            logger.error(f"Streaming announcement failed: {e}")
+            logger.error("Streaming announcement failed: %s", e)
             yield self._get_fallback_announcement(announcement_type, context)
 
-    def _get_fallback_announcement(
-        self,
-        announcement_type: str,
-        context: Dict[str, Any],
-    ) -> str:
-        """
-        Get a fallback announcement when LLM fails.
-
-        :param announcement_type: Type of announcement.
-        :param context: Context data.
-        :return: Fallback announcement text.
-        """
-        fallbacks = {
-            "game_start": "欢迎来到狼人杀游戏！游戏即将开始，请各位玩家准备好。天黑请闭眼。",
-            "night_start": f"夜幕降临，第{context.get('day_number', '?')}天的夜晚开始了。所有玩家请闭眼。",
-            "dawn": self._format_dawn_fallback(context),
-            "discussion_start": "天亮了，讨论阶段开始。请各位玩家依次发言。",
-            "vote_start": "讨论结束，投票阶段开始。请各位玩家进行投票。",
-            "vote_result": self._format_vote_result_fallback(context),
-            "hunter_shoot": f"猎人 {context.get('hunter_name', '?')} 开枪带走了 {context.get('target_name', '?')}！",
-            "game_end": f"游戏结束！{context.get('winner_team', '?')}获胜！",
-            "request_speech": f"请{context.get('seat_number', '?')}号玩家{context.get('player_name', '')}发言。",
-            "speech_end_transition": f"请{context.get('next_seat_number', '?')}号玩家发言。",
-        }
-        return fallbacks.get(announcement_type, "游戏继续进行中...")
-
-    def _format_dawn_fallback(self, context: Dict[str, Any]) -> str:
-        """Format fallback dawn announcement."""
-        dead_players = context.get("dead_players", [])
-        if not dead_players or dead_players == "无":
-            return "天亮了，昨晚是平安夜，无人死亡。"
-        return f"天亮了，昨晚 {dead_players} 死亡。"
-
-    def _format_vote_result_fallback(self, context: Dict[str, Any]) -> str:
-        """Format fallback vote result announcement."""
-        is_tie = context.get("is_tie", False)
-        if is_tie:
-            return "投票结束，平票，无人出局。"
-        player = context.get("highest_vote_player", "?")
-        return f"投票结束，{player} 被放逐。"
-
+    # ------------------------------------------------------------------
     # Convenience methods for specific announcements
+    # ------------------------------------------------------------------
 
     async def announce_game_start(
         self,
@@ -190,7 +167,7 @@ class WerewolfHost(BaseGameHost):
         """
         Announce dawn and death results.
 
-        :param dead_players: List of players who died.
+        :param dead_players: List of players who died (dicts with seat_number, name).
         :param death_reasons: List of death reasons.
         :param stream: Whether to stream.
         :yields: Announcement chunks.
@@ -223,7 +200,7 @@ class WerewolfHost(BaseGameHost):
         """
         Announce vote result.
 
-        :param vote_counts: Vote counts per player.
+        :param vote_counts: Vote counts per player keyed by seat.
         :param eliminated_player: Player eliminated by vote (if any).
         :param is_tie: Whether it was a tie.
         :param stream: Whether to stream.
@@ -263,8 +240,8 @@ class WerewolfHost(BaseGameHost):
         Announce game end.
 
         :param winner_team: Winning team name.
-        :param werewolf_players: List of werewolf players.
-        :param good_players: List of good players.
+        :param werewolf_players: List of werewolf player dicts.
+        :param good_players: List of good player dicts.
         :param total_days: Total game days.
         :param stream: Whether to stream.
         :yields: Announcement chunks.
@@ -336,7 +313,6 @@ class WerewolfHost(BaseGameHost):
         :param stream: 是否流式输出（默认非流式，因为内容简短）
         :return: 发言结束确认文本
         """
-        # 如果没有下一位玩家，使用简单的确认语
         if next_seat_number is None:
             return f"{current_seat_number}号玩家发言结束。"
 
@@ -354,7 +330,9 @@ class WerewolfHost(BaseGameHost):
         else:
             return await self.announce("speech_end_transition", context)
 
+    # ------------------------------------------------------------------
     # 夜间角色阶段公告方法
+    # ------------------------------------------------------------------
 
     async def announce_werewolf_wake(
         self,
@@ -366,7 +344,7 @@ class WerewolfHost(BaseGameHost):
         :param stream: 是否流式输出
         :yields: 公告片段
         """
-        context = {}
+        context: Dict[str, Any] = {}
         if stream:
             async for chunk in self.announce_stream("werewolf_wake", context):
                 yield chunk
@@ -383,7 +361,7 @@ class WerewolfHost(BaseGameHost):
         :param stream: 是否流式输出
         :yields: 公告片段
         """
-        context = {}
+        context: Dict[str, Any] = {}
         if stream:
             async for chunk in self.announce_stream("werewolf_sleep", context):
                 yield chunk
@@ -400,7 +378,7 @@ class WerewolfHost(BaseGameHost):
         :param stream: 是否流式输出
         :yields: 公告片段
         """
-        context = {}
+        context: Dict[str, Any] = {}
         if stream:
             async for chunk in self.announce_stream("seer_wake", context):
                 yield chunk
@@ -417,7 +395,7 @@ class WerewolfHost(BaseGameHost):
         :param stream: 是否流式输出
         :yields: 公告片段
         """
-        context = {}
+        context: Dict[str, Any] = {}
         if stream:
             async for chunk in self.announce_stream("seer_sleep", context):
                 yield chunk
@@ -437,7 +415,7 @@ class WerewolfHost(BaseGameHost):
         :yields: 公告片段
         """
         context = {
-            "killed_player": killed_player or "无人被杀"
+            "killed_player": killed_player or "无人被杀",
         }
         if stream:
             async for chunk in self.announce_stream("witch_wake", context):
@@ -455,9 +433,97 @@ class WerewolfHost(BaseGameHost):
         :param stream: 是否流式输出
         :yields: 公告片段
         """
-        context = {}
+        context: Dict[str, Any] = {}
         if stream:
             async for chunk in self.announce_stream("witch_sleep", context):
                 yield chunk
         else:
             yield await self.announce("witch_sleep", context)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    async def _generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        """
+        Generate text using LLM.
+
+        :param prompt: User prompt.
+        :param system_prompt: Optional system prompt override.
+        :return: Generated text.
+        """
+        messages = [
+            {"role": "system", "content": system_prompt or self.get_system_prompt()},
+            {"role": "user", "content": prompt},
+        ]
+
+        try:
+            return await self.llm_client.generate(messages)
+        except Exception as e:
+            logger.error("Host announcement generation failed: %s", e)
+            raise
+
+    async def _generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+    ) -> AsyncIterator[str]:
+        """
+        Generate streaming text using LLM.
+
+        :param prompt: User prompt.
+        :param system_prompt: Optional system prompt override.
+        :yields: Text chunks.
+        """
+        messages = [
+            {"role": "system", "content": system_prompt or self.get_system_prompt()},
+            {"role": "user", "content": prompt},
+        ]
+
+        try:
+            async for chunk in self.llm_client.generate_stream(messages):
+                yield chunk
+        except Exception as e:
+            logger.error("Host streaming announcement failed: %s", e)
+            raise
+
+    def _get_fallback_announcement(
+        self,
+        announcement_type: str,
+        context: Dict[str, Any],
+    ) -> str:
+        """
+        Get a fallback announcement when LLM fails.
+
+        :param announcement_type: Type of announcement.
+        :param context: Context data.
+        :return: Fallback announcement text.
+        """
+        fallbacks = {
+            "game_start": "欢迎来到狼人杀游戏！游戏即将开始，请各位玩家准备好。天黑请闭眼。",
+            "night_start": f"夜幕降临，第{context.get('day_number', '?')}天的夜晚开始了。所有玩家请闭眼。",
+            "dawn": self._format_dawn_fallback(context),
+            "discussion_start": "天亮了，讨论阶段开始。请各位玩家依次发言。",
+            "vote_start": "讨论结束，投票阶段开始。请各位玩家进行投票。",
+            "vote_result": self._format_vote_result_fallback(context),
+            "hunter_shoot": f"猎人 {context.get('hunter_name', '?')} 开枪带走了 {context.get('target_name', '?')}！",
+            "game_end": f"游戏结束！{context.get('winner_team', '?')}获胜！",
+            "request_speech": f"请{context.get('seat_number', '?')}号玩家{context.get('player_name', '')}发言。",
+            "speech_end_transition": f"请{context.get('next_seat_number', '?')}号玩家发言。",
+        }
+        return fallbacks.get(announcement_type, "游戏继续进行中...")
+
+    def _format_dawn_fallback(self, context: Dict[str, Any]) -> str:
+        """Format fallback dawn announcement."""
+        dead_players = context.get("dead_players", [])
+        if not dead_players or dead_players == "无":
+            return "天亮了，昨晚是平安夜，无人死亡。"
+        return f"天亮了，昨晚 {dead_players} 死亡。"
+
+    def _format_vote_result_fallback(self, context: Dict[str, Any]) -> str:
+        """Format fallback vote result announcement."""
+        is_tie = context.get("is_tie", False)
+        if is_tie:
+            return "投票结束，平票，无人出局。"
+        player = context.get("highest_vote_player", "?")
+        return f"投票结束，{player} 被放逐。"

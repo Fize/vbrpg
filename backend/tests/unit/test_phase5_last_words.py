@@ -11,8 +11,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
-from src.services.werewolf_game_service import WerewolfGameService
-from src.services.games.werewolf_engine import (
+from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
+from src.games.werewolf.state import (
     WerewolfGameState,
     WerewolfPhase,
     PlayerState,
@@ -53,7 +53,7 @@ class TestLastWordsOptionsGeneration:
     
     @pytest.fixture
     def game_service(self, mock_db):
-        return WerewolfGameService(db=mock_db)
+        return WerewolfGameOrchestrator(db=mock_db)
     
     @pytest.fixture
     def game_state_with_dead_player(self, game_service):
@@ -157,7 +157,7 @@ class TestProcessHumanLastWords:
     
     @pytest.fixture
     def game_service(self, mock_db):
-        return WerewolfGameService(db=mock_db)
+        return WerewolfGameOrchestrator(db=mock_db)
     
     @pytest.fixture
     def game_state_waiting_for_last_words(self, game_service):
@@ -285,7 +285,7 @@ class TestSpectatorModeSwitch:
     
     @pytest.fixture
     def game_service(self, mock_db):
-        return WerewolfGameService(db=mock_db)
+        return WerewolfGameOrchestrator(db=mock_db)
     
     @pytest.fixture
     def game_state_human_dead(self, game_service):

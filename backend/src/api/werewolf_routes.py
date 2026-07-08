@@ -23,7 +23,7 @@ from src.api.schemas import (
     GameControlResponse,
 )
 from src.database import get_db
-from src.services.werewolf_game_service import WerewolfGameService
+from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
 from src.utils.errors import APIError, BadRequestError, NotFoundError
 
 logger = logging.getLogger(__name__)
@@ -31,13 +31,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/werewolf", tags=["werewolf"])
 
 # Store for active game services (in production, use Redis or similar)
-_game_services: dict[str, WerewolfGameService] = {}
+_game_services: dict[str, WerewolfGameOrchestrator] = {}
 
 
-def get_or_create_service(db: AsyncSession, room_code: str) -> WerewolfGameService:
-    """Get or create a WerewolfGameService instance."""
+def get_or_create_service(db: AsyncSession, room_code: str) -> WerewolfGameOrchestrator:
+    """Get or create a WerewolfGameOrchestrator instance."""
     if room_code not in _game_services:
-        _game_services[room_code] = WerewolfGameService(db)
+        _game_services[room_code] = WerewolfGameOrchestrator()
     return _game_services[room_code]
 
 
@@ -122,7 +122,7 @@ async def quick_start_game(
         await db.refresh(room, ["participants"])
         
         # Create service and start game
-        service = WerewolfGameService(db)
+        service = WerewolfGameOrchestrator()
         _game_services[room_code] = service
         
         game_state = await service.start_game(
@@ -137,18 +137,19 @@ async def quick_start_game(
         if not visible_state:
             raise HTTPException(status_code=500, detail="Failed to get game state")
         
-        # Convert to response
+        # Convert to response - alive and dead players combined
+        all_players = visible_state.get("alive_players", []) + visible_state.get("dead_players", [])
         players = [
             WerewolfPlayerInfo(
                 seat_number=p["seat_number"],
-                display_name=p["display_name"],
+                display_name=p["player_name"],
                 is_alive=p["is_alive"],
                 role=p.get("role"),
                 team=p.get("team"),
                 death_reason=p.get("death_reason"),
                 death_day=p.get("death_day")
             )
-            for p in visible_state["players"]
+            for p in all_players
         ]
         
         return WerewolfGameStateResponse(
@@ -157,8 +158,8 @@ async def quick_start_game(
             day_number=visible_state["day_number"],
             players=players,
             winner=visible_state.get("winner"),
-            your_seat=visible_state.get("your_seat"),
-            your_role=visible_state.get("your_role")
+            your_seat=visible_state.get("player_seat"),
+            your_role=visible_state.get("player_role")
         )
         
     except APIError as e:
@@ -261,17 +262,19 @@ async def get_game_state(
         if not visible_state:
             raise NotFoundError(f"Game state not found for room {room_code}")
         
+        # Convert to response - alive and dead players combined
+        all_players = visible_state.get("alive_players", []) + visible_state.get("dead_players", [])
         players = [
             WerewolfPlayerInfo(
                 seat_number=p["seat_number"],
-                display_name=p["display_name"],
+                display_name=p["player_name"],
                 is_alive=p["is_alive"],
                 role=p.get("role"),
                 team=p.get("team"),
                 death_reason=p.get("death_reason"),
                 death_day=p.get("death_day")
             )
-            for p in visible_state["players"]
+            for p in all_players
         ]
         
         return WerewolfGameStateResponse(
@@ -280,8 +283,8 @@ async def get_game_state(
             day_number=visible_state["day_number"],
             players=players,
             winner=visible_state.get("winner"),
-            your_seat=visible_state.get("your_seat"),
-            your_role=visible_state.get("your_role")
+            your_seat=visible_state.get("player_seat"),
+            your_role=visible_state.get("player_role")
         )
         
     except NotFoundError as e:
@@ -393,7 +396,7 @@ async def get_game_logs(
                         type="system",
                         content=log,
                         day=game_state.day_number,
-                        phase=game_state.phase.value if game_state.phase else "unknown",
+                        phase=game_state.phase if game_state.phase else "unknown",
                         time=None,
                         player_id=None,
                         player_name=None,
@@ -426,7 +429,7 @@ async def get_game_logs(
         return GameLogListResponse(
             room_code=room_code,
             day_number=game_state.day_number,
-            phase=game_state.phase.value if game_state.phase else "unknown",
+            phase=game_state.phase if game_state.phase else "unknown",
             logs=log_entries,
             total=len(log_entries),
             level=level,
@@ -464,7 +467,11 @@ async def control_game(
         action = request.action.lower()
         
         if action == "start":
-            await service.start_game_manual(room_code)
+            game_state = await service.start_game(
+                room_code=room_code,
+                human_player_id=request.player_id,
+                human_role=None
+            )
             message = "游戏已开始"
         elif action == "pause":
             await service.pause_game(room_code)

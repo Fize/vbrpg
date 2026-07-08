@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 
-"""Tests for human timeout and AI takeover in WerewolfGameService (T57-T63)."""
+"""Tests for human timeout and AI takeover in WerewolfGameOrchestrator (T57-T63)."""
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.services.werewolf_game_service import WerewolfGameService
-from src.services.games.werewolf_engine import WerewolfGameState, PlayerState
+from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
+from src.games.werewolf.state import WerewolfGameState, PlayerState
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def mock_db():
 
 @pytest.fixture
 def game_service(mock_db):
-    return WerewolfGameService(db=mock_db)
+    return WerewolfGameOrchestrator(db=mock_db)
 
 
 def _build_basic_state(action_type: str) -> WerewolfGameState:
@@ -53,7 +53,7 @@ def _build_basic_state(action_type: str) -> WerewolfGameState:
 
 
 @pytest.mark.asyncio
-@patch.object(WerewolfGameService, "_ai_takeover_speech", new_callable=AsyncMock)
+@patch.object(WerewolfGameOrchestrator, "_ai_takeover_speech", new_callable=AsyncMock)
 async def test_check_human_timeout_dispatches_speech(takeover_mock, game_service):
     state = _build_basic_state("speech")
     game_service._game_states["TEST"] = state
@@ -68,7 +68,7 @@ async def test_check_human_timeout_dispatches_speech(takeover_mock, game_service
 
 
 @pytest.mark.asyncio
-@patch.object(WerewolfGameService, "_ai_takeover_night_action", new_callable=AsyncMock)
+@patch.object(WerewolfGameOrchestrator, "_ai_takeover_night_action", new_callable=AsyncMock)
 async def test_check_human_timeout_dispatches_night_action(takeover_mock, game_service):
     state = _build_basic_state("werewolf_kill")
     game_service._game_states["TEST"] = state

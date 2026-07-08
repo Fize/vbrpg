@@ -4,9 +4,8 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from src.integrations.llm_client import LLMClient
-from src.services.ai_agents.base import BaseWerewolfAgent
-from src.services.ai_agents.prompts.seer_prompts import (
+from src.games.base.agent import BaseGameAgent
+from src.games.werewolf.prompts.seer import (
     SEER_NIGHT_PROMPT,
     SEER_SYSTEM_PROMPT,
 )
@@ -14,7 +13,7 @@ from src.services.ai_agents.prompts.seer_prompts import (
 logger = logging.getLogger(__name__)
 
 
-class SeerAgent(BaseWerewolfAgent):
+class SeerAgent(BaseGameAgent):
     """AI agent for seer role."""
 
     def __init__(
@@ -22,7 +21,7 @@ class SeerAgent(BaseWerewolfAgent):
         player_id: str,
         player_name: str,
         seat_number: int,
-        llm_client: Optional[LLMClient] = None,
+        personality: Optional[Dict[str, str]] = None,
     ):
         """
         Initialize seer agent.
@@ -30,11 +29,11 @@ class SeerAgent(BaseWerewolfAgent):
         :param player_id: Unique player identifier.
         :param player_name: Display name.
         :param seat_number: Seat number (1-10).
-        :param llm_client: LLM client instance.
+        :param personality: Personality traits for the agent.
         """
-        super().__init__(player_id, player_name, seat_number, llm_client)
-        # Track check history: [{seat_number, player_name, is_werewolf, day}]
+        super().__init__(player_id, player_name, seat_number, personality)
         self.check_history: List[Dict[str, Any]] = []
+        self.known_info: List[Dict[str, Any]] = []
 
     @property
     def role_type(self) -> str:
@@ -66,14 +65,11 @@ class SeerAgent(BaseWerewolfAgent):
             "day": day,
         }
         self.check_history.append(result)
-
-        # Add to known info
         identity = "狼人" if is_werewolf else "好人"
-        self.add_known_info({
+        self.known_info.append({
             "type": "check_result",
             "content": f"第{day}夜查验{seat_number}号{player_name}，结果是{identity}",
         })
-
         logger.info(
             f"[{self.player_name}] Checked {seat_number}#{player_name}: {identity}"
         )
@@ -82,64 +78,142 @@ class SeerAgent(BaseWerewolfAgent):
         """Format check history for prompts."""
         if not self.check_history:
             return "暂无查验记录"
-
         lines = []
         for check in self.check_history:
             identity = "狼人" if check["is_werewolf"] else "好人"
             lines.append(
                 f"第{check['day']}夜：{check['seat_number']}号{check['player_name']} -> {identity}"
             )
-
         return "\n".join(lines)
+
+    def format_known_info(self) -> str:
+        """Format known information for prompts."""
+        if not self.known_info:
+            return "暂无已知信息"
+        lines = []
+        for info in self.known_info:
+            info_type = info.get("type", "unknown")
+            content = info.get("content", "")
+            lines.append(f"- [{info_type}] {content}")
+        return "\n".join(lines)
+
+    def get_confirmed_werewolves(self) -> List[int]:
+        """Get list of confirmed werewolf seat numbers."""
+        return [
+            c["seat_number"]
+            for c in self.check_history
+            if c["is_werewolf"]
+        ]
+
+    def get_confirmed_good(self) -> List[int]:
+        """Get list of confirmed good player seat numbers."""
+        return [
+            c["seat_number"]
+            for c in self.check_history
+            if not c["is_werewolf"]
+        ]
+
+    def _build_personality_section(self) -> str:
+        """Build personality description section for system prompt."""
+        if not self.personality:
+            return ""
+        traits = []
+        for key, value in self.personality.items():
+            traits.append(f"- {key}: {value}")
+        return "\n".join(traits)
 
     def get_system_prompt(self, game_state: Dict[str, Any]) -> str:
         """Get seer system prompt."""
-        formatted = self.format_game_state(game_state)
+        alive_players = game_state.get("alive_players", [])
+        dead_players = game_state.get("dead_players", [])
+        day_number = game_state.get("day_number", 1)
+
+        alive_text = ", ".join(
+            [f"{p['seat_number']}号{p['name']}" for p in alive_players]
+        ) or "无"
+        dead_text = ", ".join(
+            [f"{p['seat_number']}号{p['name']}" for p in dead_players]
+        ) or "无"
+
+        personality_section = self._build_personality_section()
+        if personality_section:
+            personality_section = f"\n\n## 你的性格特征\n{personality_section}\n请用符合你性格特征的方式思考和发言。\n"
 
         return SEER_SYSTEM_PROMPT.format(
             check_history=self.format_check_history(),
-            day_number=formatted["day_number"],
-            alive_players=formatted["alive_players"],
-            dead_players=formatted["dead_players"],
-        )
+            day_number=day_number,
+            alive_players=alive_text,
+            dead_players=dead_text,
+        ) + personality_section
+
+    def _normalize_seat_number(self, value: Any) -> Optional[int]:
+        """Normalize different seat representations returned by LLMs into integers."""
+        import re
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        if isinstance(value, dict):
+            for key in ("seat_number", "seat", "target"):
+                if key in value:
+                    return self._normalize_seat_number(value[key])
+        if isinstance(value, str):
+            digits = re.search(r"\d+", value)
+            if digits:
+                return int(digits.group())
+        return None
+
+    def _parse_json_response(self, response: str) -> Dict[str, Any]:
+        """Parse JSON response from LLM."""
+        import json
+        try:
+            if "```json" in response:
+                start = response.find("```json") + 7
+                end = response.find("```", start)
+                response = response[start:end]
+            elif "```" in response:
+                start = response.find("```") + 3
+                end = response.find("```", start)
+                response = response[start:end]
+            return json.loads(response.strip())
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse JSON response: {e}")
+            return {}
 
     async def decide_night_action(
         self,
         game_state: Dict[str, Any],
         available_targets: List[Dict[str, Any]],
+        llm_client=None,
     ) -> Dict[str, Any]:
         """
         Decide who to check at night.
 
         :param game_state: Current game state.
         :param available_targets: List of checkable players.
+        :param llm_client: LLM client for generating responses.
         :return: Action decision.
         """
-        formatted = self.format_game_state(game_state)
+        day_number = game_state.get("day_number", 1)
 
-        # Filter out already checked players
         checked_seats = {c["seat_number"] for c in self.check_history}
         unchecked_targets = [
             t for t in available_targets
             if t["seat_number"] not in checked_seats
         ]
 
-        # Format targets
         targets_text = "\n".join([
             f"- {t['seat_number']}号 {t['name']}"
             for t in available_targets
         ])
 
-        # Format unchecked players
         unchecked_text = ", ".join([
             f"{t['seat_number']}号{t['name']}"
             for t in unchecked_targets
         ]) or "所有存活玩家都已查验"
 
-        # Get day number
-        day_number = game_state.get("day_number", 1)
-        
-        # Format speech history section (only for day 2+)
         speech_history = game_state.get("speech_history", "")
         if day_number > 1 and speech_history:
             speech_history_section = f"## 白天发言记录\n{speech_history}"
@@ -159,18 +233,19 @@ class SeerAgent(BaseWerewolfAgent):
             {"role": "user", "content": prompt},
         ]
 
+        if llm_client is None:
+            from src.integrations.llm_client import LLMClient
+            llm_client = LLMClient()
+
         try:
-            response = await self.llm_client.generate(messages)
+            response = await llm_client.generate(messages)
             decision = self._parse_json_response(response)
 
             target = decision.get("target")
-
-            # Normalize and validate target
             normalized_target = self._normalize_seat_number(target)
             valid_seats = {t["seat_number"] for t in available_targets}
             if normalized_target is None or normalized_target not in valid_seats:
                 logger.warning(f"[{self.player_name}] Invalid check target '{target}' (normalized: {normalized_target}), using fallback")
-                # Prefer unchecked target
                 if unchecked_targets:
                     normalized_target = unchecked_targets[0]["seat_number"]
                 elif available_targets:
@@ -184,7 +259,6 @@ class SeerAgent(BaseWerewolfAgent):
 
         except Exception as e:
             logger.error(f"[{self.player_name}] Night action decision failed: {e}")
-            # Fallback: check first unchecked player
             if unchecked_targets:
                 return {
                     "action": "check",
@@ -202,19 +276,3 @@ class SeerAgent(BaseWerewolfAgent):
                 "target": None,
                 "reasoning": "无可查验目标",
             }
-
-    def get_confirmed_werewolves(self) -> List[int]:
-        """Get list of confirmed werewolf seat numbers."""
-        return [
-            c["seat_number"]
-            for c in self.check_history
-            if c["is_werewolf"]
-        ]
-
-    def get_confirmed_good(self) -> List[int]:
-        """Get list of confirmed good player seat numbers."""
-        return [
-            c["seat_number"]
-            for c in self.check_history
-            if not c["is_werewolf"]
-        ]

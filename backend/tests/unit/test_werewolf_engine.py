@@ -3,15 +3,15 @@
 
 import pytest
 
-from src.services.games.werewolf_engine import (
+from src.games.werewolf.state import (
     DeathReason,
     NightSubPhase,
     PlayerState,
     WEREWOLF_10P_CONFIG,
-    WerewolfEngine,
     WerewolfGameState,
     WerewolfPhase,
 )
+from src.games.werewolf.engine import WerewolfEngine
 
 
 @pytest.fixture

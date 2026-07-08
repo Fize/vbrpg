@@ -13,7 +13,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.integrations.llm_client import LLMClient
+from src.llm import LLMClient
 from src.models.game import GameRoom, GameRoomParticipant
 from src.utils.logging_config import get_logger
 

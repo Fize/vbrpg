@@ -5,12 +5,14 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.services.ai_agents.base import BaseWerewolfAgent
-from src.services.ai_agents.werewolf_agent import WerewolfAgent
-from src.services.ai_agents.seer_agent import SeerAgent
-from src.services.ai_agents.witch_agent import WitchAgent
-from src.services.ai_agents.hunter_agent import HunterAgent
-from src.services.ai_agents.villager_agent import VillagerAgent
+from src.games.base.agent import BaseGameAgent
+from src.games.werewolf.agents import (
+    WerewolfAgent,
+    SeerAgent,
+    WitchAgent,
+    HunterAgent,
+    VillagerAgent,
+)
 
 
 @pytest.fixture

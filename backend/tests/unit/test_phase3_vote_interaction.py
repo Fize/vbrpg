@@ -20,7 +20,7 @@ class TestGenerateVoteOptions:
     @pytest.fixture
     def mock_game_service(self):
         """创建模拟游戏服务."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameService
         service = WerewolfGameService.__new__(WerewolfGameService)
         service._game_states = {}
         service._ai_agents = {}
@@ -30,7 +30,7 @@ class TestGenerateVoteOptions:
     @pytest.fixture
     def mock_game_state(self):
         """创建模拟游戏状态."""
-        from src.services.games.werewolf_engine import WerewolfGameState, PlayerState
+        from src.games.werewolf.state import WerewolfGameState, PlayerState
 
         players = {}
         for i in range(1, 11):
@@ -105,7 +105,7 @@ class TestProcessHumanVote:
     @pytest.fixture
     def mock_game_service(self):
         """创建模拟游戏服务."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameService
         service = WerewolfGameService.__new__(WerewolfGameService)
         service._game_states = {}
         service._ai_agents = {}
@@ -117,7 +117,7 @@ class TestProcessHumanVote:
     @pytest.fixture
     def mock_game_state(self):
         """创建模拟游戏状态（等待投票）."""
-        from src.services.games.werewolf_engine import WerewolfGameState, PlayerState
+        from src.games.werewolf.state import WerewolfGameState, PlayerState
 
         players = {}
         for i in range(1, 11):
@@ -251,7 +251,7 @@ class TestExecuteVotesHumanPlayer:
     @pytest.fixture
     def mock_game_service(self):
         """创建模拟游戏服务."""
-        from src.services.werewolf_game_service import WerewolfGameService
+        from src.games.werewolf.orchestrator import WerewolfGameService
         service = WerewolfGameService.__new__(WerewolfGameService)
         service._game_states = {}
         service._ai_agents = {2: MagicMock()}  # 座位2是AI
