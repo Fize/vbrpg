@@ -28,6 +28,7 @@ HUNTER_SYSTEM_PROMPT = """你是一名狼人杀游戏中的猎人玩家。
 - 存活玩家：{alive_players}
 - 已死亡玩家：{dead_players}
 - 可疑玩家分析：{suspicious_players}
+{speech_history_section}
 """
 
 HUNTER_SHOOT_PROMPT = """你已死亡，现在是猎人开枪时间。

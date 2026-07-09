@@ -99,6 +99,9 @@ class WerewolfAgent(BaseGameAgent):
             if t.get("is_alive", True)
         ]) or "无存活队友"
 
+        speech_history = game_state.get("speech_history", "")
+        speech_history_section = f"## 白天发言记录\n{speech_history}" if day_number > 1 and speech_history else ""
+
         personality_section = self._build_personality_section()
         if personality_section:
             personality_section = f"\n\n## 你的性格特征\n{personality_section}\n请用符合你性格特征的方式思考和发言。\n"
@@ -108,6 +111,7 @@ class WerewolfAgent(BaseGameAgent):
             day_number=day_number,
             alive_players=alive_text,
             dead_players=dead_text,
+            speech_history_section=speech_history_section,
         ) + personality_section
 
     def _normalize_seat_number(self, value: Any) -> Optional[int]:
@@ -193,11 +197,15 @@ class WerewolfAgent(BaseGameAgent):
             if t.get("is_alive", True)
         ])
 
+        speech_history = game_state.get("speech_history", "")
+        speech_history_section = f"## 白天发言记录\n{speech_history}" if day_number > 1 and speech_history else ""
+
         prompt = WEREWOLF_NIGHT_PROMPT.format(
             alive_good_players=alive_good_text,
             teammates=teammates_text,
             known_info=self.format_known_info(),
             available_targets=targets_text,
+            speech_history_section=speech_history_section,
         )
 
         messages = [
@@ -417,12 +425,17 @@ class WerewolfAgent(BaseGameAgent):
         for op in teammate_opinions:
             opinions_text += f"- {op['seat_number']}号{op['name']}：建议刀{op['suggested_target']}号，理由：{op['opinion']}\n"
 
+        day_number = game_state.get("day_number", 1)
+        speech_history = game_state.get("speech_history", "")
+        speech_history_section = f"## 白天发言记录\n{speech_history}" if day_number > 1 and speech_history else ""
+
         prompt = WEREWOLF_NIGHT_FINAL_DECISION_PROMPT.format(
             alive_good_players=alive_good_text,
             teammates=teammates_text,
             known_info=self.format_known_info(),
             available_targets=targets_text,
             teammate_opinions=opinions_text,
+            speech_history_section=speech_history_section,
         )
 
         messages = [

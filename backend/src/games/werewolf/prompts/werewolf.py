@@ -28,6 +28,7 @@ WEREWOLF_SYSTEM_PROMPT = """你是一名狼人杀游戏中的狼人玩家。
 - 天数：第{day_number}天
 - 存活玩家：{alive_players}
 - 已死亡玩家：{dead_players}
+{speech_history_section}
 """
 
 WEREWOLF_NIGHT_DISCUSS_PROMPT = """现在是夜晚，狼人商议时间。
@@ -77,6 +78,8 @@ WEREWOLF_NIGHT_FINAL_DECISION_PROMPT = """现在是夜晚，狼人最终决策�
 ## 队友意见汇总
 {teammate_opinions}
 
+{speech_history_section}
+
 ## 请做出最终决策
 综合考虑队友的意见，做出今晚的击杀决定。你也可以选择：
 - "empty_kill": 今晚不击杀任何人（空刀）
@@ -100,6 +103,8 @@ WEREWOLF_NIGHT_PROMPT = """现在是夜晚，狼人行动时间。
 
 ## 可选择的目标
 {available_targets}
+
+{speech_history_section}
 
 ## 请做出决策
 根据当前局势，选择一个击杀目标。你也可以选择：

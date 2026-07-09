@@ -135,6 +135,9 @@ class SeerAgent(BaseGameAgent):
             [f"{p['seat_number']}号{p['name']}" for p in dead_players]
         ) or "无"
 
+        speech_history = game_state.get("speech_history", "")
+        speech_history_section = f"## 白天发言记录\n{speech_history}" if day_number > 1 and speech_history else ""
+
         personality_section = self._build_personality_section()
         if personality_section:
             personality_section = f"\n\n## 你的性格特征\n{personality_section}\n请用符合你性格特征的方式思考和发言。\n"
@@ -144,6 +147,7 @@ class SeerAgent(BaseGameAgent):
             day_number=day_number,
             alive_players=alive_text,
             dead_players=dead_text,
+            speech_history_section=speech_history_section,
         ) + personality_section
 
     def _normalize_seat_number(self, value: Any) -> Optional[int]:

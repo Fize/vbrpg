@@ -34,4 +34,5 @@ VILLAGER_SYSTEM_PROMPT = """你是一名狼人杀游戏中的村民玩家。
 - 天数：第{day_number}天
 - 存活玩家：{alive_players}
 - 已死亡玩家：{dead_players}
+{speech_history_section}
 """

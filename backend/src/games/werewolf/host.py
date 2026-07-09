@@ -161,14 +161,12 @@ class WerewolfHost:
     async def announce_dawn(
         self,
         dead_players: List[Dict[str, Any]],
-        death_reasons: List[str],
         stream: bool = True,
     ) -> AsyncIterator[str]:
         """
         Announce dawn and death results.
 
         :param dead_players: List of players who died (dicts with seat_number, name).
-        :param death_reasons: List of death reasons.
         :param stream: Whether to stream.
         :yields: Announcement chunks.
         """
@@ -177,11 +175,8 @@ class WerewolfHost:
             for p in dead_players
         ]) if dead_players else "无"
 
-        reasons_text = ", ".join(death_reasons) if death_reasons else "无"
-
         context = {
             "dead_players": dead_text,
-            "death_reasons": reasons_text,
         }
 
         if stream:

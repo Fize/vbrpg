@@ -103,6 +103,9 @@ class WitchAgent(BaseGameAgent):
 
         status = self.get_potion_status()
 
+        speech_history = game_state.get("speech_history", "")
+        speech_history_section = f"## 白天发言记录\n{speech_history}" if day_number > 1 and speech_history else ""
+
         personality_section = self._build_personality_section()
         if personality_section:
             personality_section = f"\n\n## 你的性格特征\n{personality_section}\n请用符合你性格特征的方式思考和发言。\n"
@@ -113,6 +116,7 @@ class WitchAgent(BaseGameAgent):
             day_number=day_number,
             alive_players=alive_text,
             dead_players=dead_text,
+            speech_history_section=speech_history_section,
         ) + personality_section
 
     def get_last_words_system_prompt(self, game_state: Dict[str, Any]) -> str:
@@ -214,12 +218,16 @@ class WitchAgent(BaseGameAgent):
             for t in available_targets
         ])
 
+        speech_history = game_state.get("speech_history", "")
+        speech_history_section = f"## 白天发言记录\n{speech_history}" if not is_first_night and speech_history else ""
+
         prompt = WITCH_NIGHT_PROMPT.format(
             antidote_status=status["antidote"],
             poison_status=status["poison"],
             killed_player=killed_text,
             is_first_night="是" if is_first_night else "否",
             available_actions=actions_text + "\n\n可毒杀的目标：\n" + targets_text,
+            speech_history_section=speech_history_section,
         )
 
         messages = [

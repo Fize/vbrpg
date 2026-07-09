@@ -860,3 +860,285 @@ class TestHumanPlayerRoleSelection:
         assert state.waiting_for_human_action is False
         assert state.human_action_type is None
         assert state.human_action_timeout is None
+
+
+# =========================================================================
+# T6: LangGraph full graph walk integration tests
+# =========================================================================
+
+
+class TestLangGraphFlow:
+    """Integration tests that exercise the LangGraph StateGraph end-to-end.
+
+    These tests use the actual compiled graph but with deterministic
+    ``random.seed(42)`` for reproducible role assignments.  All external
+    dependencies (LLM calls, human input) are bypassed because the graph
+    nodes are pure functions — they only transform state in place.
+    """
+
+    # ----------------------------------------------------------------
+    # helpers
+    # ----------------------------------------------------------------
+
+    @staticmethod
+    def _build_engine_with_seed(seed: int = 42):
+        """Return (engine, state) initialised with reproducible roles."""
+        import random
+        random.seed(seed)
+        engine = WerewolfEngine()
+        state = engine.initialize_game(
+            room_code="TEST_FLOW",
+            player_names=[f"P{i}" for i in range(1, 11)],
+        )
+        return engine, state
+
+    @staticmethod
+    def _role_seats(state):
+        """Return dict mapping role→list[seat] for the initialised state."""
+        out: dict = {}
+        for seat, p in state.players.items():
+            out.setdefault(p.role, []).append(seat)
+        return out
+
+    @staticmethod
+    def _walk_graph(state, recursion_limit: int = 50):
+        """Compile the graph from *state*'s owning engine and stream nodes.
+
+        Returns (visited_nodes: list[str], final_state: WerewolfGameState).
+        """
+        # The engine that created *state* is the one whose graph we want.
+        # We retrieve it from the private class-level reference.
+        # For simplicity, we create a fresh engine and compile — all
+        # WerewolfEngine instances share the same graph structure (nodes
+        # are static methods).
+        from src.games.werewolf.engine import WerewolfEngine as WE
+        engine = WE()
+        graph = engine.compile_graph()
+        gs_wrapper = {"game_state": state}
+        visited: list[str] = []
+        for chunk in graph.stream(gs_wrapper, {"recursion_limit": recursion_limit}):
+            visited.append(list(chunk.keys())[0])
+        return visited, state
+
+    # ----------------------------------------------------------------
+    # T6.1 — normal game, werewolf win after one full round
+    # ----------------------------------------------------------------
+
+    def test_full_graph_walk_normal_game(self):
+        """T6.1: Graph traverses all phases and ends with werewolf win.
+
+        Setup
+        -----
+        * seed=42 → seats: 1=vill, 2=seer, 3=wolf, 4=vill, 5=hunter,
+          6=vill, 7=vill, 8=witch, 9=wolf, 10=wolf
+        * Pre-kill 2 villagers → 3w + 5v alive
+        * Night: wolves kill 1 more villager → 3w + 4v alive
+        * Day vote: eliminate 1 villager → 3w + 3v alive → werewolf win
+
+        Expected node order (8 nodes, then END)::
+
+            night_werewolf → night_seer → night_witch →
+            day_announcement → day_discussion → day_vote →
+            last_words → check_winner
+        """
+        engine, state = self._build_engine_with_seed(42)
+        roles = self._role_seats(state)
+
+        wolves = roles["werewolf"]       # [3, 9, 10]
+        vills = roles["villager"]        # [1, 4, 6, 7]
+
+        # -- Pre-kill 2 villagers ----------------------------------------
+        for vs in vills[:2]:
+            p = state.players[vs]
+            p.is_alive = False
+            p.death_reason = DeathReason.KILLED
+            p.death_day = 1
+
+        # -- Night actions: wolves kill the 3rd villager, seer checks a wolf
+        state.current_night_actions.werewolf_kill_target = vills[2]
+        state.current_night_actions.seer_check_target = wolves[0]
+
+        # -- Day vote: all alive players vote for the 4th villager --------
+        vote_target = vills[3]
+        for seat in state.players:
+            if state.players[seat].is_alive and seat != vote_target:
+                state.current_votes[seat] = vote_target
+
+        # -- Walk the graph ----------------------------------------------
+        visited, final_state = self._walk_graph(state)
+
+        # Assert every expected node was visited
+        expected = [
+            "night_werewolf", "night_seer", "night_witch",
+            "day_announcement", "day_discussion", "day_vote",
+            "last_words", "check_winner",
+        ]
+        assert visited == expected, f"Node order mismatch: {visited}"
+
+        # Assert final game-over state
+        assert final_state.winner == "werewolf"
+        assert final_state.phase == WerewolfPhase.GAME_OVER.value
+
+        # Assert deaths: 2 pre-killed + 1 night kill + 1 vote = 4 dead
+        dead = [p for p in final_state.players.values() if not p.is_alive]
+        assert len(dead) == 4
+        reasons = {p.death_reason for p in dead}
+        assert DeathReason.KILLED in reasons
+        assert DeathReason.VOTED in reasons
+
+        # Vote history records one vote round
+        assert len(final_state.vote_history) == 1
+        assert final_state.vote_history[0]["eliminated"] == vote_target
+
+    # ----------------------------------------------------------------
+    # T6.2 — tie vote skips last_words and goes to check_winner
+    # ----------------------------------------------------------------
+
+    def test_graph_tie_vote_skips_last_words(self):
+        """T6.2: Tie vote routes day_vote → check_winner (no last_words).
+
+        Setup
+        -----
+        * Pre-kill 3 villagers → 3w + 4v alive
+        * Night kill the 4th villager → 3w + 3v alive
+        * Tie vote (2 players with equal votes) → no elimination
+        * 3w ≥ 3v → werewolf win at check_winner (no last_words)
+
+        Expected node order::
+
+            night_werewolf → night_seer → night_witch →
+            day_announcement → day_discussion → day_vote →
+            check_winner          ← *** last_words SKIPPED ***
+        """
+        engine, state = self._build_engine_with_seed(42)
+        roles = self._role_seats(state)
+
+        wolves = roles["werewolf"]       # [3, 9, 10]
+        vills = roles["villager"]        # [1, 4, 6, 7]
+
+        # -- Pre-kill 3 villagers ----------------------------------------
+        for vs in vills[:3]:
+            p = state.players[vs]
+            p.is_alive = False
+            p.death_reason = DeathReason.KILLED
+            p.death_day = 1
+
+        # -- Night: wolves kill the last villager -------------------------
+        state.current_night_actions.werewolf_kill_target = vills[3]
+        state.current_night_actions.seer_check_target = wolves[0]
+
+        # -- Tie vote: 2 votes each for 2 different alive seats ----------
+        alive = [s for s, p in state.players.items() if p.is_alive]
+        # After night: 3 wolves + seer(2) + hunter(5) + witch(8) = 6 alive
+        t1, t2 = alive[0], alive[1]
+        for i, voter in enumerate(alive[:4]):  # only 4 voters cast ballots
+            state.current_votes[voter] = t1 if i < 2 else t2
+
+        # -- Walk the graph ----------------------------------------------
+        visited, final_state = self._walk_graph(state)
+
+        # last_words must NOT be visited
+        assert "last_words" not in visited, (
+            f"last_words should be skipped on tie vote, got {visited}"
+        )
+        assert "hunter_shoot" not in visited
+
+        # Verify the routing: day_vote → check_winner directly
+        dv_idx = visited.index("day_vote")
+        cw_idx = visited.index("check_winner")
+        assert cw_idx == dv_idx + 1, (
+            f"check_winner should immediately follow day_vote, got {visited}"
+        )
+
+        # last_words_seat is None (tie → no elimination)
+        assert final_state.last_words_seat is None
+
+        # Game ends with werewolf win (3w ≥ 3v after night kill)
+        assert final_state.winner == "werewolf"
+        assert final_state.phase == WerewolfPhase.GAME_OVER.value
+
+        # Vote history records the tie
+        assert len(final_state.vote_history) == 1
+        assert final_state.vote_history[0]["is_tie"] is True
+        assert final_state.vote_history[0]["eliminated"] is None
+
+    # ----------------------------------------------------------------
+    # T6.3 — hunter shoots after being voted out
+    # ----------------------------------------------------------------
+
+    def test_graph_hunter_shoot_after_death(self):
+        """T6.3: Hunter eliminated by vote → graph routes through hunter_shoot.
+
+        Setup
+        -----
+        * Pre-kill 3 villagers → 3w + 4v alive
+        * Night kill the last villager → 3w + 3v alive
+        * Vote: everyone votes out the hunter (seat 5)
+        * Hunter shoots a werewolf (seat 3) → 2w + 2v → werewolf still wins
+
+        Expected node order::
+
+            … day_vote → last_words → hunter_shoot → check_winner
+        """
+        engine, state = self._build_engine_with_seed(42)
+        roles = self._role_seats(state)
+
+        wolves = roles["werewolf"]       # [3, 9, 10]
+        vills = roles["villager"]        # [1, 4, 6, 7]
+        hunter_seat = roles["hunter"][0]  # 5
+
+        # -- Pre-kill 3 villagers (NOT the hunter) -----------------------
+        to_kill = [s for s in vills if s != hunter_seat][:3]
+        for vs in to_kill:
+            p = state.players[vs]
+            p.is_alive = False
+            p.death_reason = DeathReason.KILLED
+            p.death_day = 1
+
+        # -- Night: wolves kill the remaining villager -------------------
+        remaining_vill = [s for s in vills
+                          if s != hunter_seat and state.players[s].is_alive]
+        state.current_night_actions.werewolf_kill_target = remaining_vill[0]
+        state.current_night_actions.seer_check_target = wolves[0]
+
+        # -- Vote: everyone votes out the hunter -------------------------
+        for seat in state.players:
+            if state.players[seat].is_alive and seat != hunter_seat:
+                state.current_votes[seat] = hunter_seat
+
+        # -- Hunter's retaliatory target (set by orchestrator before node)
+        state.player_to_shoot = wolves[0]  # shoot a werewolf
+
+        # -- Walk the graph ----------------------------------------------
+        visited, final_state = self._walk_graph(state)
+
+        # Assert hunter_shoot was visited
+        assert "hunter_shoot" in visited, (
+            f"Expected hunter_shoot in visited nodes, got {visited}"
+        )
+
+        # Assert correct order: day_vote → last_words → hunter_shoot → check_winner
+        dv_idx = visited.index("day_vote")
+        lw_idx = visited.index("last_words")
+        hs_idx = visited.index("hunter_shoot")
+        cw_idx = visited.index("check_winner")
+        assert dv_idx < lw_idx < hs_idx < cw_idx, (
+            f"Order wrong: {visited}"
+        )
+
+        # The hunter's target must be dead with DeathReason.SHOT
+        shot_target = final_state.players[wolves[0]]
+        assert shot_target.is_alive is False
+        assert shot_target.death_reason == DeathReason.SHOT
+
+        # Death history records the hunter shoot
+        shoot_entries = [
+            d for d in final_state.death_history
+            if d.get("reason") == DeathReason.SHOT.value
+        ]
+        assert len(shoot_entries) == 1
+        assert shoot_entries[0]["hunter_seat"] == hunter_seat
+
+        # Game ends (2w ≥ 2v → werewolf win)
+        assert final_state.winner == "werewolf"
+        assert final_state.phase == WerewolfPhase.GAME_OVER.value

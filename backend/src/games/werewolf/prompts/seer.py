@@ -30,6 +30,7 @@ SEER_SYSTEM_PROMPT = """你是一名狼人杀游戏中的预言家玩家。
 - 天数：第{day_number}天
 - 存活玩家：{alive_players}
 - 已死亡玩家：{dead_players}
+{speech_history_section}
 """
 
 SEER_NIGHT_PROMPT = """现在是夜晚，预言家行动时间。

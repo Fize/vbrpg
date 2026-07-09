@@ -342,17 +342,18 @@ class WerewolfGameOrchestrator:
     # ------------------------------------------------------------------
 
     async def _handle_werewolf_action(self, room_code: str) -> None:
-        """Night — werewolf chooses a kill target.
+        """Night — werewolf pack discusses and chooses a kill target.
 
-        If the werewolf player is AI, calls ``WerewolfAgent.decide_night_action``.
-        If human, waits for input (with AI takeover on timeout).
+        Phase 1: All alive werewolves share their opinion on who to kill.
+        Phase 2: A designated decider (human if any, else first AI) makes the
+        final call using ``make_final_kill_decision`` (AI) or direct input (human).
+        Falls back to ``decide_night_action`` on timeout.
         Sets ``state.current_night_actions.werewolf_kill_target``.
         """
         state = self._game_states.get(room_code)
         if state is None:
             return
 
-        # Find the decision-maker (only one werewolf makes the call)
         alive_wolves = [
             p for p in state.players.values()
             if p.is_alive and p.role == "werewolf"
@@ -360,39 +361,111 @@ class WerewolfGameOrchestrator:
         if not alive_wolves:
             return
 
-        # For now, pick the first alive werewolf as decider
-        decider = alive_wolves[0]
+        # Sort by seat number for deterministic ordering
+        alive_wolves.sort(key=lambda p: p.seat_number)
+
         available_targets = [
             {"seat_number": p.seat_number, "name": p.player_name, "player_id": p.player_id}
             for p in state.players.values()
             if p.is_alive and p.team != "werewolf"
         ]
+        gs_dict = self._state_to_dict(state)
 
-        if decider.is_ai:
+        # ------------------------------------------------------------------
+        # Phase 1 — Collect opinions from all alive wolves
+        # ------------------------------------------------------------------
+        teammate_opinions: List[Dict[str, Any]] = []
+        for wolf in alive_wolves:
+            if wolf.is_ai:
+                agent = self._ai_agents.get(room_code, {}).get(wolf.seat_number)
+                if agent is not None and hasattr(agent, "discuss_night_target"):
+                    opinion = await agent.discuss_night_target(
+                        game_state=gs_dict,
+                        available_targets=available_targets,
+                        previous_opinions=teammate_opinions,
+                        llm_client=self._llm_client,
+                    )
+                    teammate_opinions.append({
+                        "seat_number": wolf.seat_number,
+                        "name": wolf.player_name,
+                        "suggested_target": opinion.get("suggested_target"),
+                        "opinion": opinion.get("opinion", ""),
+                    })
+                    logger.info(
+                        "AI wolf %s suggests killing seat %s: %s",
+                        wolf.player_name, opinion.get("suggested_target"), opinion.get("opinion", ""),
+                    )
+            else:
+                # Human — wait for wolf_opinion input
+                await self._wait_for_human_action(room_code, "wolf_opinion", timeout=30)
+                action = getattr(state, "pending_human_action", None)
+                if action and action["type"] == "wolf_opinion":
+                    data = action["data"]
+                    teammate_opinions.append({
+                        "seat_number": wolf.seat_number,
+                        "name": wolf.player_name,
+                        "suggested_target": data.get("suggested_target"),
+                        "opinion": data.get("opinion", ""),
+                    })
+                    logger.info(
+                        "Human wolf %s suggests killing seat %s: %s",
+                        wolf.player_name, data.get("suggested_target"), data.get("opinion", ""),
+                    )
+                else:
+                    # Timeout — skip this wolf's opinion
+                    logger.info("Human wolf %s timed out during opinion phase", wolf.player_name)
+
+        # ------------------------------------------------------------------
+        # Phase 2 — Designate decider and make final decision
+        # ------------------------------------------------------------------
+        # If any wolf is human, the human decides; otherwise first AI wolf
+        human_wolves = [w for w in alive_wolves if not w.is_ai]
+        if human_wolves:
+            decider = human_wolves[0]
+            await self._wait_for_human_action(room_code, "kill", timeout=30)
+            action = getattr(state, "pending_human_action", None)
+            if action and action["type"] == "kill":
+                state.current_night_actions.werewolf_kill_target = action["data"].get("target")
+                logger.info(
+                    "Human wolf %s decided to kill seat %s",
+                    decider.player_name, action["data"].get("target"),
+                )
+            else:
+                # AI takeover
+                await self._ai_takeover_night_action(room_code, "werewolf")
+        else:
+            # All AI — first alive wolf makes final decision
+            decider = alive_wolves[0]
             agent = self._ai_agents.get(room_code, {}).get(decider.seat_number)
-            if agent is not None and hasattr(agent, "decide_night_action"):
-                gs_dict = self._state_to_dict(state)
-                decision = await agent.decide_night_action(
+            if agent is not None and hasattr(agent, "make_final_kill_decision"):
+                decision = await agent.make_final_kill_decision(
                     game_state=gs_dict,
                     available_targets=available_targets,
+                    teammate_opinions=teammate_opinions,
                     llm_client=self._llm_client,
                 )
                 target = decision.get("target")
                 if target is not None:
                     state.current_night_actions.werewolf_kill_target = target
                     logger.info(
-                        "AI werewolf %s decided to kill seat %d",
+                        "Alpha wolf %s decided to kill seat %d",
                         decider.player_name, target,
                     )
-        else:
-            # Human — wait for input with AI takeover on timeout
-            await self._wait_for_human_action(room_code, "kill", timeout=30)
-            action = getattr(state, "pending_human_action", None)
-            if action and action["type"] == "kill":
-                state.current_night_actions.werewolf_kill_target = action["data"].get("target")
             else:
-                # AI takeover
-                await self._ai_takeover_night_action(room_code, "werewolf")
+                # Fallback: use decide_night_action on the first wolf
+                if agent is not None and hasattr(agent, "decide_night_action"):
+                    decision = await agent.decide_night_action(
+                        game_state=gs_dict,
+                        available_targets=available_targets,
+                        llm_client=self._llm_client,
+                    )
+                    target = decision.get("target")
+                    if target is not None:
+                        state.current_night_actions.werewolf_kill_target = target
+                        logger.info(
+                            "AI werewolf %s (fallback) decided to kill seat %d",
+                            decider.player_name, target,
+                        )
 
     async def _handle_seer_action(self, room_code: str) -> None:
         """Night — seer chooses a target to check."""
@@ -509,22 +582,19 @@ class WerewolfGameOrchestrator:
 
         # Broadcast dawn announcement via host
         dead_player_objs = []
-        death_reasons = []
         for d in dead_players:
             seat = d.get("seat_number")
             player = state.players.get(seat) if seat else None
             if player:
                 dead_player_objs.append({"seat_number": seat, "name": player.player_name})
-                death_reasons.append(d.get("reason", "unknown"))
 
         # In practice the host announce_stream would broadcast via WebSocket
         # For now, log it
         if dead_player_objs:
             logger.info(
-                "Day %d dawn: dead=%s reasons=%s",
+                "Day %d dawn: dead=%s",
                 state.day_number,
                 [p["name"] for p in dead_player_objs],
-                death_reasons,
             )
         else:
             logger.info("Day %d dawn: peaceful night", state.day_number)
@@ -535,11 +605,36 @@ class WerewolfGameOrchestrator:
         if state is None:
             return
 
-        # Order: ascending seat number, starting from 1
-        alive_players = sorted(
-            [p for p in state.players.values() if p.is_alive],
-            key=lambda p: p.seat_number,
+        # Determine speaking order
+        all_seats = sorted(
+            [p.seat_number for p in state.players.values() if p.is_alive],
         )
+
+        if state.day_number == 1:
+            # Day 1: start from seat 1 (first player)
+            start_seat = 1
+        else:
+            # Find the most recently killed player (last entry in death_history)
+            last_killed = None
+            for d in reversed(state.death_history):
+                seat = d.get("seat_number")
+                if seat is not None:
+                    last_killed = seat
+                    break
+            if last_killed is not None:
+                start_seat = (last_killed % 10) + 1
+            else:
+                # Fallback: start from seat 1
+                start_seat = 1
+
+        # Build order: start from start_seat, go clockwise by seat number
+        alive_players = []
+        total_seats = 10
+        for i in range(total_seats):
+            seat = ((start_seat - 1 + i) % total_seats) + 1
+            player = state.players.get(seat)
+            if player and player.is_alive:
+                alive_players.append(player)
 
         for player in alive_players:
             if player.is_ai:
@@ -832,12 +927,12 @@ class WerewolfGameOrchestrator:
     def _state_to_dict(self, state: WerewolfGameState) -> Dict[str, Any]:
         """Convert game state to a flat dict for AI agent consumption."""
         alive_players = [
-            {"seat_number": p.seat_number, "name": p.player_name, "role": p.role}
+            {"seat_number": p.seat_number, "name": p.player_name}
             for p in state.players.values()
             if p.is_alive
         ]
         dead_players = [
-            {"seat_number": p.seat_number, "name": p.player_name, "role": p.role}
+            {"seat_number": p.seat_number, "name": p.player_name}
             for p in state.players.values()
             if not p.is_alive
         ]

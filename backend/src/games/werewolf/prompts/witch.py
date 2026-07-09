@@ -32,6 +32,7 @@ WITCH_SYSTEM_PROMPT = """你是一名狼人杀游戏中的女巫玩家。
 - 天数：第{day_number}天
 - 存活玩家：{alive_players}
 - 已死亡玩家：{dead_players}
+{speech_history_section}
 """
 
 WITCH_LAST_WORDS_SYSTEM_PROMPT = """你是一名狼人杀游戏中的女巫玩家。
@@ -55,6 +56,7 @@ WITCH_LAST_WORDS_SYSTEM_PROMPT = """你是一名狼人杀游戏中的女巫玩�
 - 天数：第{day_number}天
 - 存活玩家：{alive_players}
 - 已死亡玩家：{dead_players}
+{speech_history_section}
 """
 
 WITCH_NIGHT_PROMPT = """现在是夜晚，女巫行动时间。
@@ -73,6 +75,8 @@ WITCH_NIGHT_PROMPT = """现在是夜晚，女巫行动时间。
 1. "save": 使用解药救人（如果有解药且今晚有人被杀）
 2. "poison": 使用毒药毒杀一名玩家（如果有毒药）
 3. "pass": 不使用任何药物
+
+{speech_history_section}
 
 注意：同一晚不能同时使用解药和毒药。
 

@@ -689,3 +689,114 @@ class TestAgentCreation:
         assert witch.team == "villager"
         assert hunter.team == "villager"
         assert villager.team == "villager"
+
+
+class TestGenerateSpeech:
+    """Tests for BaseGameAgent.generate_speech."""
+
+    @pytest.fixture
+    def mock_llm_speech(self):
+        """Create a mock LLM client that returns plain text speech."""
+        client = MagicMock()
+        client.generate = AsyncMock(return_value="我是好人")
+        return client
+
+    @pytest.mark.asyncio
+    async def test_generate_speech_returns_string(self, mock_llm_speech, sample_game_state):
+        """Test generate_speech returns the LLM response as a string."""
+        agent = VillagerAgent(
+            seat_number=5,
+            player_name="P5",
+            player_id="p5",
+        )
+
+        response = await agent.generate_speech(
+            game_state=sample_game_state,
+            llm_client=mock_llm_speech,
+        )
+
+        assert response == "我是好人"
+
+    @pytest.mark.asyncio
+    async def test_generate_speech_prompt_format(self, mock_llm_speech, sample_game_state):
+        """Test generate_speech builds the correct prompt structure."""
+        agent = VillagerAgent(
+            seat_number=5,
+            player_name="P5",
+            player_id="p5",
+        )
+
+        await agent.generate_speech(
+            game_state=sample_game_state,
+            llm_client=mock_llm_speech,
+        )
+
+        # Verify the mock was called with the right message format
+        call_kwargs = mock_llm_speech.generate.call_args.kwargs
+        messages = call_kwargs["messages"]
+        assert len(messages) == 2
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] == "user"
+        assert "P5" in messages[1]["content"]
+        assert "第1天" in messages[1]["content"]
+        assert "白天讨论" in messages[1]["content"]
+
+
+class TestDecideVote:
+    """Tests for BaseGameAgent.decide_vote."""
+
+    @pytest.mark.asyncio
+    async def test_decide_vote_returns_target(self, sample_game_state):
+        """Test decide_vote returns the target from LLM response."""
+        agent = VillagerAgent(
+            seat_number=5,
+            player_name="P5",
+            player_id="p5",
+        )
+
+        mock_client = MagicMock()
+        mock_client.generate = AsyncMock(
+            return_value='{"target": 3, "reasoning": "test"}'
+        )
+
+        available_targets = [
+            {"seat_number": i, "name": f"P{i}"}
+            for i in range(1, 11)
+            if i != 5
+        ]
+
+        result = await agent.decide_vote(
+            game_state=sample_game_state,
+            available_targets=available_targets,
+            llm_client=mock_client,
+        )
+
+        assert result["target"] == 3
+        assert result["reasoning"] == "test"
+
+    @pytest.mark.asyncio
+    async def test_decide_vote_fallback_on_parse_failure(self, sample_game_state):
+        """Test decide_vote falls back to first available target on JSON parse failure."""
+        agent = VillagerAgent(
+            seat_number=5,
+            player_name="P5",
+            player_id="p5",
+        )
+
+        mock_client = MagicMock()
+        mock_client.generate = AsyncMock(return_value="not json")
+
+        available_targets = [
+            {"seat_number": i, "name": f"P{i}"}
+            for i in range(1, 11)
+            if i != 5
+        ]
+
+        result = await agent.decide_vote(
+            game_state=sample_game_state,
+            available_targets=available_targets,
+            llm_client=mock_client,
+        )
+
+        assert result["target"] == 1  # first available seat_number
+        assert "解析失败" in result["reasoning"]
