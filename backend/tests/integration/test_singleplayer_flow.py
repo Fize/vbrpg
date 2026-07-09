@@ -178,10 +178,10 @@ class TestRoleSelection:
         )
         room_code = create_response.json()["code"]
         
-        # Select participant role
+        # Select participant role — needs player_id for player mode
         select_response = await client.post(
             f"/api/v1/rooms/{room_code}/select-role",
-            json={"is_spectator": False, "role_id": "detective"}
+            json={"is_spectator": False, "role_id": "detective", "player_id": "test-select-role-player"}
         )
         assert select_response.status_code == 200
         

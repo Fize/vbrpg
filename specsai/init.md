@@ -197,6 +197,7 @@ backend/src/
     ├── game_types.py                     # 游戏类型定义（狼人杀、犯罪现场等）
     └── roles.py                          # 角色定义（狼人、预言家、女巫等）
 
+<<<<<<< Updated upstream
 frontend/src/
 ├── main.js                               # Vue 应用入口
 ├── App.vue                               # 根组件
@@ -225,6 +226,99 @@ frontend/src/
 ├── assets/                               # 静态资源
 ├── plugins/                              # Vue 插件
 └── types/                                # TypeScript 类型定义（如使用 TS）
+=======
+frontend/
+├── index.html                       # HTML 入口
+├── package.json                     # NPM 依赖和脚本
+├── vite.config.js                   # Vite 构建配置
+├── vitest.config.js                 # Vitest 测试配置
+├── playwright.config.js             # E2E 测试配置
+└── src/
+    ├── main.js                      # Vue 应用入口
+    ├── App.vue                      # 根组件
+    ├── router/
+    │   └── index.js                 # Vue Router 路由配置
+    ├── stores/
+    │   ├── index.js                 # Pinia 存储入口
+    │   ├── game.js                  # 游戏状态存储
+    │   ├── auth.js                  # 认证状态存储
+    │   ├── lobby.js                 # 大厅状态存储
+    │   └── socket.js                # Socket 连接状态存储
+    ├── services/
+    │   ├── api.js                   # Axios API 客户端
+    │   ├── websocket.js             # Socket.IO 客户端封装
+    │   └── analytics.ts             # 分析服务
+    ├── views/
+    │   ├── LobbyView.vue            # 游戏大厅视图
+    │   ├── CreateRoomView.vue       # 创建房间视图
+    │   ├── RoomLobbyView.vue        # 房间等待大厅
+    │   ├── GameDetails.vue          # 游戏详情视图
+    │   └── WerewolfGameView.vue     # 狼人杀游戏视图
+    ├── components/
+    │   ├── common/                  # 通用组件
+    │   │   ├── AppLayout.vue        # 应用布局组件
+    │   │   ├── AIThinkingIndicator.vue  # AI 思考状态指示
+    │   │   ├── ReconnectionDialog.vue   # 重连对话框
+    │   │   ├── ReconnectionFeedback.vue # 重连反馈组件
+    │   │   ├── ConnectionStatus.vue     # 连接状态组件
+    │   │   ├── ErrorDialog.vue      # 错误对话框
+    │   │   ├── ErrorMessage.vue     # 错误信息组件
+    │   │   ├── EmptyState.vue       # 空状态组件
+    │   │   └── LoadingIndicator.vue # 加载指示器
+    │   ├── werewolf/                # 狼人杀专用组件
+    │   │   ├── SeatCircle.vue       # 座位圈组件
+    │   │   ├── PlayerSeat.vue       # 玩家座位组件
+    │   │   ├── RoleCard.vue         # 角色卡组件
+    │   │   ├── RoleSelector.vue     # 角色选择器
+    │   │   ├── VotePanel.vue        # 投票面板
+    │   │   ├── NightActionPanel.vue # 夜间行动面板
+    │   │   ├── PlayerInputPanel.vue # 玩家输入面板
+    │   │   ├── SpeechBubble.vue     # 发言气泡组件
+    │   │   ├── GameLog.vue          # 游戏日志
+    │   │   ├── GameControlBar.vue   # 游戏控制栏
+    │   │   ├── GamePhaseIndicator.vue # 游戏阶段指示器
+    │   │   ├── LogLevelSwitch.vue   # 日志级别切换
+    │   │   ├── HostAnnouncement.vue # 主持人公告组件
+    │   │   ├── HostAnnouncementPanel.vue # 主持人公告面板
+    │   │   ├── WerewolfModeDialog.vue # 狼人杀模式选择对话框
+    │   │   ├── ParticipantList.vue  # 参与者列表
+    │   │   └── WerewolfGameCard.vue # 狼人杀游戏卡片
+    │   ├── lobby/                   # 大厅相关组件
+    │   │   ├── JoinRoomForm.vue     # 加入房间表单
+    │   │   └── AIAgentControls.vue  # AI 代理控制组件
+    │   └── icons/                   # 图标组件目录
+    │       ├── index.js             # 图标组件导出
+    │       ├── ClueIcon.vue         # 线索图标
+    │       ├── DetectiveIcon.vue    # 侦探图标
+    │       ├── DiceIcon.vue         # 骰子图标
+    │       ├── LocationIcon.vue     # 地点图标
+    │       ├── ThinkingIcon.vue     # 思考图标
+    │       └── TrophyIcon.vue       # 奖杯图标
+    ├── types/
+    │   ├── websocket.js             # WebSocket 类型定义
+    │   ├── game.js                  # 游戏相关类型
+    │   ├── player.js                # 玩家相关类型
+    │   └── room.js                  # 房间相关类型
+    ├── config/
+    │   └── assetConfig.js           # 静态资源配置
+    ├── plugins/
+    │   └── element-plus.js          # Element Plus 插件配置
+    ├── utils/
+    │   ├── api.ts                   # API 工具函数
+    │   ├── imageOptimization.js     # 图片优化工具
+    │   └── phase.js                 # 游戏阶段工具函数
+    └── assets/
+        └── styles/
+            ├── global.css           # 全局样式
+            ├── transitions.css      # 过渡动画
+            ├── typography.css       # 排版样式
+            └── interactive.css      # 交互样式
+
+scripts/
+├── deploy.sh                        # 部署脚本
+├── run-phase7-tests.sh              # Phase7 测试脚本
+└── smoke-tests.sh                   # 冒烟测试脚本
+>>>>>>> Stashed changes
 ```
 
 ## 技术栈
