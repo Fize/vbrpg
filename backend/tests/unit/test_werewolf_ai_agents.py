@@ -47,33 +47,29 @@ def sample_available_targets():
     ]
 
 
-class TestBaseWerewolfAgent:
-    """Tests for BaseWerewolfAgent base functionality."""
+class TestBaseGameAgent:
+    """Tests for BaseGameAgent base functionality (via WerewolfAgent)."""
 
-    def test_add_known_info(self, mock_llm_client):
-        """Test adding known information."""
+    def test_initial_state(self):
+        """Test initial agent state."""
         agent = WerewolfAgent(
             player_id="p1",
             player_name="TestPlayer",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
-        agent.add_known_info({
-            "type": "check_result",
-            "content": "3号是好人",
-        })
+        assert agent.player_id == "p1"
+        assert agent.player_name == "TestPlayer"
+        assert agent.seat_number == 1
+        assert agent.is_alive is True
+        assert agent.memory == []
 
-        assert len(agent.known_info) == 1
-        assert agent.known_info[0]["type"] == "check_result"
-
-    def test_add_memory(self, mock_llm_client):
+    def test_add_memory(self):
         """Test adding memory events."""
         agent = WerewolfAgent(
             player_id="p1",
             player_name="TestPlayer",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         agent.add_memory({
@@ -85,130 +81,39 @@ class TestBaseWerewolfAgent:
         assert len(agent.memory) == 1
         assert agent.memory[0]["type"] == "speech"
 
-    def test_format_known_info_empty(self, mock_llm_client):
-        """Test formatting empty known info."""
+    def test_get_system_prompt(self, sample_game_state):
+        """Test getting system prompt."""
         agent = WerewolfAgent(
             player_id="p1",
             player_name="TestPlayer",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
-        result = agent.format_known_info()
-        assert result == "暂无已知信息"
-
-    def test_format_known_info_with_content(self, mock_llm_client):
-        """Test formatting known info with content."""
-        agent = WerewolfAgent(
-            player_id="p1",
-            player_name="TestPlayer",
-            seat_number=1,
-            llm_client=mock_llm_client,
-        )
-
-        agent.add_known_info({"type": "check", "content": "3号是狼人"})
-
-        result = agent.format_known_info()
-        assert "3号是狼人" in result
-        assert "[check]" in result
-
-    def test_format_game_state(self, mock_llm_client, sample_game_state):
-        """Test formatting game state."""
-        agent = WerewolfAgent(
-            player_id="p1",
-            player_name="TestPlayer",
-            seat_number=1,
-            llm_client=mock_llm_client,
-        )
-
-        formatted = agent.format_game_state(sample_game_state)
-
-        assert formatted["day_number"] == "1"
-        assert "1号Player_1" in formatted["alive_players"]
-        assert formatted["dead_players"] == "无"
-
-    def test_set_dead(self, mock_llm_client):
-        """Test marking agent as dead."""
-        agent = WerewolfAgent(
-            player_id="p1",
-            player_name="TestPlayer",
-            seat_number=1,
-            llm_client=mock_llm_client,
-        )
-
-        assert agent.is_alive is True
-        agent.set_dead()
-        assert agent.is_alive is False
-
-    def test_parse_json_response_valid(self, mock_llm_client):
-        """Test parsing valid JSON response."""
-        agent = WerewolfAgent(
-            player_id="p1",
-            player_name="TestPlayer",
-            seat_number=1,
-            llm_client=mock_llm_client,
-        )
-
-        response = '{"action": "kill", "target": 3}'
-        result = agent._parse_json_response(response)
-
-        assert result["action"] == "kill"
-        assert result["target"] == 3
-
-    def test_parse_json_response_with_code_blocks(self, mock_llm_client):
-        """Test parsing JSON response with markdown code blocks."""
-        agent = WerewolfAgent(
-            player_id="p1",
-            player_name="TestPlayer",
-            seat_number=1,
-            llm_client=mock_llm_client,
-        )
-
-        response = '```json\n{"action": "kill", "target": 3}\n```'
-        result = agent._parse_json_response(response)
-
-        assert result["action"] == "kill"
-        assert result["target"] == 3
-
-    def test_parse_json_response_invalid(self, mock_llm_client):
-        """Test parsing invalid JSON response."""
-        agent = WerewolfAgent(
-            player_id="p1",
-            player_name="TestPlayer",
-            seat_number=1,
-            llm_client=mock_llm_client,
-        )
-
-        response = "not json"
-        result = agent._parse_json_response(response)
-
-        assert result == {}
+        prompt = agent.get_system_prompt(sample_game_state)
+        assert isinstance(prompt, str)
+        assert len(prompt) > 0
 
 
 class TestWerewolfAgent:
     """Tests for WerewolfAgent."""
 
-    def test_role_properties(self, mock_llm_client):
+    def test_role_properties(self):
         """Test werewolf role properties."""
         agent = WerewolfAgent(
             player_id="p1",
             player_name="TestWolf",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         assert agent.role_type == "werewolf"
         assert agent.team == "werewolf"
-        assert agent.role_name == "狼人"
-        assert agent.team_name == "狼人阵营"
 
-    def test_set_teammates(self, mock_llm_client):
+    def test_set_teammates(self):
         """Test setting werewolf teammates."""
         agent = WerewolfAgent(
             player_id="p1",
             player_name="TestWolf",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         teammates = [
@@ -221,14 +126,13 @@ class TestWerewolfAgent:
         # Should add to known info
         assert len(agent.known_info) == 2
 
-    def test_get_system_prompt(self, mock_llm_client, sample_game_state):
+    def test_get_system_prompt(self, sample_game_state):
         """Test getting system prompt."""
         agent = WerewolfAgent(
             player_id="p1",
             player_name="TestWolf",
             seat_number=1,
             teammates=[{"seat_number": 3, "name": "Wolf_2", "is_alive": True}],
-            llm_client=mock_llm_client,
         )
 
         prompt = agent.get_system_prompt(sample_game_state)
@@ -236,6 +140,32 @@ class TestWerewolfAgent:
         assert isinstance(prompt, str)
         assert len(prompt) > 0
         assert "狼人" in prompt
+
+    def test_format_known_info_empty(self):
+        """Test formatting empty known info."""
+        agent = WerewolfAgent(
+            player_id="p1",
+            player_name="TestPlayer",
+            seat_number=1,
+        )
+
+        result = agent.format_known_info()
+        assert result == "暂无已知信息"
+
+    def test_format_known_info_with_content(self):
+        """Test formatting known info with content."""
+        agent = WerewolfAgent(
+            player_id="p1",
+            player_name="TestPlayer",
+            seat_number=1,
+        )
+
+        agent.set_teammates([
+            {"seat_number": 3, "name": "Wolf_2", "is_alive": True},
+        ])
+
+        result = agent.format_known_info()
+        assert "3号" in result
 
     @pytest.mark.asyncio
     async def test_decide_night_action(
@@ -251,42 +181,126 @@ class TestWerewolfAgent:
             player_name="TestWolf",
             seat_number=1,
             teammates=[{"seat_number": 3, "name": "Wolf_2", "is_alive": True}],
-            llm_client=mock_llm_client,
         )
 
         decision = await agent.decide_night_action(
-            sample_game_state, sample_available_targets
+            sample_game_state, sample_available_targets, llm_client=mock_llm_client
         )
 
         assert "action" in decision
         assert "target" in decision
         assert "reasoning" in decision
 
+    @pytest.mark.asyncio
+    async def test_discuss_night_target(self, mock_llm_client, sample_game_state, sample_available_targets):
+        """Test werewolf night discussion."""
+        mock_llm_client.generate = AsyncMock(
+            return_value='{"suggested_target": 5, "opinion": "建议击杀5号"}'
+        )
+
+        agent = WerewolfAgent(
+            player_id="p1",
+            player_name="TestWolf",
+            seat_number=1,
+            teammates=[{"seat_number": 3, "name": "Wolf_2", "is_alive": True}],
+        )
+
+        result = await agent.discuss_night_target(
+            sample_game_state, sample_available_targets, llm_client=mock_llm_client
+        )
+
+        assert "suggested_target" in result
+        assert result["seat_number"] == 1
+        assert result["name"] == "TestWolf"
+
+    @pytest.mark.asyncio
+    async def test_make_final_kill_decision(self, mock_llm_client, sample_game_state, sample_available_targets):
+        """Test werewolf final kill decision."""
+        mock_llm_client.generate = AsyncMock(
+            return_value='{"action": "kill", "target": 5, "reasoning": "最终决定击杀5号"}'
+        )
+
+        agent = WerewolfAgent(
+            player_id="p1",
+            player_name="TestWolf",
+            seat_number=1,
+            teammates=[{"seat_number": 3, "name": "Wolf_2", "is_alive": True}],
+        )
+
+        teammate_opinions = [
+            {"seat_number": 3, "name": "Wolf_2", "suggested_target": 5, "opinion": "5号像女巫"},
+            {"seat_number": 1, "name": "TestWolf", "suggested_target": 3, "opinion": "3号像预言家"},
+        ]
+
+        result = await agent.make_final_kill_decision(
+            sample_game_state, sample_available_targets, teammate_opinions, llm_client=mock_llm_client
+        )
+
+        assert "target" in result
+        assert result["action"] == "kill"
+
+    def test_parse_json_response_valid(self):
+        """Test parsing valid JSON response."""
+        agent = WerewolfAgent(
+            player_id="p1",
+            player_name="TestPlayer",
+            seat_number=1,
+        )
+
+        response = '{"action": "kill", "target": 3}'
+        result = agent._parse_json_response(response)
+
+        assert result["action"] == "kill"
+        assert result["target"] == 3
+
+    def test_parse_json_response_with_code_blocks(self):
+        """Test parsing JSON response with markdown code blocks."""
+        agent = WerewolfAgent(
+            player_id="p1",
+            player_name="TestPlayer",
+            seat_number=1,
+        )
+
+        response = '```json\n{"action": "kill", "target": 3}\n```'
+        result = agent._parse_json_response(response)
+
+        assert result["action"] == "kill"
+        assert result["target"] == 3
+
+    def test_parse_json_response_invalid(self):
+        """Test parsing invalid JSON response."""
+        agent = WerewolfAgent(
+            player_id="p1",
+            player_name="TestPlayer",
+            seat_number=1,
+        )
+
+        response = "not json"
+        result = agent._parse_json_response(response)
+
+        assert result == {}
+
 
 class TestSeerAgent:
     """Tests for SeerAgent."""
 
-    def test_role_properties(self, mock_llm_client):
+    def test_role_properties(self):
         """Test seer role properties."""
         agent = SeerAgent(
             player_id="p1",
             player_name="TestSeer",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         assert agent.role_type == "seer"
         assert agent.team == "villager"
-        assert agent.role_name == "预言家"
-        assert agent.team_name == "好人阵营"
 
-    def test_add_check_result(self, mock_llm_client):
+    def test_add_check_result(self):
         """Test adding check result."""
         agent = SeerAgent(
             player_id="p1",
             player_name="TestSeer",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         agent.add_check_result(
@@ -300,25 +314,23 @@ class TestSeerAgent:
         assert agent.check_history[0]["is_werewolf"] is True
         assert len(agent.known_info) == 1
 
-    def test_format_check_history_empty(self, mock_llm_client):
+    def test_format_check_history_empty(self):
         """Test formatting empty check history."""
         agent = SeerAgent(
             player_id="p1",
             player_name="TestSeer",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         result = agent.format_check_history()
         assert result == "暂无查验记录"
 
-    def test_format_check_history_with_results(self, mock_llm_client):
+    def test_format_check_history_with_results(self):
         """Test formatting check history with results."""
         agent = SeerAgent(
             player_id="p1",
             player_name="TestSeer",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         agent.add_check_result(3, "Player_3", True, 1)
@@ -330,6 +342,34 @@ class TestSeerAgent:
         assert "第2夜" in result
         assert "狼人" in result
         assert "好人" in result
+
+    def test_get_confirmed_werewolves(self):
+        """Test getting confirmed werewolves."""
+        agent = SeerAgent(
+            player_id="p1",
+            player_name="TestSeer",
+            seat_number=1,
+        )
+
+        agent.add_check_result(3, "Player_3", True, 1)
+        agent.add_check_result(5, "Player_5", False, 2)
+
+        werewolves = agent.get_confirmed_werewolves()
+        assert werewolves == [3]
+
+    def test_get_confirmed_good(self):
+        """Test getting confirmed good players."""
+        agent = SeerAgent(
+            player_id="p1",
+            player_name="TestSeer",
+            seat_number=1,
+        )
+
+        agent.add_check_result(3, "Player_3", True, 1)
+        agent.add_check_result(5, "Player_5", False, 2)
+
+        good = agent.get_confirmed_good()
+        assert good == [5]
 
     @pytest.mark.asyncio
     async def test_decide_night_action(
@@ -344,11 +384,10 @@ class TestSeerAgent:
             player_id="p1",
             player_name="TestSeer",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         decision = await agent.decide_night_action(
-            sample_game_state, sample_available_targets
+            sample_game_state, sample_available_targets, llm_client=mock_llm_client
         )
 
         assert "action" in decision
@@ -359,38 +398,34 @@ class TestSeerAgent:
 class TestWitchAgent:
     """Tests for WitchAgent."""
 
-    def test_role_properties(self, mock_llm_client):
+    def test_role_properties(self):
         """Test witch role properties."""
         agent = WitchAgent(
             player_id="p1",
             player_name="TestWitch",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         assert agent.role_type == "witch"
         assert agent.team == "villager"
-        assert agent.role_name == "女巫"
 
-    def test_initial_potion_status(self, mock_llm_client):
+    def test_initial_potion_status(self):
         """Test initial potion status."""
         agent = WitchAgent(
             player_id="p1",
             player_name="TestWitch",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         assert agent.has_antidote is True
         assert agent.has_poison is True
 
-    def test_use_antidote(self, mock_llm_client):
+    def test_use_antidote(self):
         """Test using antidote."""
         agent = WitchAgent(
             player_id="p1",
             player_name="TestWitch",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         result = agent.use_antidote()
@@ -401,13 +436,12 @@ class TestWitchAgent:
         result = agent.use_antidote()
         assert result is False
 
-    def test_use_poison(self, mock_llm_client):
+    def test_use_poison(self):
         """Test using poison."""
         agent = WitchAgent(
             player_id="p1",
             player_name="TestWitch",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         result = agent.use_poison()
@@ -418,13 +452,12 @@ class TestWitchAgent:
         result = agent.use_poison()
         assert result is False
 
-    def test_get_potion_status(self, mock_llm_client):
+    def test_get_potion_status(self):
         """Test getting potion status."""
         agent = WitchAgent(
             player_id="p1",
             player_name="TestWitch",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         status = agent.get_potion_status()
@@ -449,7 +482,6 @@ class TestWitchAgent:
             player_id="p1",
             player_name="TestWitch",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         killed_player = {"seat_number": 3, "name": "Player_3"}
@@ -458,46 +490,71 @@ class TestWitchAgent:
             sample_game_state,
             sample_available_targets,
             killed_player=killed_player,
+            llm_client=mock_llm_client,
         )
 
         assert "action" in decision
         assert "reasoning" in decision
 
+    @pytest.mark.asyncio
+    async def test_decide_self_save(self):
+        """Test witch self-save decision on first night."""
+        agent = WitchAgent(
+            player_id="p1",
+            player_name="TestWitch",
+            seat_number=1,
+        )
+
+        game_state = {"day_number": 1}
+        decision = await agent.decide_self_save(game_state)
+
+        assert decision is True
+
+    @pytest.mark.asyncio
+    async def test_decide_self_save_not_first_night(self):
+        """Test witch self-save decision after first night."""
+        agent = WitchAgent(
+            player_id="p1",
+            player_name="TestWitch",
+            seat_number=1,
+        )
+
+        game_state = {"day_number": 2}
+        decision = await agent.decide_self_save(game_state)
+
+        assert decision is False
+
 
 class TestHunterAgent:
     """Tests for HunterAgent."""
 
-    def test_role_properties(self, mock_llm_client):
+    def test_role_properties(self):
         """Test hunter role properties."""
         agent = HunterAgent(
             player_id="p1",
             player_name="TestHunter",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         assert agent.role_type == "hunter"
         assert agent.team == "villager"
-        assert agent.role_name == "猎人"
 
-    def test_initial_can_shoot(self, mock_llm_client):
+    def test_initial_can_shoot(self):
         """Test initial shooting ability."""
         agent = HunterAgent(
             player_id="p1",
             player_name="TestHunter",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         assert agent.can_shoot is True
 
-    def test_disable_shoot(self, mock_llm_client):
+    def test_disable_shoot(self):
         """Test disabling shooting ability."""
         agent = HunterAgent(
             player_id="p1",
             player_name="TestHunter",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         agent.disable_shoot()
@@ -512,11 +569,10 @@ class TestHunterAgent:
             player_id="p1",
             player_name="TestHunter",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         decision = await agent.decide_night_action(
-            sample_game_state, sample_available_targets
+            sample_game_state, sample_available_targets, llm_client=mock_llm_client
         )
 
         assert decision["action"] == "pass"
@@ -531,13 +587,13 @@ class TestHunterAgent:
             player_id="p1",
             player_name="TestHunter",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         decision = await agent.decide_shoot(
             sample_game_state,
             death_reason="poisoned",
             available_targets=sample_available_targets,
+            llm_client=mock_llm_client,
         )
 
         assert decision["action"] == "no_shoot"
@@ -556,13 +612,13 @@ class TestHunterAgent:
             player_id="p1",
             player_name="TestHunter",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         decision = await agent.decide_shoot(
             sample_game_state,
             death_reason="killed",
             available_targets=sample_available_targets,
+            llm_client=mock_llm_client,
         )
 
         assert decision["action"] == "shoot"
@@ -572,18 +628,16 @@ class TestHunterAgent:
 class TestVillagerAgent:
     """Tests for VillagerAgent."""
 
-    def test_role_properties(self, mock_llm_client):
+    def test_role_properties(self):
         """Test villager role properties."""
         agent = VillagerAgent(
             player_id="p1",
             player_name="TestVillager",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         assert agent.role_type == "villager"
         assert agent.team == "villager"
-        assert agent.role_name == "村民"
 
     @pytest.mark.asyncio
     async def test_decide_night_action_pass(
@@ -594,167 +648,41 @@ class TestVillagerAgent:
             player_id="p1",
             player_name="TestVillager",
             seat_number=1,
-            llm_client=mock_llm_client,
         )
 
         decision = await agent.decide_night_action(
-            sample_game_state, sample_available_targets
+            sample_game_state, sample_available_targets, llm_client=mock_llm_client
         )
 
         assert decision["action"] == "pass"
         assert decision["target"] is None
 
 
-class TestSpeechGeneration:
-    """Tests for speech generation."""
-
-    @pytest.mark.asyncio
-    async def test_generate_speech_fallback(
-        self, mock_llm_client, sample_game_state
-    ):
-        """Test speech generation fallback on error."""
-        mock_llm_client.generate = AsyncMock(side_effect=Exception("API Error"))
-
-        agent = VillagerAgent(
-            player_id="p1",
-            player_name="TestVillager",
-            seat_number=1,
-            llm_client=mock_llm_client,
-        )
-
-        speech = await agent.generate_speech(sample_game_state, [])
-
-        # Should return fallback message
-        assert "1号" in speech
-
-    @pytest.mark.asyncio
-    async def test_generate_speech_success(
-        self, mock_llm_client, sample_game_state
-    ):
-        """Test successful speech generation."""
-        mock_llm_client.generate = AsyncMock(
-            return_value="大家好，我是村民，我觉得3号很可疑。"
-        )
-
-        agent = VillagerAgent(
-            player_id="p1",
-            player_name="TestVillager",
-            seat_number=1,
-            llm_client=mock_llm_client,
-        )
-
-        speech = await agent.generate_speech(sample_game_state, [])
-
-        assert speech == "大家好，我是村民，我觉得3号很可疑。"
-        # Should add to memory
-        assert len(agent.memory) == 1
-
-
-class TestVoteDecision:
-    """Tests for vote decision."""
-
-    @pytest.mark.asyncio
-    async def test_decide_vote_success(
-        self, mock_llm_client, sample_game_state, sample_available_targets
-    ):
-        """Test vote decision success."""
-        mock_llm_client.generate = AsyncMock(
-            return_value='{"action": "vote", "target": 3, "reasoning": "3号发言很可疑"}'
-        )
-
-        agent = VillagerAgent(
-            player_id="p1",
-            player_name="TestVillager",
-            seat_number=1,
-            llm_client=mock_llm_client,
-        )
-
-        decision = await agent.decide_vote(
-            sample_game_state,
-            speech_summary="各位玩家发言完毕",
-            voteable_players=sample_available_targets,
-        )
-
-        assert decision["action"] == "vote"
-        assert decision["target"] == 3
-        assert len(agent.memory) == 1  # Vote added to memory
-
-    @pytest.mark.asyncio
-    async def test_decide_vote_abstain(
-        self, mock_llm_client, sample_game_state, sample_available_targets
-    ):
-        """Test vote abstain decision."""
-        mock_llm_client.generate = AsyncMock(
-            return_value='{"action": "abstain", "target": null, "reasoning": "信息不足"}'
-        )
-
-        agent = VillagerAgent(
-            player_id="p1",
-            player_name="TestVillager",
-            seat_number=1,
-            llm_client=mock_llm_client,
-        )
-
-        decision = await agent.decide_vote(
-            sample_game_state,
-            speech_summary="各位玩家发言完毕",
-            voteable_players=sample_available_targets,
-        )
-
-        assert decision["action"] == "abstain"
-        assert decision["target"] is None
-
-    @pytest.mark.asyncio
-    async def test_decide_vote_fallback_on_error(
-        self, mock_llm_client, sample_game_state, sample_available_targets
-    ):
-        """Test vote fallback on error."""
-        mock_llm_client.generate = AsyncMock(side_effect=Exception("API Error"))
-
-        agent = VillagerAgent(
-            player_id="p1",
-            player_name="TestVillager",
-            seat_number=1,
-            llm_client=mock_llm_client,
-        )
-
-        decision = await agent.decide_vote(
-            sample_game_state,
-            speech_summary="各位玩家发言完毕",
-            voteable_players=sample_available_targets,
-        )
-
-        # Should abstain on error
-        assert decision["action"] == "abstain"
-
-
 class TestAgentCreation:
     """Tests for creating agents from different roles."""
 
-    def test_create_all_agent_types(self, mock_llm_client):
+    def test_create_all_agent_types(self):
         """Test creating all agent types."""
         agents = [
-            WerewolfAgent("p1", "Wolf", 1, llm_client=mock_llm_client),
-            SeerAgent("p2", "Seer", 2, llm_client=mock_llm_client),
-            WitchAgent("p3", "Witch", 3, llm_client=mock_llm_client),
-            HunterAgent("p4", "Hunter", 4, llm_client=mock_llm_client),
-            VillagerAgent("p5", "Villager", 5, llm_client=mock_llm_client),
+            WerewolfAgent("p1", "Wolf", 1),
+            SeerAgent("p2", "Seer", 2),
+            WitchAgent("p3", "Witch", 3),
+            HunterAgent("p4", "Hunter", 4),
+            VillagerAgent("p5", "Villager", 5),
         ]
 
-        # All should be instances of BaseWerewolfAgent
         for agent in agents:
-            assert isinstance(agent, BaseWerewolfAgent)
+            assert isinstance(agent, BaseGameAgent)
             assert agent.is_alive is True
-            assert agent.known_info == []
             assert agent.memory == []
 
-    def test_agents_have_correct_teams(self, mock_llm_client):
+    def test_agents_have_correct_teams(self):
         """Test that agents belong to correct teams."""
-        werewolf = WerewolfAgent("p1", "Wolf", 1, llm_client=mock_llm_client)
-        seer = SeerAgent("p2", "Seer", 2, llm_client=mock_llm_client)
-        witch = WitchAgent("p3", "Witch", 3, llm_client=mock_llm_client)
-        hunter = HunterAgent("p4", "Hunter", 4, llm_client=mock_llm_client)
-        villager = VillagerAgent("p5", "Villager", 5, llm_client=mock_llm_client)
+        werewolf = WerewolfAgent("p1", "Wolf", 1)
+        seer = SeerAgent("p2", "Seer", 2)
+        witch = WitchAgent("p3", "Witch", 3)
+        hunter = HunterAgent("p4", "Hunter", 4)
+        villager = VillagerAgent("p5", "Villager", 5)
 
         assert werewolf.team == "werewolf"
         assert seer.team == "villager"

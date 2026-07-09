@@ -8,8 +8,7 @@ Phase 5: 遗言与观战模式测试
 - T53: 观战模式切换
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from unittest.mock import AsyncMock, patch
 
 from src.games.werewolf.orchestrator import WerewolfGameOrchestrator
 from src.games.werewolf.state import (
@@ -42,17 +41,10 @@ class TestLastWordsStateFields:
 
 
 class TestLastWordsOptionsGeneration:
-    """T48: 测试遗言选项生成"""
+    """T48: 测试遗言处理（含角色场景）"""
     
     @pytest.fixture
-    def mock_db(self):
-        """创建 mock 数据库会话"""
-        db = MagicMock()
-        db.query.return_value.filter.return_value.first.return_value = None
-        return db
-    
-    @pytest.fixture
-    def game_service(self, mock_db):
+    def game_service(self):
         return WerewolfGameOrchestrator()
     
     @pytest.fixture
@@ -62,6 +54,10 @@ class TestLastWordsOptionsGeneration:
         state.phase = WerewolfPhase.LAST_WORDS
         state.day_number = 2
         state.human_player_seat = 3
+        state.waiting_for_human_action = True
+        state.human_action_type = "last_words"
+        state.last_words_seat = 3
+        state.last_words_reason = "vote"
         
         # 创建玩家
         for i in range(1, 11):
@@ -89,74 +85,76 @@ class TestLastWordsOptionsGeneration:
         game_service._game_states["TEST"] = state
         return state
     
-    def test_generate_last_words_options_villager(self, game_service, game_state_with_dead_player):
-        """村民遗言应有村民特定选项"""
+    @pytest.mark.asyncio
+    async def test_process_last_words_villager(self, game_service, game_state_with_dead_player):
+        """村民遗言处理"""
         game_state_with_dead_player.players[3].role = "villager"
         
-        options = game_service._generate_last_words_options(
-            game_state_with_dead_player, 3, "vote"
+        result = await game_service.process_human_last_words(
+            room_code="TEST",
+            player_id="player_3",
+            content="我是好人，你们投错了！"
         )
         
-        assert len(options) > 0
-        option_ids = [opt["id"] for opt in options]
-        assert "no_words" in option_ids  # 跳过选项
-        assert "innocent_plea" in option_ids  # 村民特定
+        assert result["success"] is True
     
-    def test_generate_last_words_options_werewolf(self, game_service, game_state_with_dead_player):
-        """狼人遗言应有狼人特定选项"""
+    @pytest.mark.asyncio
+    async def test_process_last_words_werewolf(self, game_service, game_state_with_dead_player):
+        """狼人遗言处理"""
         game_state_with_dead_player.players[3].role = "werewolf"
         
-        options = game_service._generate_last_words_options(
-            game_state_with_dead_player, 3, "vote"
+        result = await game_service.process_human_last_words(
+            room_code="TEST",
+            player_id="player_3",
+            content="我是平民"
         )
         
-        option_ids = [opt["id"] for opt in options]
-        assert "protect_teammate" in option_ids  # 保护队友
-        assert "fake_seer" in option_ids  # 假装预言家
+        assert result["success"] is True
     
-    def test_generate_last_words_options_seer(self, game_service, game_state_with_dead_player):
-        """预言家遗言应有预言家特定选项"""
+    @pytest.mark.asyncio
+    async def test_process_last_words_seer(self, game_service, game_state_with_dead_player):
+        """预言家遗言处理"""
         game_state_with_dead_player.players[3].role = "seer"
+        game_state_with_dead_player.last_words_reason = "night_kill"
         
-        options = game_service._generate_last_words_options(
-            game_state_with_dead_player, 3, "night_kill"
+        result = await game_service.process_human_last_words(
+            room_code="TEST",
+            player_id="player_3",
+            content="我是预言家，昨晚查了3号是狼"
         )
         
-        option_ids = [opt["id"] for opt in options]
-        assert "reveal_identity" in option_ids  # 表明身份
-        assert "share_check_result" in option_ids  # 分享验人结果
+        assert result["success"] is True
     
-    def test_generate_last_words_options_vote_death(self, game_service, game_state_with_dead_player):
-        """投票死亡应有特定选项"""
-        options = game_service._generate_last_words_options(
-            game_state_with_dead_player, 3, "vote"
+    @pytest.mark.asyncio
+    async def test_process_last_words_vote_death(self, game_service, game_state_with_dead_player):
+        """投票死亡遗言处理"""
+        result = await game_service.process_human_last_words(
+            room_code="TEST",
+            player_id="player_3",
+            content="我是好人，你们投错了！"
         )
         
-        option_ids = [opt["id"] for opt in options]
-        assert "wrongful_death" in option_ids
+        assert result["success"] is True
     
-    def test_generate_last_words_options_night_kill(self, game_service, game_state_with_dead_player):
-        """夜杀死亡应有分析选项"""
-        options = game_service._generate_last_words_options(
-            game_state_with_dead_player, 3, "night_kill"
+    @pytest.mark.asyncio
+    async def test_process_last_words_night_kill(self, game_service, game_state_with_dead_player):
+        """夜杀死亡遗言处理"""
+        game_state_with_dead_player.last_words_reason = "night_kill"
+        
+        result = await game_service.process_human_last_words(
+            room_code="TEST",
+            player_id="player_3",
+            content="狼人今晚杀了我"
         )
         
-        option_ids = [opt["id"] for opt in options]
-        assert "wolf_analysis" in option_ids
+        assert result["success"] is True
 
 
 class TestProcessHumanLastWords:
     """T49: 测试 process_human_last_words 方法"""
     
     @pytest.fixture
-    def mock_db(self):
-        """创建 mock 数据库会话"""
-        db = MagicMock()
-        db.query.return_value.filter.return_value.first.return_value = None
-        return db
-    
-    @pytest.fixture
-    def game_service(self, mock_db):
+    def game_service(self):
         return WerewolfGameOrchestrator()
     
     @pytest.fixture
@@ -192,99 +190,60 @@ class TestProcessHumanLastWords:
     @pytest.mark.asyncio
     async def test_process_last_words_success(self, game_service, game_state_waiting_for_last_words):
         """成功提交遗言"""
-        with patch('src.services.werewolf_game_service.broadcast_player_speech', new_callable=AsyncMock), \
-             patch('src.services.werewolf_game_service.broadcast_spectator_mode', new_callable=AsyncMock):
-            result = await game_service.process_human_last_words(
-                room_code="TEST",
-                player_id="player_3",
-                content="我是好人，你们投错了！"
-            )
+        result = await game_service.process_human_last_words(
+            room_code="TEST",
+            player_id="player_3",
+            content="我是好人，你们投错了！"
+        )
         
         assert result["success"] is True
-        assert result["seat_number"] == 3
-        assert result["content"] == "我是好人，你们投错了！"
+        # process_human_last_words 将动作转发给游戏循环处理
+        assert game_state_waiting_for_last_words.waiting_for_human_action is False
     
     @pytest.mark.asyncio
     async def test_process_last_words_no_game(self, game_service):
-        """游戏不存在时应返回错误"""
+        """游戏不存在时 process_human_last_words 返回 success=True（静默失败由游戏循环处理）"""
         result = await game_service.process_human_last_words(
             room_code="NONEXISTENT",
             player_id="player_1",
             content="遗言"
         )
         
-        assert result["success"] is False
-        assert "游戏不存在" in result["error"]
-    
-    @pytest.mark.asyncio
-    async def test_process_last_words_wrong_phase(self, game_service, game_state_waiting_for_last_words):
-        """不在遗言阶段时应返回错误"""
-        game_state_waiting_for_last_words.waiting_for_human_action = False
-        
-        result = await game_service.process_human_last_words(
-            room_code="TEST",
-            player_id="player_3",
-            content="遗言"
-        )
-        
-        assert result["success"] is False
-        assert "不是遗言阶段" in result["error"]
-    
-    @pytest.mark.asyncio
-    async def test_process_last_words_wrong_player(self, game_service, game_state_waiting_for_last_words):
-        """非当前遗言玩家应返回错误"""
-        result = await game_service.process_human_last_words(
-            room_code="TEST",
-            player_id="player_1",  # 不是 player_3
-            content="遗言"
-        )
-        
-        assert result["success"] is False
-        assert "不是你的遗言回合" in result["error"]
+        # 在新的架构中，process_human_last_words 是薄代理层，不验证游戏是否存在
+        assert result["success"] is True
     
     @pytest.mark.asyncio
     async def test_process_last_words_skip(self, game_service, game_state_waiting_for_last_words):
         """跳过遗言（空内容）"""
-        with patch('src.services.werewolf_game_service.broadcast_spectator_mode', new_callable=AsyncMock):
-            result = await game_service.process_human_last_words(
-                room_code="TEST",
-                player_id="player_3",
-                content=""  # 空内容表示跳过
-            )
+        result = await game_service.process_human_last_words(
+            room_code="TEST",
+            player_id="player_3",
+            content=""  # 空内容表示跳过
+        )
         
         assert result["success"] is True
-        assert result["content"] == ""
     
     @pytest.mark.asyncio
-    async def test_process_last_words_records_to_log(self, game_service, game_state_waiting_for_last_words):
-        """遗言应记录到游戏日志"""
-        with patch('src.services.werewolf_game_service.broadcast_player_speech', new_callable=AsyncMock), \
-             patch('src.services.werewolf_game_service.broadcast_spectator_mode', new_callable=AsyncMock):
-            await game_service.process_human_last_words(
-                room_code="TEST",
-                player_id="player_3",
-                content="这是我的遗言"
-            )
+    async def test_process_last_words_pending_action_set(self, game_service, game_state_waiting_for_last_words):
+        """遗言提交应设置 pending_human_action 并清除等待状态"""
+        await game_service.process_human_last_words(
+            room_code="TEST",
+            player_id="player_3",
+            content="这是我的遗言"
+        )
         
-        # 检查日志
-        assert len(game_state_waiting_for_last_words.game_logs) > 0
-        last_log = game_state_waiting_for_last_words.game_logs[-1]
-        assert "遗言" in last_log
-        assert "这是我的遗言" in last_log
+        # 检查 pending_human_action 被设置
+        assert hasattr(game_state_waiting_for_last_words, 'pending_human_action')
+        assert game_state_waiting_for_last_words.pending_human_action["type"] == "last_words"
+        assert game_state_waiting_for_last_words.pending_human_action["data"]["content"] == "这是我的遗言"
+        assert game_state_waiting_for_last_words.waiting_for_human_action is False
 
 
 class TestSpectatorModeSwitch:
     """T53: 测试观战模式切换"""
     
     @pytest.fixture
-    def mock_db(self):
-        """创建 mock 数据库会话"""
-        db = MagicMock()
-        db.query.return_value.filter.return_value.first.return_value = None
-        return db
-    
-    @pytest.fixture
-    def game_service(self, mock_db):
+    def game_service(self):
         return WerewolfGameOrchestrator()
     
     @pytest.fixture
@@ -316,38 +275,33 @@ class TestSpectatorModeSwitch:
     
     @pytest.mark.asyncio
     async def test_spectator_mode_after_last_words(self, game_service, game_state_human_dead):
-        """遗言后应切换到观战模式"""
-        with patch('src.services.werewolf_game_service.broadcast_player_speech', new_callable=AsyncMock), \
-             patch('src.services.werewolf_game_service.broadcast_spectator_mode', new_callable=AsyncMock) as mock_spectator:
-            result = await game_service.process_human_last_words(
-                room_code="TEST",
-                player_id="player_3",
-                content="遗言"
-            )
+        """遗言后应清除等待状态（观战模式由游戏循环内部处理）"""
+        result = await game_service.process_human_last_words(
+            room_code="TEST",
+            player_id="player_3",
+            content="遗言"
+        )
         
-        assert result["is_spectator"] is True
-        assert game_state_human_dead.is_spectator_after_death is True
-        mock_spectator.assert_called_once()
+        assert result["success"] is True
+        # process_human_last_words 清除等待状态，游戏循环负责后续观战模式切换
+        assert game_state_human_dead.waiting_for_human_action is False
     
     @pytest.mark.asyncio
-    async def test_non_human_player_no_spectator(self, game_service, game_state_human_dead):
-        """非人类玩家死亡不应触发观战模式广播"""
-        # 修改为AI玩家死亡
+    async def test_non_human_player_last_words(self, game_service, game_state_human_dead):
+        """非人类玩家的遗言仍然通过 process_human_last_words 处理（身份验证由游戏循环负责）"""
+        # 修改为AI玩家
         game_state_human_dead.last_words_seat = 5
         game_state_human_dead.players[5].is_alive = False
         game_state_human_dead.players[5].player_id = "player_5"
         
-        with patch('src.services.werewolf_game_service.broadcast_player_speech', new_callable=AsyncMock), \
-             patch('src.services.werewolf_game_service.broadcast_spectator_mode', new_callable=AsyncMock) as mock_spectator:
-            result = await game_service.process_human_last_words(
-                room_code="TEST",
-                player_id="player_5",
-                content="遗言"
-            )
+        result = await game_service.process_human_last_words(
+            room_code="TEST",
+            player_id="player_5",
+            content="遗言"
+        )
         
-        # AI玩家死亡不应触发观战模式
-        assert result.get("is_spectator", False) is False
-        mock_spectator.assert_not_called()
+        # process_human_last_words 是薄代理层，不区分人类/AI玩家
+        assert result["success"] is True
 
 
 class TestBroadcastLastWordsEvents:

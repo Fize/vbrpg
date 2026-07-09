@@ -5,7 +5,7 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from main import app
+from main import fastapi_app as app
 from src.database import get_db
 
 
@@ -24,7 +24,7 @@ async def client(test_db):
 
 @pytest.fixture
 def mock_werewolf_game_service():
-    """Create a mock WerewolfGameService."""
+    """Create a mock WerewolfGameOrchestrator."""
     service = MagicMock()
     service.start_game = AsyncMock()
     service.get_visible_state = MagicMock()
@@ -44,27 +44,29 @@ class TestWerewolfQuickStartAPI:
 
     async def test_quick_start_success(self, client, mock_werewolf_game_service):
         """Test successful game start."""
-        # Setup mock response for WerewolfGameService
+        # Setup mock response for WerewolfGameOrchestrator
         mock_werewolf_game_service.get_visible_state.return_value = {
             "phase": "night",
             "day_number": 1,
-            "players": [
+            "alive_players": [
                 {
                     "seat_number": i,
-                    "display_name": f"Player_{i}",
+                    "player_name": f"Player_{i}",
                     "is_alive": True,
+                    "is_ai": i != 1,
                     "role": "werewolf" if i == 1 else None,
                     "team": "werewolf" if i == 1 else None,
                 }
                 for i in range(1, 11)
             ],
+            "dead_players": [],
             "winner": None,
-            "your_seat": 1,
-            "your_role": "werewolf",
+            "player_seat": 1,
+            "player_role": "werewolf",
         }
 
         with patch(
-            'src.api.werewolf_routes.WerewolfGameService',
+            'src.api.werewolf_routes.WerewolfGameOrchestrator',
             return_value=mock_werewolf_game_service
         ):
             response = await client.post(
@@ -88,17 +90,18 @@ class TestWerewolfQuickStartAPI:
         mock_werewolf_game_service.get_visible_state.return_value = {
             "phase": "night",
             "day_number": 1,
-            "players": [
-                {"seat_number": i, "display_name": f"Player_{i}", "is_alive": True}
+            "alive_players": [
+                {"seat_number": i, "player_name": f"Player_{i}", "is_alive": True, "is_ai": True}
                 for i in range(1, 11)
             ],
+            "dead_players": [],
             "winner": None,
-            "your_seat": 1,
-            "your_role": "villager",
+            "player_seat": None,
+            "player_role": None,
         }
 
         with patch(
-            'src.api.werewolf_routes.WerewolfGameService',
+            'src.api.werewolf_routes.WerewolfGameOrchestrator',
             return_value=mock_werewolf_game_service
         ):
             response = await client.post(
@@ -216,13 +219,16 @@ class TestWerewolfStateAPI:
         mock_werewolf_game_service.get_visible_state.return_value = {
             "phase": "discussion",
             "day_number": 2,
-            "players": [
-                {"seat_number": i, "display_name": f"Player_{i}", "is_alive": i != 3}
-                for i in range(1, 11)
+            "alive_players": [
+                {"seat_number": i, "player_name": f"Player_{i}", "is_alive": i != 3, "is_ai": True}
+                for i in range(1, 11) if i != 3
+            ],
+            "dead_players": [
+                {"seat_number": 3, "player_name": "Player_3", "is_alive": False, "is_ai": True}
             ],
             "winner": None,
-            "your_seat": 1,
-            "your_role": "seer",
+            "player_seat": 1,
+            "player_role": "seer",
         }
 
         room_code = "WW-TEST003"
@@ -412,7 +418,7 @@ class TestAPIValidation:
             "your_role": "villager",
         }
         
-        with patch("src.api.werewolf_routes.WerewolfGameService", return_value=mock_service_instance):
+        with patch("src.api.werewolf_routes.WerewolfGameOrchestrator", return_value=mock_service_instance):
             response = await client.post(
                 "/api/v1/werewolf/quick-start",
                 json={

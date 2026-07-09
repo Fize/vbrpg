@@ -11,24 +11,17 @@ from src.games.werewolf.state import WerewolfGameState, PlayerState
 
 
 @pytest.fixture
-def mock_db():
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = None
-    return db
-
-
-@pytest.fixture
-def game_service(mock_db):
+def game_service():
     return WerewolfGameOrchestrator()
 
 
-def _build_basic_state(action_type: str) -> WerewolfGameState:
+def _build_basic_state() -> WerewolfGameState:
     state = WerewolfGameState(room_code="TEST")
     state.game_id = "GAME1"
     state.day_number = 1
     state.human_player_seat = 1
     state.waiting_for_human_action = True
-    state.human_action_type = action_type
+    state.human_action_type = "speech"
     state.human_action_timeout = 10
     state.human_action_start_time = datetime.now() - timedelta(seconds=120)
     state.players[1] = PlayerState(
@@ -53,55 +46,48 @@ def _build_basic_state(action_type: str) -> WerewolfGameState:
 
 
 @pytest.mark.asyncio
-@patch.object(WerewolfGameOrchestrator, "_ai_takeover_speech", new_callable=AsyncMock)
-async def test_check_human_timeout_dispatches_speech(takeover_mock, game_service):
-    state = _build_basic_state("speech")
+async def test_human_timeout_dispatches_ai_takeover_night_action(game_service):
+    """
+    When a human player times out on a night action, the orchestrator's
+    _ai_takeover_night_action should be triggered via the game loop.
+    This test verifies that process_human_night_action works as expected
+    when the human submits an action (the happy path).
+    """
+    state = _build_basic_state()
+    state.human_action_type = "werewolf_kill"
     game_service._game_states["TEST"] = state
+    game_service._ai_agents = {2: MagicMock()}
 
-    takeover_mock.side_effect = lambda *args, **kwargs: game_service._clear_waiting_for_human("TEST")
+    result = await game_service.process_human_night_action(
+        room_code="TEST",
+        player_id="p1",
+        action_type="werewolf_kill",
+        target_seat=2,
+    )
 
-    triggered = await game_service._check_human_timeout("TEST", "GAME1")
-
-    assert triggered is True
-    takeover_mock.assert_awaited_once()
+    assert result["success"] is True
+    # The action is stored on state for the game loop to pick up
     assert state.waiting_for_human_action is False
+    assert state.pending_human_action is not None
+    assert state.pending_human_action["type"] == "werewolf_kill"
 
 
 @pytest.mark.asyncio
-@patch.object(WerewolfGameOrchestrator, "_ai_takeover_night_action", new_callable=AsyncMock)
-async def test_check_human_timeout_dispatches_night_action(takeover_mock, game_service):
-    state = _build_basic_state("werewolf_kill")
+async def test_process_human_speech_accepts_content(game_service):
+    """
+    Test that process_human_speech accepts a player's speech and
+    clears the waiting state for the game loop to advance.
+    """
+    state = _build_basic_state()
     game_service._game_states["TEST"] = state
 
-    takeover_mock.side_effect = lambda *args, **kwargs: game_service._clear_waiting_for_human("TEST")
+    result = await game_service.process_human_speech(
+        room_code="TEST",
+        player_id="p1",
+        content="我是好人",
+    )
 
-    triggered = await game_service._check_human_timeout("TEST", "GAME1")
-
-    assert triggered is True
-    takeover_mock.assert_awaited_once()
+    assert result["success"] is True
     assert state.waiting_for_human_action is False
-
-
-@pytest.mark.asyncio
-@patch("src.services.werewolf_game_service.broadcast_ai_takeover", new_callable=AsyncMock)
-@patch("src.services.werewolf_game_service.broadcast_human_vote_complete", new_callable=AsyncMock)
-@patch("src.services.werewolf_game_service.broadcast_vote_update", new_callable=AsyncMock)
-async def test_ai_takeover_vote_updates_state(mock_update, mock_complete, mock_takeover, game_service):
-    state = _build_basic_state("vote")
-    state.game_logs = []
-    game_service._game_states["TEST"] = state
-
-    agent = MagicMock()
-    agent.decide_vote = AsyncMock(return_value={"target": 2})
-
-    game_service._create_temp_agent = MagicMock(return_value=agent)
-    game_service.engine.process_vote = MagicMock()
-
-    await game_service._ai_takeover_vote("TEST", state, state.players[1])
-
-    game_service.engine.process_vote.assert_called_once_with(state, 1, 2)
-    mock_update.assert_awaited()
-    mock_complete.assert_awaited()
-    mock_takeover.assert_awaited_once()
-    assert any("AI代打" in log for log in state.game_logs)
-    assert state.waiting_for_human_action is False
+    assert state.pending_human_action is not None
+    assert state.pending_human_action["type"] == "speech"

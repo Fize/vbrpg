@@ -234,7 +234,7 @@ class SeerAgent(BaseGameAgent):
         ]
 
         if llm_client is None:
-            from src.integrations.llm_client import LLMClient
+            from src.llm import LLMClient
             llm_client = LLMClient()
 
         try:

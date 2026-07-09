@@ -10,7 +10,7 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from main import app
+from main import fastapi_app as app
 from src.database import get_db
 from src.models.game import GameRoom, GameState, GameRoomParticipant
 

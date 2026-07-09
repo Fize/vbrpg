@@ -75,6 +75,6 @@ app.include_router(werewolf_routes.router)
 socket_app = socketio.ASGIApp(sio, app)
 
 # Export socket_app as app for uvicorn
-# uvicorn will use this ASGI application
+fastapi_app = app
 app = socket_app
 
