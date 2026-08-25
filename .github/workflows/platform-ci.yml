@@ -1,0 +1,56 @@
+name: platform-ci
+
+on:
+  push:
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+  pull_request:
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+
+jobs:
+  platform:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: vbrpg_platform
+          POSTGRES_USER: vbrpg
+          POSTGRES_PASSWORD: vbrpgpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vbrpg -d vbrpg_platform"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:platform
+      - run: pnpm run test:platform
+      - run: pnpm run db:migrate:platform
+        env:
+          DATABASE_URL: postgres://vbrpg:vbrpgpassword@localhost:5432/vbrpg_platform
+      - run: pnpm --filter @vbrpg/db test:integration
+        env:
+          DATABASE_URL: postgres://vbrpg:vbrpgpassword@localhost:5432/vbrpg_platform
+      - run: pnpm --filter @vbrpg/api test:integration
+        env:
+          DATABASE_URL: postgres://vbrpg:vbrpgpassword@localhost:5432/vbrpg_platform

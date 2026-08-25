@@ -1,0 +1,16 @@
+{
+  "name": "vbrpg-platform",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.22.0",
+  "scripts": {
+    "build:contracts": "pnpm --filter @vbrpg/contracts build",
+    "test:contracts": "pnpm --filter @vbrpg/contracts test",
+    "build:engine": "pnpm --filter @vbrpg/workflow-engine... build",
+    "test:engine": "pnpm --filter @vbrpg/workflow-engine... test",
+    "test:golden:legacy": "PYTHONPATH=backend/scripts python3 backend/scripts/verify_werewolf_golden_trace.py",
+    "build:platform": "pnpm --filter @vbrpg/api... build && pnpm --filter @vbrpg/worker build && pnpm --filter @vbrpg/db build",
+    "test:platform": "pnpm --filter @vbrpg/api... test && pnpm --filter @vbrpg/worker test",
+    "db:migrate:platform": "pnpm --filter @vbrpg/db migrate"
+  }
+}

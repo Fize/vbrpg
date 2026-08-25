@@ -1,0 +1,19 @@
+services:
+  platform-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: vbrpg_platform
+      POSTGRES_USER: vbrpg
+      POSTGRES_PASSWORD: ${PLATFORM_POSTGRES_PASSWORD:-vbrpgpassword}
+    ports:
+      - "5433:5432"
+    volumes:
+      - platform_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vbrpg -d vbrpg_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  platform_postgres_data:
