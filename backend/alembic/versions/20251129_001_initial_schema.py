@@ -18,7 +18,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.mysql import JSON
+
 
 
 # revision identifiers, used by Alembic.
@@ -40,7 +40,7 @@ def upgrade() -> None:
         sa.Column('username', sa.String(50), unique=True, nullable=False),
         sa.Column('is_guest', sa.Boolean(), nullable=False, server_default=sa.text('1')),
         sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
-        sa.Column('last_active', sa.DateTime(), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')),
+        sa.Column('last_active', sa.DateTime(), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
         sa.Column('expires_at', sa.DateTime(), nullable=True),
     )
     op.create_index('idx_players_username', 'players', ['username'])
@@ -55,8 +55,8 @@ def upgrade() -> None:
         sa.Column('total_games', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('total_wins', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('favorite_game_id', sa.String(36), nullable=True),
-        sa.Column('ui_preferences', JSON, nullable=True),
-        sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')),
+        sa.Column('ui_preferences', sa.JSON, nullable=True),
+        sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
     )
 
     # ==========================================================================
@@ -67,7 +67,7 @@ def upgrade() -> None:
         sa.Column('id', sa.String(36), primary_key=True),
         sa.Column('session_id', sa.String(128), unique=True, nullable=False),
         sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
-        sa.Column('last_active', sa.DateTime(), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')),
+        sa.Column('last_active', sa.DateTime(), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
         sa.Column('expires_at', sa.DateTime(), nullable=True),
     )
     op.create_index('idx_sessions_session_id', 'sessions', ['session_id'])
@@ -141,9 +141,9 @@ def upgrade() -> None:
         sa.Column('current_turn', sa.String(36), nullable=True),
         sa.Column('current_turn_player_id', sa.String(36), sa.ForeignKey('players.id', ondelete='SET NULL'), nullable=True),
         sa.Column('turn_number', sa.Integer(), nullable=False, server_default='1'),
-        sa.Column('game_data', JSON, nullable=False),
+        sa.Column('game_data', sa.JSON, nullable=False),
         sa.Column('is_paused', sa.Boolean(), nullable=False, server_default=sa.text('0')),
-        sa.Column('last_updated', sa.DateTime(), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')),
+        sa.Column('last_updated', sa.DateTime(), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
     )
     op.create_index('idx_game_states_game_room', 'game_states', ['game_room_id'])
 
@@ -162,7 +162,7 @@ def upgrade() -> None:
         sa.Column('ai_agents_count', sa.Integer(), nullable=False),
         sa.Column('user_won', sa.Boolean(), nullable=False, server_default=sa.text('0')),
         sa.Column('final_score', sa.Integer(), nullable=True),
-        sa.Column('final_state', JSON, nullable=False),
+        sa.Column('final_state', sa.JSON, nullable=False),
     )
     op.create_index('idx_game_sessions_game_room', 'game_sessions', ['game_room_id'])
     op.create_index('idx_game_sessions_game_type', 'game_sessions', ['game_type_id'])

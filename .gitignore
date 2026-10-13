@@ -66,5 +66,10 @@ node_modules/
 alembic/versions/*.pyc
 
 .github/
+!.github/
+.github/*
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/platform-ci.yml
 .codebuddy/
 specsai/
