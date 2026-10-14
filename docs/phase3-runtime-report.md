@@ -30,3 +30,11 @@
 
 - 已完成有效 `DEEPSEEK_API_KEY` 的 TokenHub 真实模型验收。
 - 在云端凭据通过后停止扩展设计；公共视图、快照、Outbox、worker handler 和多租户增强不作为当前 MVP 门槛。
+
+## 复核（2026-10-14）
+
+- 测试数已变化：`apps/api` 18 → 102，`packages/contracts` 5 → 18，`packages/workflow-engine` 15 不变，新增 `apps/web` 7。
+- `dispatchGameEvent` 的持久化语义（租户事务 + 实例行锁 + 顺序号校验 + idempotency key 幂等追加 + 命令同事务落库）仍然成立，但**只有集成脚本调用**（`apps/api/scripts/game-dispatch-integration.ts`），没有 HTTP 入口；已暴露的 `/v1/mvp/runtime/*` 是无状态路由。
+- AI 路径现状：`POST /v1/mvp/runtime/ai-dispatch` 的 definition/state/event 全部由请求体提供，模型与密钥取进程级配置，与 `providers`/`provider_models` 表及 `agentModelBinding` 契约未接线；`ai_usage_ledger` 无写入方，无超时、重试上限、预算与 fallback 事件。
+- TokenHub `hy3` 的实网验收不可复现：以当前环境可用凭据运行 `pnpm --filter @vbrpg/api demo:ai`，默认 `https://tokenhub.tencentmaas.com/v1` + `hy3` 返回 provider HTTP 401（映射为 502 `AI_PROVIDER_ERROR`）；改指向 `https://api.deepseek.com/v1` + `deepseek-chat` 后同一凭据可完整跑通 demo（`aiResult: red`）。凭据有效，失效的是默认 endpoint/model 组合。
+- 快照仍无写入方；投影器（公共/角色/个人视图）与防泄漏测试未实现。

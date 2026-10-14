@@ -308,10 +308,10 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 任务：
 
 - [x] `P0-01`：编写 ADR，确认 PostgreSQL、Fastify、schema 工具、查询构建器和 Node LTS 版本。 — 核验 2026-10-14：`docs/adr/` 5 份 ADR 已提交
-- [/] `P0-02`：冻结旧 Python 对外行为；为创建房间、加入、开始、角色分配、夜间行动、投票、胜负和断线恢复生成黄金事件轨迹。 — 核验 2026-10-14：旧引擎规则轨迹 10 条已冻结并通过校验（`docs/fixtures/werewolf-golden-trace-suite.json`）；超时/断线/AI fallback 需从服务层补录，未做
-- [x] `P0-03`：给现有测试分类为“有效回归、过时规格、真实缺陷”，先建立可解释的测试基线。 — 核验 2026-10-14：`docs/phase0-test-baseline.md` 已完成前端分类；后端基线因缺 Python 测试环境未补录
+- [/] `P0-02`：冻结旧 Python 对外行为；为创建房间、加入、开始、角色分配、夜间行动、投票、胜负和断线恢复生成黄金事件轨迹。 — 核验 2026-10-14：旧引擎规则轨迹 10 条已冻结并通过校验（`docs/fixtures/werewolf-golden-trace-suite.json`）；超时/断线/AI fallback 需从服务层补录，未做。补充：来源已删除，见 §16 第二轮复核第 1 条
+- [x] `P0-03`：给现有测试分类为“有效回归、过时规格、真实缺陷”，先建立可解释的测试基线。 — 核验 2026-10-14：`docs/phase0-test-baseline.md` 已完成前端分类；后端基线已于 2026-10-14 补录（`backend/.venv` 可用，571 测试全绿）
 - [x] `P0-04`：定义 `GameDefinition`、`GameEvent`、`GameState`、`PlayerView` 和 `ExternalCommand` v0 schema。 — 核验 2026-10-14：`packages/contracts/src/domain.ts` 已定义 GameDefinition/GameEvent/GameState/PlayerView/ExternalCommand v0
-- [/] `P0-05`：完成上一节的 LangGraph JS 技术验证，并以相同测试夹具实现最小原生解释器对照。 — 核验 2026-10-14：NativeRuntime 已完成（`packages/workflow-engine` 15 用例）；LangGraph JS 无依赖、无对照结论
+- [/] `P0-05`：完成上一节的 LangGraph JS 技术验证，并以相同测试夹具实现最小原生解释器对照。 — 核验 2026-10-14：NativeRuntime 已完成（`packages/workflow-engine` 15 用例）；LangGraph JS 无依赖、无对照结论，书面结论仍待补（见 §16 下一步第 7 条）
 - [x] `P0-06`：定义 Beta 负载模型。默认起点为 100 个活跃房间、每房 10 人、峰值每秒 20 次动作；产品数据出现后再调整。 — 核验 2026-10-14：`docs/phase0-load-and-legacy-decision.md` 已记录容量模型与旧数据处置假设
 - [/] `P0-07`：确定旧数据处置：创建默认 `legacy` 租户，保留历史对局，进行中房间切换时排空。 — 核验 2026-10-14：`legacy` 租户处置已决策；回填脚本属 Phase 4，未实现
 
@@ -587,17 +587,17 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 
 ## 15. 需要在 Phase 0 最终确认的决策
 
-| 决策 | 当前建议 | 截止点 |
-| --- | --- | --- |
-| 生产数据库 | PostgreSQL only | `P0-01` |
-| API 框架 | Fastify | `P0-01` |
-| Schema 工具 | Zod 或 TypeBox 二选一 | `P0-01` |
-| 数据访问层 | Drizzle 或 Kysely 二选一 | `P0-01` |
-| 首版运行时 | 由 LangGraph JS spike 决定 | `P0-05` |
-| 二进制资源 | PG `bytea` + 严格上限；发布前复审对象存储 | `P0-01` |
-| 身份方案 | 自建会话还是托管 IdP | `P2-01` 前 |
-| 旧进行中对局 | 默认排空，不自动迁移 | `P0-07` |
-| Beta 容量目标 | 默认 100 房间 / 1000 在线 / 20 动作每秒 | `P0-06` |
+| 决策 | 当前建议 | 截止点 | 2026-10-14 状态 |
+| --- | --- | --- | --- |
+| 生产数据库 | PostgreSQL only | `P0-01` | 已落地（ADR-001） |
+| API 框架 | Fastify | `P0-01` | 已落地（`apps/api`） |
+| Schema 工具 | Zod 或 TypeBox 二选一 | `P0-01` | 已落地：Zod（ADR-003） |
+| 数据访问层 | Drizzle 或 Kysely 二选一 | `P0-01` | 已落地：Kysely（ADR-004） |
+| 首版运行时 | 由 LangGraph JS spike 决定 | `P0-05` | **未决**：实际由 NativeRuntime 承载，缺 LangGraph 对照与书面 ADR |
+| 二进制资源 | PG `bytea` + 严格上限；发布前复审对象存储 | `P0-01` | 已落地（ADR-005）；发布前复审未做 |
+| 身份方案 | 自建会话还是托管 IdP | `P2-01` 前 | 已落地：自建会话 + 平台账号（`routes/platform-auth.ts`） |
+| 旧进行中对局 | 默认排空，不自动迁移 | `P0-07` | 已决策；greenfield 下旧线不在门槛内，回填工具未实现 |
+| Beta 容量目标 | 默认 100 房间 / 1000 在线 / 20 动作每秒 | `P0-06` | 已记录（`docs/phase0-load-and-legacy-decision.md`）；容量测试未做 |
 
 ## 16. 核验结论与下一步（2026-10-14）
 
@@ -616,6 +616,17 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 2. `apps/worker` 以**空依赖**启动：claim/lease 与退避失败已实现，但没有任何生产 handler 被注入，队列实际不被消费。
 3. AI 只有 `POST /v1/mvp/runtime/ai-dispatch` 一条同步路径：模型与密钥取进程级环境变量，与 `providers`/`provider_models` 表和 `agentModelBinding` 契约完全未接线；`ai_usage_ledger` 表无写入方；无超时、重试上限、预算与 fallback 事件。
 4. `playerViewSchema` 已定义但无投影器实现，隐藏信息隔离（`P3-07`）没有任何代码或测试支撑。
+
+### 第二轮复核（2026-10-14）：文档与实现的不一致项
+
+以可执行证据复核 `docs/` 全部进度文档后，发现并修正以下漂移：
+
+1. **黄金轨迹门禁断链**：`docs/fixtures/werewolf-golden-trace-suite.json` 的来源 `backend/src/services/games/werewolf_engine.py` 已在 `79cf54e` 删除，`test:golden:legacy` 与生成脚本均失效。fixture 已降级为历史快照，`P0-02` 的剩余部分不再可复现（详见 `docs/phase0-golden-trace-report.md`）。
+2. **旧后端基线结论过期**：`docs/phase0-test-baseline.md` 声称无 `pytest`、无 Python 环境，实际 `backend/.venv` 可用且 571 个测试全绿。
+3. **测试数与进度报告过期**：`docs/phase3-runtime-report.md` 记录的 API 18/18 现为 102/102；contracts 5 → 18；新增 `apps/web` 7。
+4. **AI 实网验收不可复现**：`docs/mvp-scope.md` 与 `docs/phase3-runtime-report.md` 声称的 TokenHub + `hy3` HTTP 200 已不成立（现返回 provider 401）；当前可用凭据对应 `https://api.deepseek.com/v1` + `deepseek-chat`，同一 demo 可跑通。
+5. **契约未覆盖并存端点**：`docs/api/phase1-openapi.yaml` 的 13 条路径（方法级逐项比对）全部已实现，无多余项；但仓库另有未纳入该契约的端点——legacy bearer 线（`/v1/tenant/me`、`/v1/tenant/management-check`）、MVP 无状态线（`/v1/mvp/runtime/{compile,instances,dispatch,ai-dispatch}`）与运维端点（`/health`、`/ready`）。
+6. **一键启动仍不完整**：`docker-compose.platform.yml` 提供 `platform-postgres`/`platform-migrate`/`platform-api`/`platform-web`，没有 worker 服务。
 
 ### 下一步建议顺序
 

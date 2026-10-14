@@ -29,3 +29,10 @@
 当前实现已通过 OpenAI-compatible 请求协议测试；重新加载 `~/.zshrc` 后，TokenHub 直连和完整游戏 AI demo 均返回 HTTP 200，云端 AI 验收通过。
 
 这些能力可以保留为后续扩展的底层代码，但不能阻塞 MVP 验收。
+
+## 复核（2026-10-14）
+
+- `demo:ai` 依赖环境变量密钥（优先级 `DEEPSEEK_API_KEY` → `AI_API_KEY` → `OPENAI_API_KEY`），仓库内不提供。
+- 默认组合（TokenHub `https://tokenhub.tencentmaas.com/v1` + `hy3`）当前返回 provider HTTP 401，未复现本文所述 HTTP 200；改用 `https://api.deepseek.com/v1` + `deepseek-chat` 后同一凭据可跑通完整 game AI demo。
+- MVP 端点仍在：`/v1/mvp/runtime/{compile,instances,dispatch,ai-dispatch}`。
+- 因此「云端 AI 验收通过」是当时环境的历史结论；在当前环境复现需按上述 endpoint/model 调整配置。

@@ -42,3 +42,12 @@ instanceCreated
 ## 当前结论
 
 NativeRuntime 已证明平台所需的最小纯转换边界可以独立于 LangGraph 建立。该结论只允许继续推进平台契约和原生 spike，不构成放弃 LangGraph 的最终决策。最终决策必须在两种实现通过同一组 PostgreSQL、并发、幂等、投影、版本和 fallback 测试后形成新的 ADR。
+
+## 复核（2026-10-14）
+
+原「尚未验证」清单中已闭合的部分：
+
+- PostgreSQL 持久化与恢复协议：`apps/api/src/services/game-dispatch.ts` 在租户事务内锁定实例、校验顺序号、按 idempotency key 幂等追加事件、更新实例状态，并在同一事务写入外部命令；`apps/api/scripts/game-dispatch-integration.ts` 覆盖重复事件幂等与 timer command。
+- 并发锁与动作幂等：同一路径（实例行锁 + 命令唯一键），但尚无并发竞争压测。
+
+仍未闭合：LangGraph JS 对照与书面结论；快照写入策略；真实玩家投影与秘密字段防泄漏测试；AI 超时、重试上限与 fallback 的完整运行（当前只有单次同步调用）。

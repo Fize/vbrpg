@@ -32,3 +32,11 @@
 - lease、重试退避和死信转移基础已具备，但实际业务 handler、事务性业务动作和广播仍属于后续工作。
 - Worker 进程当前仍以空轮询启动，避免在没有真实业务 handler 时误消费任务；接入 handler 后才会启用数据库队列消费。
 - CI 已增加 PostgreSQL 集成测试入口，覆盖认证会话、membership、租户作用域查询、`app.tenant_id` 事务上下文和非 owner RLS 隔离。
+
+## 复核（2026-10-14）
+
+- `packages/db` 单测 3/3；真实 PostgreSQL 集成路径仍在（`packages/db/scripts/integration.ts`、`apps/api/scripts/game-dispatch-integration.ts`）。
+- 认证现状：平台会话认证已落地（`routes/platform-auth.ts` 的 `/v1/auth/login`、`/v1/auth/logout`、`/v1/auth/csrf`、`/v1/auth/password`、`/v1/me`，HttpOnly Cookie + CSRF），与 legacy HMAC bearer 线（`routes/auth.ts` → `/v1/tenant/me`）**并存**；生产环境未配置 session store 时返回 503 `AUTH_SESSION_STORE_NOT_CONFIGURED`。
+- 刷新 token 仍未实现：`auth_sessions` 只保存 session 与 CSRF 哈希，无 refresh 端点，会话到期需重新登录。
+- 邀请流程、跨租户 REST/WebSocket/worker 攻击测试仍未实现；跨租户隔离目前只有 RLS 数据库层验证。
+- worker 空轮询的结论仍然成立：`apps/worker/src/server.ts` 以**无依赖**调用 `createWorker`，`pending_commands`/`scheduled_jobs`/`outbox_events` 实际不被消费。
