@@ -2,14 +2,12 @@ import { randomUUID } from "node:crypto";
 import { parseGameEvent, parseGameState, type GameEvent } from "@vbrpg/contracts";
 import {
   getAgentModelBinding,
-  getGameInstance,
   getProviderModelWithProvider,
-  withTenantContext,
   type DbExecutor,
   type JsonObject,
   type TenantContext,
 } from "@vbrpg/db";
-import { compileGameDefinition, type CompiledGame } from "@vbrpg/workflow-engine";
+import type { CompiledGame } from "@vbrpg/workflow-engine";
 import type { Kysely } from "kysely";
 import type { Database } from "@vbrpg/db";
 import {
@@ -21,6 +19,7 @@ import {
 } from "./ai.js";
 import { openCredential, parseCredentialKey, type CredentialKey } from "./secret-box.js";
 import { dispatchGameEvent } from "./game-dispatch.js";
+import { loadInstanceWithDefinition, loadRecentEvents } from "./instance-loader.js";
 
 const DEFAULT_MAX_TIMEOUT_MS = 30_000;
 const DEFAULT_RECENT_EVENT_LIMIT = 50;
@@ -103,79 +102,44 @@ async function loadPlan(
   command: ClaimedCommand,
   recentEventLimit: number,
 ): Promise<AiNodePlan | undefined> {
-  return withTenantContext(db, context, async (transaction) => {
-    const instance = await getGameInstance(transaction, context, command.instance_id);
-    if (!instance) {
-      throw new AiCommandError("INSTANCE_NOT_FOUND", "The instance no longer exists");
-    }
+  const loaded = await loadInstanceWithDefinition(db, context, command.instance_id);
+  if (!loaded) {
+    throw new AiCommandError("INSTANCE_NOT_FOUND", "The instance no longer exists");
+  }
+  if (loaded.state.waiting?.kind !== "ai") {
+    return undefined;
+  }
 
-    const state = parseGameState(instance.state_json);
-    if (state.waiting?.kind !== "ai") {
-      return undefined;
-    }
+  const nodeId = loaded.state.waiting.nodeId;
+  const node = loaded.compiled.nodes.get(nodeId);
+  if (!node) {
+    throw new AiCommandError("NODE_NOT_FOUND", `Waiting node is missing from the definition: ${nodeId}`);
+  }
+  if (node.type !== "aiGenerate") {
+    throw new AiCommandError("NODE_NOT_AI", `Waiting node is not an AI node: ${nodeId}`);
+  }
 
-    const definitionRow = await transaction
-      .selectFrom("workflow_definitions")
-      .select(["definition_json"])
-      .where("tenant_id", "=", context.tenantId)
-      .where("game_version_id", "=", instance.game_version_id)
-      .executeTakeFirst();
-    if (!definitionRow) {
-      throw new AiCommandError("DEFINITION_NOT_FOUND", "The game version has no workflow definition");
-    }
+  const config = node.config as Record<string, unknown>;
+  const agentId = typeof config.agentId === "string" ? config.agentId : "";
+  if (agentId === "") {
+    throw new AiCommandError("AGENT_MISSING", `AI node ${nodeId} declares no agent`);
+  }
+  const resultKey = config.resultKey;
+  if (typeof resultKey !== "string" || resultKey === "") {
+    throw new AiCommandError("RESULT_KEY_MISSING", `AI node ${nodeId} declares no resultKey`);
+  }
 
-    const compiled = compileGameDefinition(definitionRow.definition_json);
-    const nodeId = state.waiting.nodeId;
-    const node = compiled.nodes.get(nodeId);
-    if (!node) {
-      throw new AiCommandError("NODE_NOT_FOUND", `Waiting node is missing from the definition: ${nodeId}`);
-    }
-    if (node.type !== "aiGenerate") {
-      throw new AiCommandError("NODE_NOT_AI", `Waiting node is not an AI node: ${nodeId}`);
-    }
-
-    const config = node.config as Record<string, unknown>;
-    const agentId = typeof config.agentId === "string" ? config.agentId : "";
-    if (agentId === "") {
-      throw new AiCommandError("AGENT_MISSING", `AI node ${nodeId} declares no agent`);
-    }
-    const resultKey = config.resultKey;
-    if (typeof resultKey !== "string" || resultKey === "") {
-      throw new AiCommandError("RESULT_KEY_MISSING", `AI node ${nodeId} declares no resultKey`);
-    }
-
-    const rows = await transaction
-      .selectFrom("game_events")
-      .selectAll()
-      .where("tenant_id", "=", context.tenantId)
-      .where("instance_id", "=", command.instance_id)
-      .orderBy("sequence", "desc")
-      .limit(recentEventLimit)
-      .execute();
-
-    return {
-      compiled,
-      nodeId,
-      agentId,
-      input: asInputRecord(command.payload),
-      timeoutMs: positiveInteger(config.timeoutMs, DEFAULT_MAX_TIMEOUT_MS),
-      maxAttempts: positiveInteger(command.max_attempts, 1),
-      sequence: instance.current_sequence + 1,
-      state,
-      recentEvents: rows.reverse().map((row) =>
-        parseGameEvent({
-          eventId: row.id,
-          instanceId: row.instance_id,
-          sequence: row.sequence,
-          type: row.type,
-          actor: row.actor_user_id === null ? null : { userId: row.actor_user_id },
-          occurredAtMs: row.occurred_at.getTime(),
-          idempotencyKey: row.idempotency_key,
-          payload: row.payload,
-        }),
-      ),
-    };
-  });
+  return {
+    compiled: loaded.compiled,
+    nodeId,
+    agentId,
+    input: asInputRecord(command.payload),
+    timeoutMs: positiveInteger(config.timeoutMs, DEFAULT_MAX_TIMEOUT_MS),
+    maxAttempts: positiveInteger(command.max_attempts, 1),
+    sequence: loaded.currentSequence + 1,
+    state: loaded.state,
+    recentEvents: await loadRecentEvents(db, context, command.instance_id, recentEventLimit),
+  };
 }
 
 interface UsageFields {

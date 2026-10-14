@@ -54,6 +54,55 @@ describe("workflow definition validator", () => {
     );
   });
 
+  it("validates random nodes and rejects unimplemented node types", () => {
+    const randomNode = { id: "roll", type: "random" as const, config: { key: "roll", min: 1, max: 6 }, next: ["end"] };
+    const valid = validateGameDefinition(
+      definition({
+        nodes: [
+          { id: "start", type: "start", config: {}, next: ["roll"] },
+          randomNode,
+          { id: "end", type: "end", config: {}, next: [] },
+        ],
+      }),
+    );
+    expect(valid).toEqual({ valid: true, issues: [] });
+
+    const inverted = validateGameDefinition(
+      definition({
+        nodes: [
+          { id: "start", type: "start", config: {}, next: ["roll"] },
+          { ...randomNode, config: { key: "roll", min: 6, max: 1 } },
+          { id: "end", type: "end", config: {}, next: [] },
+        ],
+      }),
+    );
+    expect(inverted.issues.map((issue) => issue.message)).toContain("random requires max >= min");
+
+    const missingBounds = validateGameDefinition(
+      definition({
+        nodes: [
+          { id: "start", type: "start", config: {}, next: ["roll"] },
+          { ...randomNode, config: { key: "roll" } },
+          { id: "end", type: "end", config: {}, next: [] },
+        ],
+      }),
+    );
+    expect(missingBounds.issues.filter((issue) => issue.code === "INVALID_CONFIG")).toHaveLength(2);
+
+    for (const type of ["subflow", "parallel", "join"] as const) {
+      const unsupported = validateGameDefinition(
+        definition({
+          nodes: [
+            { id: "start", type: "start", config: {}, next: ["node"] },
+            { id: "node", type, config: {}, next: ["end"] },
+            { id: "end", type: "end", config: {}, next: [] },
+          ],
+        }),
+      );
+      expect(unsupported.issues.map((issue) => issue.code)).toContain("UNSUPPORTED_NODE_TYPE");
+    }
+  });
+
   it("validates visibility rules at publication time", () => {
     const valid = validateGameDefinition({
       ...definition(),

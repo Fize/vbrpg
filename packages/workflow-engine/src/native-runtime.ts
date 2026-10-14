@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   ExternalCommand,
   GameDefinition,
@@ -47,6 +48,15 @@ function requiredPositiveInteger(config: Config, key: string): number {
       "INVALID_NODE_CONFIG",
       `Node config requires positive integer: ${key}`,
     );
+  }
+
+  return value;
+}
+
+function requiredInteger(config: Config, key: string): number {
+  const value = config[key];
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new EngineError("INVALID_NODE_CONFIG", `Node config requires integer: ${key}`);
   }
 
   return value;
@@ -107,6 +117,22 @@ function advance(state: GameState, nodeId: string): GameState {
     status: "running",
     waiting: null,
   };
+}
+
+/**
+ * Deterministic per-instance randomness: the same instance, node and sequence always
+ * yield the same number, so a replayed event log reproduces the state byte for byte.
+ */
+export function deterministicRandom(
+  randomSeed: string,
+  nodeId: string,
+  sequence: number,
+  min: number,
+  max: number,
+): number {
+  const digest = createHash("sha256").update(`${randomSeed}:${nodeId}:${sequence}`).digest();
+  const span = max - min + 1;
+  return min + (digest.readUInt32BE(0) % span);
 }
 
 function setWaiting(
@@ -304,6 +330,18 @@ function runAutomaticNodes(
           fallbackNodeId,
         });
         return { state, commands };
+      }
+      case "random": {
+        const key = requiredString(config, "key");
+        const min = requiredInteger(config, "min");
+        const max = requiredInteger(config, "max");
+        if (max < min) {
+          throw new EngineError("INVALID_NODE_CONFIG", "random requires max >= min");
+        }
+        const variables = cloneVariables(state.variables);
+        variables[key] = deterministicRandom(state.randomSeed, node.id, state.sequence, min, max);
+        state = advance({ ...state, variables }, nextNodeId(node));
+        continue;
       }
       case "emitEvent": {
         const eventName = requiredString(config, "eventName");

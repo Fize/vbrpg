@@ -357,7 +357,7 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 - [/] `P2-04`：建立 tenant-scoped repository；代码评审禁止无租户上下文的业务查询。 — 核验 2026-10-14：`withTenantContext` + `SET LOCAL app.tenant_id` 与租户作用域仓储已实现；无禁止无租户查询的静态门禁
 - [x] `P2-05`：为关键表启用并测试 PostgreSQL RLS。 — 核验 2026-10-14：0004 RLS 已启用，非 owner 角色跨租户隔离在真实 PostgreSQL 验证
 - [/] `P2-06`：实现审计日志、租户密钥信封加密、密钥轮换接口和日志脱敏。 — 核验 2026-10-14：`audit_logs` 与审计写入、`secret-box` AEAD 信封加密与密钥版本已实现；密钥轮换操作流程未实现
-- [/] `P2-07`：实现 Outbox、`pending_commands`、`scheduled_jobs` 的 claim、lease、重试和死信状态。 — 核验 2026-10-14：claim/lease/完成/退避失败与死信已实现（DB + worker 轮询）；生产 handler 未接入，worker 仍空轮询
+- [/] `P2-07`：实现 Outbox、`pending_commands`、`scheduled_jobs` 的 claim、lease、重试和死信状态。 — 核验 2026-10-14：claim/lease/完成/退避失败与死信已实现；worker 已接入 AI command 与计时器 handler（2026-10-14 第二轮）。仍未接入：`outbox_events` 的广播 handler——它就是传输层，属实时阶段
 - [/] `P2-08`：建立跨租户 REST、WebSocket、worker 和直接对象引用攻击测试。 — 核验 2026-10-14：DB 层跨租户隔离测试已通过；REST/WebSocket/worker 攻击测试未做（WebSocket 未实现）
 
 交付物：完整租户控制面、首版数据库 schema、可靠任务底座、安全测试套件。
@@ -375,8 +375,8 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 - [/] `P3-01`：完成 `workflow-schema` v1 和 schema 版本迁移机制。 — 核验 2026-10-14：DSL v1 + `dslVersion`/`engineVersion` + 稳定 definition hash 已实现；schema 版本迁移机制未实现
 - [/] `P3-02`：实现发布前的图结构、引用、循环、可见性、AI 降级和等待点校验。 — 核验 2026-10-14：图结构校验已实现（未知引用、不可达、隐式循环、无终点、等待/计时/AI 配置）；可见性与 AI 降级校验未实现
 - [/] `P3-03`：实现纯 `transition`、显式随机种子、虚拟时钟和事件回放。 — 核验 2026-10-14：纯 `transition`、显式 `randomSeed`、`replayEvents` 已实现；虚拟时钟未实现（timer 依赖 `deadlineMs`）
-- [/] `P3-04`：实现 start/end、变量、分支、等待、收集、计时、投票、随机、事件节点。 — 核验 2026-10-14：start/end、setVariable、branch、waitForPlayerInput、collectInput、timer、vote、aiGenerate、emitEvent 已实现；`random` 仅在 schema 中，引擎未支持
-- [ ] `P3-05`：实现 subflow、parallel/join 和多玩家输入聚合。 — 核验 2026-10-14：未实现（schema 有 subflow/parallel/join，引擎无对应分支）
+- [/] `P3-04`：实现 start/end、变量、分支、等待、收集、计时、投票、随机、事件节点。 — 核验 2026-10-14：start/end、setVariable、branch、waitForPlayerInput、collectInput、timer、vote、aiGenerate、emitEvent、`random` 已实现（`random` 由 `randomSeed`+节点 id+序号确定性派生，2026-10-14 第二轮）
+- [ ] `P3-05`：实现 subflow、parallel/join 和多玩家输入聚合。 — 核验 2026-10-14：未实现，且 validator 现已在发布期拒绝这三类节点（`UNSUPPORTED_NODE_TYPE`）。实现需要调用栈与分支合并的状态模型，而当前没有游戏需要它们；计划本身要求「用真实游戏验证抽象」，因此留到 P4 由游戏驱动。注：多玩家输入聚合（`collectInput`/`vote` 收齐再推进）已可用
 - [/] `P3-06`：实现快照策略、乐观/悲观并发控制、动作幂等和实例级顺序号。 — 核验 2026-10-14：实例行锁 + 顺序号校验 + idempotency key 幂等追加已实现（`services/game-dispatch.ts`）；快照写入策略与并发竞争测试未做
 - [ ] `P3-07`：实现公共视图、角色视图、个人视图的投影器，并加入防泄漏测试。 — 核验 2026-10-14：未实现（`playerViewSchema` 已定义但无投影器与防泄漏测试）
 - [/] `P3-08`：按 Phase 0 决策接入 LangGraph JS 适配器或原生解释器。 — 核验 2026-10-14：已由原生解释器承载；ADR-002 要求先完成对照再定稿，LangGraph 对照与书面结论缺失
@@ -613,7 +613,7 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 ### 关键断点（比任务勾选更重要）
 
 1. `dispatchGameEvent` 只有集成脚本调用，**没有 HTTP 入口**；已暴露的 `/v1/mvp/runtime/*` 是无状态路由（客户端传 definition + state + event），不落库、不锁实例、不做幂等。
-2. `apps/worker` 以**空依赖**启动：claim/lease 与退避失败已实现，但没有任何生产 handler 被注入，队列实际不被消费。
+2. ~~`apps/worker` 以空依赖启动~~ 已修（2026-10-14 第二轮）：worker 现注入 AI command 与计时器 handler。仍剩 `outbox_events` 无 handler——它的 handler 是广播传输层，属实时阶段。
 3. AI 只有 `POST /v1/mvp/runtime/ai-dispatch` 一条同步路径：模型与密钥取进程级环境变量，与 `providers`/`provider_models` 表和 `agentModelBinding` 契约完全未接线；`ai_usage_ledger` 表无写入方；无超时、重试上限、预算与 fallback 事件。
 4. `playerViewSchema` 已定义但无投影器实现，隐藏信息隔离（`P3-07`）没有任何代码或测试支撑。
 
@@ -634,7 +634,7 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 2. **实例与事件 HTTP 入口**：把 `dispatchGameEvent` 接成受租户鉴权保护的实例创建/事件提交端点，与 AI command 入队合并为同一事务路径（`P3-06` 收口）。
 3. **投影器（`P3-07`）**：公共/角色/个人视图 + 防泄漏测试；没有投影就无法验证 AI 结果对玩家可见性与信息隔离。
 4. **worker handler 接入（`P2-07` 收口）**：把 AI command、计时器到期与广播 handler 注入 `createWorker`，并加死信观测。
-5. **补齐 `P3-04`/`P3-05`**：`random` 节点引擎实现，subflow/parallel/join 与多玩家输入聚合。
+5. ~~补齐 `P3-04`/`P3-05`~~：`random` 已实现（2026-10-14 第二轮）；subflow/parallel/join 已改为发布期拒绝，待 P4 由真实游戏驱动再实现。
 6. **工程门禁**：CI 增加 lint 与格式检查（当前完全缺失，`P1-05` 未收口）；密钥轮换流程（`P2-06`）；处置 `pnpm audit` 的 15 high。
 7. **决策收口**：`P0-05` 的 LangGraph JS 对照与书面结论仍未产出，ADR-002 的定稿条件未满足；鉴于运行时已由原生解释器承载，建议明确写出“第一版采用 NativeRuntime”的结论或正式放弃该 spike。
 

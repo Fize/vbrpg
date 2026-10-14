@@ -171,7 +171,12 @@ insert into agent_model_bindings (id, tenant_id, game_version_id, agent_id, prov
 values (gen_random_uuid()::text, '<tenant-id>', '<game-version-id>', 'seer', '<provider-model-id>');
 ```
 
-`apps/worker` consumes `pending_commands` and executes AI commands:
+`apps/worker` consumes both queues: `pending_commands` (AI commands) and `scheduled_jobs` (expired
+timers, which re-enter the instance as `timerExpired` events). `outbox_events` still has no handler:
+its handler is the broadcast transport, which arrives with the realtime phase, so published events
+are not delivered anywhere yet.
+
+Starting the AI side:
 
 ```bash
 export DATABASE_URL=postgres://vbrpg:vbrpgpassword@localhost:5433/vbrpg_platform

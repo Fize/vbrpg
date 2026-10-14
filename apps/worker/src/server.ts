@@ -1,5 +1,5 @@
 import { createDb } from "@vbrpg/db";
-import { createAiCommandHandler } from "@vbrpg/runtime";
+import { createAiCommandHandler, createScheduledJobHandler } from "@vbrpg/runtime";
 import { createWorker } from "./worker.js";
 
 function requiredEnv(name: string): string {
@@ -32,6 +32,8 @@ const handleCommand = createAiCommandHandler(db, {
   ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
 });
 
+const handleScheduledJob = createScheduledJobHandler(db);
+
 const worker = createWorker(
   {
     workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,
@@ -44,6 +46,9 @@ const worker = createWorker(
     handlers: {
       handleCommand: async (command) => {
         await handleCommand(command);
+      },
+      handleScheduledJob: async (job) => {
+        await handleScheduledJob(job);
       },
     },
   },

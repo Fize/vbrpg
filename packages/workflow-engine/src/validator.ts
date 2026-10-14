@@ -32,6 +32,17 @@ function stringConfig(node: Node, key: string, issues: ValidationIssue[]): strin
   return value;
 }
 
+function integerConfig(node: Node, key: string, issues: ValidationIssue[]): void {
+  const value = configOf(node)[key];
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    issues.push({
+      code: "INVALID_CONFIG",
+      nodeId: node.id,
+      message: `${node.type} requires an integer config: ${key}`,
+    });
+  }
+}
+
 function positiveIntegerConfig(node: Node, key: string, issues: ValidationIssue[]): void {
   const value = configOf(node)[key];
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
@@ -88,6 +99,28 @@ function validateNodeConfig(node: Node, issues: ValidationIssue[]): void {
       break;
     case "timer":
       positiveIntegerConfig(node, "durationMs", issues);
+      break;
+    case "random":
+      stringConfig(node, "key", issues);
+      integerConfig(node, "min", issues);
+      integerConfig(node, "max", issues);
+      if (typeof config.min === "number" && typeof config.max === "number" && config.max < config.min) {
+        issues.push({
+          code: "INVALID_CONFIG",
+          nodeId: node.id,
+          message: "random requires max >= min",
+        });
+      }
+      break;
+    // Not implemented yet: reject at publication instead of failing mid-game.
+    case "subflow":
+    case "parallel":
+    case "join":
+      issues.push({
+        code: "UNSUPPORTED_NODE_TYPE",
+        nodeId: node.id,
+        message: `The engine does not implement node type yet: ${node.type}`,
+      });
       break;
     case "aiGenerate":
       stringConfig(node, "agentId", issues);

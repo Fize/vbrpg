@@ -5,6 +5,7 @@ import { compileGameDefinition, createInitialState } from "@vbrpg/workflow-engin
 import type { GameEvent } from "@vbrpg/contracts";
 import {
   createAiCommandHandler,
+  createScheduledJobHandler,
   dispatchGameEvent,
   parseCredentialKey,
   sealCredential,
@@ -75,8 +76,12 @@ function definition() {
 
 const compiled = compileGameDefinition(definition());
 
-async function createWaitingInstance(gameVersionId: string, instanceId: string): Promise<void> {
-  const initialState = createInitialState(compiled, {
+async function createWaitingInstance(
+  gameVersionId: string,
+  instanceId: string,
+  game = compiled,
+): Promise<void> {
+  const initialState = createInitialState(game, {
     instanceId,
     gameVersionId,
     randomSeed: `seed-${instanceId}`,
@@ -96,9 +101,9 @@ async function createWaitingInstance(gameVersionId: string, instanceId: string):
     idempotencyKey: `${instanceId}-created`,
     payload: {},
   };
-  const result = await dispatchGameEvent(db, { tenantId }, compiled, event);
-  assert.equal(result.state.waiting?.kind, "ai");
-  assert.equal(result.commands[0]?.type, "aiGenerate");
+  const result = await dispatchGameEvent(db, { tenantId }, game, event);
+  assert.notEqual(result.state.waiting, null);
+  assert.notEqual(result.commands.length, 0);
 }
 
 async function instance(instanceId: string) {
@@ -130,6 +135,41 @@ function variables(row: { state_json: unknown }): Record<string, unknown> {
 }
 
 const seededCredentials: string[] = [];
+const timerCompiled = compileGameDefinition(timerDefinition());
+const timerVersionId = `ai-timer-version-${suffix}`;
+const timerInstanceId = `ai-timer-instance-${suffix}`;
+
+function timerDefinition() {
+  return {
+    manifest: {
+      gameId,
+      slug: `timer-game-${suffix}`,
+      version: "1.0.0",
+      dslVersion: "v1",
+      engineVersion: "native-test",
+      authorId: userId,
+      license: "MIT",
+    },
+    workflow: {
+      entryNodeId: "start",
+      nodes: [
+        { id: "start", type: "start", config: {}, next: ["wait"] },
+        { id: "wait", type: "timer", config: { durationMs: 1 }, next: ["end"] },
+        { id: "end", type: "end", config: {}, next: [] },
+      ],
+    },
+    roles: [],
+    variables: {},
+    visibility: {},
+    presentation: {},
+  };
+}
+
+let scheduledJobHandler: ((job: { tenant_id: string }) => Promise<unknown>) | undefined;
+
+function setTimerHandler(handler: (job: { tenant_id: string }) => Promise<unknown>): void {
+  scheduledJobHandler = handler;
+}
 
 function workerWith(handler: (command: { tenant_id: string }) => Promise<unknown>, workerId: string) {
   return createWorker(
@@ -138,7 +178,12 @@ function workerWith(handler: (command: { tenant_id: string }) => Promise<unknown
     {
       db,
       listTenantIds: async () => [tenantId],
-      handlers: { handleCommand: handler as never },
+      handlers: {
+        handleCommand: handler as never,
+        ...(scheduledJobHandler === undefined
+          ? {}
+          : { handleScheduledJob: scheduledJobHandler as never }),
+      },
     },
   );
 }
@@ -166,7 +211,11 @@ try {
     })
     .execute();
 
-  for (const [versionId, version] of [[boundVersionId, "1.0.0"], [unboundVersionId, "1.0.1"]] as const) {
+  for (const [versionId, version, definitionJson] of [
+    [boundVersionId, "1.0.0", definition()],
+    [unboundVersionId, "1.0.1", definition()],
+    [timerVersionId, "1.0.2", timerDefinition()],
+  ] as const) {
     await db
       .insertInto("game_versions")
       .values({
@@ -186,7 +235,7 @@ try {
         tenant_id: tenantId,
         game_version_id: versionId,
         schema_version: "v1",
-        definition_json: definition(),
+        definition_json: definitionJson,
       })
       .execute();
   }
@@ -320,10 +369,63 @@ try {
   assert.equal(brokenLedger.length, 1);
   assert.match(String((brokenLedger[0]?.metadata as { reason?: string }).reason), /PROVIDER_ERROR/);
 
+  // Timers are consumed by the same worker: an expired timer advances the instance.
+  await createWaitingInstance(timerVersionId, timerInstanceId, timerCompiled);
+  const timerRow = await db
+    .selectFrom("game_instances")
+    .selectAll()
+    .where("id", "=", timerInstanceId)
+    .executeTakeFirstOrThrow();
+  assert.equal((timerRow.state_json as { waiting: { kind: string } }).waiting.kind, "timer");
+  const scheduledBefore = await db
+    .selectFrom("scheduled_jobs")
+    .selectAll()
+    .where("tenant_id", "=", tenantId)
+    .where("instance_id", "=", timerInstanceId)
+    .executeTakeFirstOrThrow();
+  assert.equal(scheduledBefore.status, "scheduled");
+
+  const timerHandler = createScheduledJobHandler(db);
+  // The AI handler must refuse a job row: the two queues stay separate.
+  await assert.rejects(async () => handler(scheduledBefore as never));
+
+  setTimerHandler(async (job: { tenant_id: string }) => {
+    await timerHandler({ ...(job as never), tenant_id: tenantId });
+  });
+  const timerWorker = workerWith(async () => undefined, `ai-timer-worker-${suffix}`);
+  const timerRun = await timerWorker.runOnce();
+  assert.equal(timerRun.claimed, 1);
+  assert.equal(timerRun.processed, 1);
+  const timerState = await db
+    .selectFrom("game_instances")
+    .selectAll()
+    .where("id", "=", timerInstanceId)
+    .executeTakeFirstOrThrow();
+  assert.equal(timerState.status, "completed");
+  assert.deepEqual(await eventTypes(timerInstanceId), ["instanceCreated", "timerExpired"]);
+  const scheduledAfter = await db
+    .selectFrom("scheduled_jobs")
+    .selectAll()
+    .where("id", "=", scheduledBefore.id)
+    .executeTakeFirstOrThrow();
+  assert.equal(scheduledAfter.status, "completed");
+
+  // A timer that fires after the workflow moved on is a no-op, not a second advance.
+  const staleTimer = await timerHandler({
+    ...scheduledBefore,
+    id: "stale",
+    status: "leased",
+    tenant_id: tenantId,
+  } as never);
+  assert.equal(staleTimer.outcome, "skipped");
+  assert.equal(staleTimer.reason, "INSTANCE_NOT_WAITING_FOR_TIMER");
+  assert.equal((await eventTypes(timerInstanceId)).length, 2);
+
   console.log("AI command integration test passed");
 } finally {
   await db.deleteFrom("ai_usage_ledger").where("tenant_id", "=", tenantId).execute();
   await db.deleteFrom("pending_commands").where("tenant_id", "=", tenantId).execute();
+  await db.deleteFrom("scheduled_jobs").where("tenant_id", "=", tenantId).execute();
   await db.deleteFrom("game_events").where("tenant_id", "=", tenantId).execute();
   await db.deleteFrom("game_instances").where("tenant_id", "=", tenantId).execute();
   await db.deleteFrom("agent_model_bindings").where("tenant_id", "=", tenantId).execute();

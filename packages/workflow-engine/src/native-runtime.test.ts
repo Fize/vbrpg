@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GameDefinition, GameEvent, GameState } from "@vbrpg/contracts";
-import { EngineError, transition } from "./native-runtime.js";
+import { EngineError, deterministicRandom, transition } from "./native-runtime.js";
 
 const definition: GameDefinition = {
   manifest: {
@@ -283,5 +283,100 @@ describe("native workflow runtime spike", () => {
     expect(failed.state.status).toBe("completed");
     expect(failed.state.waiting).toBeNull();
     expect(failed.state.variables.aiResult).toBeUndefined();
+  });
+});
+
+const randomDefinition: GameDefinition = {
+  ...definition,
+  manifest: { ...definition.manifest, gameId: "random-spike", slug: "random-spike" },
+  workflow: {
+    entryNodeId: "start",
+    nodes: [
+      { id: "start", type: "start", config: {}, next: ["roll"] },
+      {
+        id: "roll",
+        type: "random",
+        config: { key: "roll", min: 1, max: 6 },
+        next: ["end"],
+      },
+      { id: "end", type: "end", config: {}, next: [] },
+    ],
+  },
+};
+
+describe("deterministic randomness", () => {
+  it("derives the same value for the same instance, node and sequence", () => {
+    const value = deterministicRandom("seed-1", "roll", 1, 1, 6);
+
+    expect(value).toBe(deterministicRandom("seed-1", "roll", 1, 1, 6));
+
+    // A 6-value range collides by chance, so compare whole sequences instead.
+    const draw = (seed: string) =>
+      Array.from({ length: 20 }, (_, index) => deterministicRandom(seed, "roll", index + 1, 1, 1_000_000));
+    expect(draw("seed-2")).not.toEqual(draw("seed-1"));
+  });
+
+  it("stays inside the configured range", () => {
+    const values = new Set<number>();
+    for (let sequence = 1; sequence <= 200; sequence += 1) {
+      const value = deterministicRandom("seed-range", "roll", sequence, 3, 7);
+      expect(value).toBeGreaterThanOrEqual(3);
+      expect(value).toBeLessThanOrEqual(7);
+      values.add(value);
+    }
+    expect(values.size).toBe(5);
+  });
+
+  it("writes the derived value and replays identically", () => {
+    const first = transition(randomDefinition, initialState, {
+      eventId: "event-1",
+      instanceId: "instance-1",
+      sequence: 1,
+      type: "instanceCreated",
+      actor: null,
+      occurredAtMs: 0,
+      idempotencyKey: "create",
+      payload: {},
+    });
+
+    const replay = transition(randomDefinition, initialState, {
+      eventId: "event-1",
+      instanceId: "instance-1",
+      sequence: 1,
+      type: "instanceCreated",
+      actor: null,
+      occurredAtMs: 0,
+      idempotencyKey: "create",
+      payload: {},
+    });
+
+    expect(first.state.variables.roll).toBeGreaterThanOrEqual(1);
+    expect(first.state.variables.roll).toBeLessThanOrEqual(6);
+    expect(replay.state).toEqual(first.state);
+
+    const reseeded = transition(
+      { ...randomDefinition, variables: {} },
+      { ...initialState, randomSeed: "another-seed" },
+      {
+        eventId: "event-1",
+        instanceId: "instance-1",
+        sequence: 1,
+        type: "instanceCreated",
+        actor: null,
+        occurredAtMs: 0,
+        idempotencyKey: "create",
+        payload: {},
+      },
+    );
+    expect(transition(randomDefinition, initialState, {
+      eventId: "event-1",
+      instanceId: "instance-1",
+      sequence: 1,
+      type: "instanceCreated",
+      actor: null,
+      occurredAtMs: 0,
+      idempotencyKey: "create",
+      payload: {},
+    }).state.variables.roll).not.toBe(reseeded.state.variables.roll);
   });
 });
