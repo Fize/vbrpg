@@ -10,7 +10,8 @@
     "test": "vitest run --config vitest.config.ts",
     "test:integration": "tsx scripts/game-dispatch-integration.ts",
     "demo:ai": "tsx scripts/ai-demo.ts",
-    "check:provider-endpoint": "tsx scripts/provider-connection-check.ts"
+    "check:provider-endpoint": "tsx scripts/provider-connection-check.ts",
+    "test:runtime": "tsx scripts/runtime-http-integration.ts"
   },
   "dependencies": {
     "@vbrpg/contracts": "workspace:*",

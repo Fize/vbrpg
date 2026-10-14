@@ -2,6 +2,10 @@ openapi: 3.1.0
 info:
   title: VBRPG Phase 1 API
   version: 1.0.0
+  description: |
+    Phase 1 control plane plus the game-runtime surface (`/instances*`).
+    Runtime endpoints are session-authenticated, tenant-scoped to the platform
+    tenant, and reject client-supplied sequences: the server derives them.
 servers:
   - url: /v1
 paths:
@@ -298,6 +302,83 @@ paths:
               schema: { $ref: '#/components/schemas/ProviderModel' }
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /instances:
+    post:
+      operationId: createInstance
+      summary: Create an instance from a workflow definition and dispatch instanceCreated.
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [gameVersionId]
+              additionalProperties: false
+              properties:
+                gameVersionId: { type: string }
+                randomSeed: { type: string, minLength: 1 }
+                participants: { type: array, items: { type: object, additionalProperties: true } }
+                variables: { type: object, additionalProperties: true }
+      responses:
+        '201':
+          description: Instance created; commands are the external commands the transition produced.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstanceTransition' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { description: No workflow definition exists for that game version. }
+        '429': { description: Too many instances created by this account recently. }
+  /instances/{instanceId}:
+    get:
+      operationId: getInstance
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { name: instanceId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Authoritative instance state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstanceView' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /instances/{instanceId}/events:
+    post:
+      operationId: submitGameEvent
+      summary: Submit player input; sequence and event id are server-derived.
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      parameters:
+        - { name: instanceId, in: path, required: true, schema: { type: string } }
+        - { name: Idempotency-Key, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, payload]
+              additionalProperties: false
+              properties:
+                type: { type: string, enum: [playerInputReceived] }
+                payload:
+                  type: object
+                  additionalProperties: true
+                  description: playerInputReceived requires participantId and value.
+      responses:
+        '200':
+          description: Event applied, or replayed when the idempotency key was already recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstanceTransition' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { description: The event conflicts with the current instance state; body carries the engine code. }
 components:
   securitySchemes:
     sessionCookie: { type: apiKey, in: cookie, name: vbrpg_session }
@@ -347,6 +428,21 @@ components:
         modelId: { type: string }
         displayName: { type: string }
         enabled: { type: boolean }
+    InstanceTransition:
+      type: object
+      required: [state, commands]
+      properties:
+        state: { type: object, additionalProperties: true }
+        commands: { type: array, items: { type: object, additionalProperties: true } }
+        replayed: { type: boolean }
+    InstanceView:
+      type: object
+      required: [instanceId, status, currentSequence, state]
+      properties:
+        instanceId: { type: string }
+        status: { type: string, enum: [created, running, waiting, paused, completed, cancelled] }
+        currentSequence: { type: integer, minimum: 0 }
+        state: { type: object, additionalProperties: true }
     AgentModelBinding:
       type: object
       additionalProperties: false

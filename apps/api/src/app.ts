@@ -8,6 +8,7 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { registerRuntimeRoutes } from "./routes/runtime.js";
 import { registerPlatformAuthRoutes } from "./routes/platform-auth.js";
 import { registerPlatformAdminRoutes } from "./routes/platform-admin.js";
+import { registerGameInstanceRoutes } from "./routes/game-instances.js";
 import type { PlatformStore } from "./store.js";
 import { createPlatformRequestContext } from "./platform-auth.js";
 import { createOpenAiCompatibleClient } from "@vbrpg/runtime";
@@ -97,6 +98,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     const platformContext = createPlatformRequestContext(options.platformStore, config);
     void registerPlatformAuthRoutes(app, platformContext);
     void registerPlatformAdminRoutes(app, platformContext);
+    void registerGameInstanceRoutes(app, platformContext);
   }
   void registerRuntimeRoutes(app, options.aiClient ?? createOpenAiCompatibleClient({
     ...(config.aiApiKey === undefined ? {} : { apiKey: config.aiApiKey }),

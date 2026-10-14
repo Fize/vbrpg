@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { describe, it } from "vitest";
 import type { PlatformStore, ProviderView, SessionRecord } from "../store.js";
+import type { ExternalCommand, GameEvent, GameState } from "@vbrpg/contracts";
+import { EngineError } from "@vbrpg/workflow-engine";
 import { buildApp } from "../app.js";
 import { loadConfig } from "../config.js";
 import { hashPassword } from "../password.js";
@@ -20,12 +22,25 @@ interface FakeState {
   sessions: Map<string, SessionRecord & { tokenHash: string }>;
 }
 
-function createFakeStore(options: { passwordHash: string; users: PlatformUserRecord[] }): FakeState {
+interface FakeInstance {
+  state: GameState;
+  sequence: number;
+  seenKeys: Set<string>;
+}
+
+function createFakeStore(options: {
+  passwordHash: string;
+  users: PlatformUserRecord[];
+  gameVersions?: string[];
+  appendError?: Error;
+}): FakeState {
   const users = new Map(options.users.map((user) => [user.id, user]));
   const sessions = new Map<string, SessionRecord & { tokenHash: string }>();
   const providers = new Map<string, ProviderView>();
   const secrets = new Map<string, { baseUrl: string; enabled: boolean; sealed: ReturnType<typeof sealCredential> }>();
   const audits: Array<Record<string, unknown>> = [];
+  const gameVersions = new Set(options.gameVersions ?? ["version-1"]);
+  const instances = new Map<string, FakeInstance>();
 
   const store: PlatformStore = {
     findUserByUsername: async (username) =>
@@ -158,6 +173,57 @@ function createFakeStore(options: { passwordHash: string; users: PlatformUserRec
         }
       }
       return undefined;
+    },
+
+    createInstance: async (input) => {
+      if (!gameVersions.has(input.gameVersionId)) return undefined;
+      const state: GameState = {
+        instanceId: input.instanceId,
+        gameVersionId: input.gameVersionId,
+        engineVersion: "native-test",
+        sequence: 0,
+        status: "created",
+        currentNodeId: "start",
+        variables: input.variables ?? {},
+        participants: input.participants,
+        waiting: null,
+        randomSeed: input.randomSeed,
+      };
+      instances.set(input.instanceId, { state, sequence: 0, seenKeys: new Set() });
+      return state;
+    },
+    getInstanceState: async (instanceId) => {
+      const entry = instances.get(instanceId);
+      if (!entry) return undefined;
+      return {
+        instanceId,
+        status: entry.state.status,
+        currentSequence: entry.sequence,
+        state: entry.state,
+      };
+    },
+    appendEvent: async (instanceId, event: GameEvent) => {
+      if (options.appendError) throw options.appendError;
+      const entry = instances.get(instanceId);
+      if (!entry) return undefined;
+      if (entry.seenKeys.has(event.idempotencyKey)) {
+        return { state: entry.state, commands: [] as ExternalCommand[], replayed: true };
+      }
+      entry.seenKeys.add(event.idempotencyKey);
+      if (entry.state.status === "completed" || entry.state.status === "cancelled") {
+        throw new EngineError("UNEXPECTED_INPUT", "The instance is not waiting for player input");
+      }
+      entry.sequence = event.sequence;
+      entry.state = {
+        ...entry.state,
+        sequence: event.sequence,
+        status: event.type === "instanceCreated" ? "waiting" : "completed",
+      };
+      const commands: ExternalCommand[] =
+        event.type === "instanceCreated"
+          ? [{ commandId: "command-1", instanceId, type: "emit", eventName: "started", payload: {} }]
+          : [];
+      return { state: entry.state, commands, replayed: false };
     },
 
     recordAudit: async (input) => {
@@ -699,5 +765,190 @@ describe("audit trail", () => {
 
   it("hashes CSRF tokens before comparison", () => {
     assert.equal(hashCsrfToken("abc").length, 32);
+  });
+});
+
+describe("game instances", () => {
+  async function signedIn(options: { gameVersions?: string[]; appendError?: Error } = {}) {
+    const passwordHash = await hashPassword(PASSWORD);
+    const state = createFakeStore({
+      passwordHash,
+      users: [makeUser({ passwordHash })],
+      ...(options.gameVersions === undefined ? {} : { gameVersions: options.gameVersions }),
+      ...(options.appendError === undefined ? {} : { appendError: options.appendError }),
+    });
+    const app = await createApp(state);
+    const { cookie, body } = await login(app);
+    return { app, cookie, csrf: body.csrfToken ?? "" };
+  }
+
+  it("rejects unauthenticated and cross-origin instance writes", async () => {
+    const { app, cookie, csrf } = await signedIn();
+
+    const anonymous = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers: { origin: ORIGIN },
+      payload: { gameVersionId: "version-1" },
+    });
+    assert.equal(anonymous.statusCode, 401);
+
+    const crossOrigin = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers: { origin: "https://evil.example.com", cookie, "x-csrf-token": csrf },
+      payload: { gameVersionId: "version-1" },
+    });
+    assert.equal(crossOrigin.statusCode, 403);
+    assert.equal(crossOrigin.json().code, "ORIGIN_NOT_ALLOWED");
+  });
+
+  it("creates an instance, dispatches instanceCreated and returns the commands", async () => {
+    const { app, cookie, csrf } = await signedIn();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers: { origin: ORIGIN, cookie, "x-csrf-token": csrf },
+      payload: { gameVersionId: "version-1", randomSeed: "seed-1" },
+    });
+
+    assert.equal(response.statusCode, 201);
+    const body = response.json() as { instanceId: string; state: GameState; commands: ExternalCommand[] };
+    assert.equal(body.state.status, "waiting");
+    assert.equal(body.state.sequence, 1);
+    assert.equal(body.state.randomSeed, "seed-1");
+    assert.equal(body.commands.length, 1);
+    assert.equal(body.commands[0]?.type, "emit");
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/v1/instances/${body.instanceId}`,
+      headers: { cookie },
+    });
+    assert.equal(read.statusCode, 200);
+    assert.equal((read.json() as { currentSequence: number }).currentSequence, 1);
+  });
+
+  it("reports an unknown game version and an unknown instance", async () => {
+    const { app, cookie, csrf } = await signedIn();
+
+    const missingVersion = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers: { origin: ORIGIN, cookie, "x-csrf-token": csrf },
+      payload: { gameVersionId: "version-unknown" },
+    });
+    assert.equal(missingVersion.statusCode, 404);
+    assert.equal(missingVersion.json().code, "GAME_VERSION_NOT_FOUND");
+
+    const missingInstance = await app.inject({
+      method: "GET",
+      url: "/v1/instances/instance-unknown",
+      headers: { cookie },
+    });
+    assert.equal(missingInstance.statusCode, 404);
+    assert.equal(missingInstance.json().code, "INSTANCE_NOT_FOUND");
+  });
+
+  it("replays an idempotency key instead of advancing the instance twice", async () => {
+    const { app, cookie, csrf } = await signedIn();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers: { origin: ORIGIN, cookie, "x-csrf-token": csrf },
+      payload: { gameVersionId: "version-1" },
+    });
+    const { instanceId } = created.json() as { instanceId: string };
+    const headers = { origin: ORIGIN, cookie, "x-csrf-token": csrf, "idempotency-key": "retry-1" };
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/v1/instances/${instanceId}/events`,
+      headers,
+      payload: { type: "playerInputReceived", payload: { participantId: "p1", value: "yes" } },
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: `/v1/instances/${instanceId}/events`,
+      headers,
+      payload: { type: "playerInputReceived", payload: { participantId: "p1", value: "yes" } },
+    });
+
+    assert.equal(first.statusCode, 200);
+    assert.equal(first.json().replayed, false);
+    assert.equal(second.statusCode, 200);
+    assert.equal(second.json().replayed, true);
+    assert.equal(second.json().state.sequence, 2);
+  });
+
+  it("refuses client-supplied server-side event types", async () => {
+    const { app, cookie, csrf } = await signedIn();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers: { origin: ORIGIN, cookie, "x-csrf-token": csrf },
+      payload: { gameVersionId: "version-1" },
+    });
+    const { instanceId } = created.json() as { instanceId: string };
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/v1/instances/${instanceId}/events`,
+      headers: { origin: ORIGIN, cookie, "x-csrf-token": csrf },
+      payload: { type: "aiFailed", payload: {} },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.json().code, "INVALID_REQUEST");
+  });
+
+  it("refuses events on a finished instance and maps engine rejections to conflicts", async () => {
+    const { app, cookie, csrf } = await signedIn();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers: { origin: ORIGIN, cookie, "x-csrf-token": csrf },
+      payload: { gameVersionId: "version-1" },
+    });
+    const { instanceId } = created.json() as { instanceId: string };
+    const headers = { origin: ORIGIN, cookie, "x-csrf-token": csrf, "idempotency-key": "first-input" };
+
+    const finishing = await app.inject({
+      method: "POST",
+      url: `/v1/instances/${instanceId}/events`,
+      headers,
+      payload: { type: "playerInputReceived", payload: { participantId: "p1", value: "yes" } },
+    });
+    assert.equal(finishing.statusCode, 200);
+
+    // A retry of an accepted event replays even after the instance finished.
+    const retry = await app.inject({
+      method: "POST",
+      url: `/v1/instances/${instanceId}/events`,
+      headers,
+      payload: { type: "playerInputReceived", payload: { participantId: "p1", value: "yes" } },
+    });
+    assert.equal(retry.statusCode, 200);
+    assert.equal(retry.json().replayed, true);
+
+    const afterFinish = await app.inject({
+      method: "POST",
+      url: `/v1/instances/${instanceId}/events`,
+      headers: { ...headers, "idempotency-key": "second-input" },
+      payload: { type: "playerInputReceived", payload: { participantId: "p1", value: "yes" } },
+    });
+    assert.equal(afterFinish.statusCode, 409);
+    assert.equal(afterFinish.json().code, "UNEXPECTED_INPUT");
+
+    const rejected = await signedIn({ appendError: new EngineError("SEQUENCE_MISMATCH", "stale sequence") });
+    const stale = await rejected.app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers: { origin: ORIGIN, cookie: rejected.cookie, "x-csrf-token": rejected.csrf },
+      payload: { gameVersionId: "version-1" },
+    });
+    assert.equal(stale.statusCode, 409);
+    assert.equal(stale.json().code, "SEQUENCE_MISMATCH");
   });
 });

@@ -141,6 +141,44 @@ export async function upsertAgentModelBinding(
   };
 }
 
+export async function createGameInstance(
+  db: DbExecutor,
+  context: TenantContext,
+  input: {
+    id: string;
+    gameVersionId: string;
+    status: "created" | "running" | "waiting" | "paused" | "completed" | "cancelled";
+    currentSequence: number;
+    stateJson: JsonObject;
+  },
+): Promise<void> {
+  await db
+    .insertInto("game_instances")
+    .values({
+      id: input.id,
+      tenant_id: context.tenantId,
+      game_version_id: input.gameVersionId,
+      status: input.status,
+      current_sequence: input.currentSequence,
+      state_json: input.stateJson,
+    })
+    .execute();
+}
+
+export async function getWorkflowDefinitionByVersion(
+  db: DbExecutor,
+  context: TenantContext,
+  gameVersionId: string,
+): Promise<unknown | undefined> {
+  const row = await db
+    .selectFrom("workflow_definitions")
+    .select(["definition_json"])
+    .where("tenant_id", "=", context.tenantId)
+    .where("game_version_id", "=", gameVersionId)
+    .executeTakeFirst();
+  return row === undefined ? undefined : (row.definition_json as unknown);
+}
+
 export async function getLatestSnapshot(
   db: DbExecutor,
   context: TenantContext,

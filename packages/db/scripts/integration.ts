@@ -96,6 +96,8 @@ try {
   assert.equal(currentTenant, tenantA);
 
   // Phase 1: platform accounts, opaque sessions and the provider catalog.
+  // The count is asserted as a delta: this database may already hold other administrators.
+  const adminsBefore = await countActiveAdmins(db);
   const platformUser = await createPlatformUser(db, {
     id: platformUserId,
     username: `integration-admin-${suffix}`,
@@ -108,7 +110,7 @@ try {
     (await findPlatformUserByUsername(db, platformUser.username))?.id,
     platformUserId,
   );
-  assert.equal(await countActiveAdmins(db), 1);
+  assert.equal(await countActiveAdmins(db), adminsBefore + 1);
 
   // Bootstrap refuses once an active administrator exists.
   assert.deepEqual(

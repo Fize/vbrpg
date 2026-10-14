@@ -194,7 +194,44 @@ Behaviour to know before an incident:
 - A command whose instance is no longer waiting for AI is skipped, so a redelivered command cannot
   advance an instance twice.
 
-## 7. Master key rotation
+## 7. Driving an instance over HTTP
+
+The runtime endpoints are session-authenticated (cookie plus `x-csrf-token`), scoped to the platform
+tenant, and never accept a client-supplied sequence or event id.
+
+```bash
+# Create an instance from a workflow definition and dispatch instanceCreated.
+curl -sS -b cookies.txt -X POST http://localhost:3000/v1/instances \
+  -H 'content-type: application/json' -H 'origin: http://localhost:5173' \
+  -H "x-csrf-token: $CSRF" \
+  -d '{"gameVersionId":"<game-version-id>","randomSeed":"seed-1"}'
+
+# Read the authoritative state.
+curl -sS -b cookies.txt http://localhost:3000/v1/instances/<instance-id>
+
+# Submit player input. Retries are safe: reuse the same Idempotency-Key.
+curl -sS -b cookies.txt -X POST http://localhost:3000/v1/instances/<instance-id>/events \
+  -H 'content-type: application/json' -H 'origin: http://localhost:5173' \
+  -H "x-csrf-token: $CSRF" -H 'idempotency-key: answer-1' \
+  -d '{"type":"playerInputReceived","payload":{"participantId":"p1","value":"yes"}}'
+```
+
+Status codes worth knowing:
+
+- `201` on create; `200` on read and on accepted or replayed events.
+- `404 GAME_VERSION_NOT_FOUND` when the version has no workflow definition; `404 INSTANCE_NOT_FOUND`
+  otherwise.
+- `409` with the engine code (`UNEXPECTED_INPUT`, `SEQUENCE_MISMATCH`, `NOT_ALLOWED`, …) when the
+  event does not fit the current state. A retry carrying a recorded idempotency key still returns
+  `200` with `replayed: true`, even after the instance finished.
+- `429 RATE_LIMITED` after 30 created instances per account per minute.
+- Client-submittable events are limited to `playerInputReceived`: timers and AI results come from
+  `apps/worker`, and admin controls arrive with `P3-10`.
+
+Instance state is authoritative in `game_instances.state_json`; this path does not write
+`game_participants` yet.
+
+## 8. Master key rotation
 
 1. Generate a new key and set `PLATFORM_CREDENTIAL_KEY` / `PLATFORM_CREDENTIAL_KEY_VERSION` to the
    new values.
@@ -204,7 +241,7 @@ Behaviour to know before an incident:
    an error rather than falling back to the previous key. Run a connection test per provider to
    confirm re-sealing.
 
-## 8. Database migration and rollback
+## 9. Database migration and rollback
 
 ```bash
 pnpm run db:migrate:platform          # apply all `.sql` migrations
@@ -215,7 +252,7 @@ pnpm run migrate:down:platform        # roll back the last migration (use --step
 delete provider data first. The `platform` tenant row seeded by `0005` is intentionally left in
 place on rollback. `.down.sql` files are never applied as forward migrations.
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Cause |
 | --- | --- |
@@ -228,7 +265,7 @@ place on rollback. `.down.sql` files are never applied as forward migrations.
 | `dns_rejected` on a connection test | Endpoint resolves to a non-public address |
 | `SESSION_INVALID` after a password or role change | Sessions are revoked by design |
 
-## 10. Release checklist
+## 11. Release checklist
 
 - [ ] `pnpm run build:platform` and `pnpm run test:platform` pass.
 - [ ] `pnpm run test:contracts` and `pnpm run test:db` pass.

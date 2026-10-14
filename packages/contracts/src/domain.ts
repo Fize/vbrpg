@@ -140,6 +140,34 @@ export const externalCommandSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+/** Client-facing runtime inputs. Sequences and ids are server-derived, never client-supplied. */
+export const createInstanceRequestSchema = z
+  .object({
+    gameVersionId: z.string().min(1),
+    randomSeed: z.string().min(1).optional(),
+    participants: z.array(participantSchema).default([]),
+    variables: z.record(jsonValueSchema).optional(),
+  })
+  .strict();
+
+export const submitEventRequestSchema = z
+  .object({
+    type: z.literal("playerInputReceived"),
+    payload: z.record(jsonValueSchema),
+  })
+  .strict();
+
+export type CreateInstanceRequest = z.infer<typeof createInstanceRequestSchema>;
+export type SubmitEventRequest = z.infer<typeof submitEventRequestSchema>;
+
+export function parseCreateInstanceRequest(input: unknown): CreateInstanceRequest {
+  return createInstanceRequestSchema.parse(input);
+}
+
+export function parseSubmitEventRequest(input: unknown): SubmitEventRequest {
+  return submitEventRequestSchema.parse(input);
+}
+
 export const playerViewSchema = z.object({
   instanceId: idSchema,
   gameVersionId: idSchema,

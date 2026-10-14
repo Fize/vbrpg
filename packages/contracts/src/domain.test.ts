@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   gameDefinitionSchema,
   gameEventSchema,
+  parseCreateInstanceRequest,
   parseExternalCommand,
+  parseSubmitEventRequest,
   playerViewSchema,
 } from "./domain.js";
 
@@ -97,6 +99,25 @@ describe("contracts v0", () => {
     });
 
     expect(event.type).toBe("aiFailed");
+  });
+
+  it("derives nothing client-side: instance and event requests are strict", () => {
+    const create = parseCreateInstanceRequest({ gameVersionId: "version-1" });
+    expect(create.participants).toEqual([]);
+    expect(create.randomSeed).toBeUndefined();
+
+    expect(() => parseCreateInstanceRequest({ gameVersionId: "version-1", instanceId: "mine" })).toThrow();
+    expect(() =>
+      parseCreateInstanceRequest({ gameVersionId: "version-1", randomSeed: "" }),
+    ).toThrow();
+
+    expect(parseSubmitEventRequest({ type: "playerInputReceived", payload: { nodeId: "vote" } })).toEqual({
+      type: "playerInputReceived",
+      payload: { nodeId: "vote" },
+    });
+    // Timers, AI results and admin commands are server-side only.
+    expect(() => parseSubmitEventRequest({ type: "timerExpired", payload: {} })).toThrow();
+    expect(() => parseSubmitEventRequest({ type: "playerInputReceived", payload: {}, sequence: 9 })).toThrow();
   });
 
   it("represents a player projection separately from authority state", () => {
