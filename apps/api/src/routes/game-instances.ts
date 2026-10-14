@@ -6,7 +6,7 @@ import {
   parseSubmitEventRequest,
   type GameEvent,
 } from "@vbrpg/contracts";
-import { AppError } from "@vbrpg/runtime";
+import { AppError, RuntimeTaskError } from "@vbrpg/runtime";
 import { EngineError } from "@vbrpg/workflow-engine";
 import {
   authenticatePlatform,
@@ -24,7 +24,7 @@ function readIdempotencyKey(header: string | string[] | undefined): string | und
 
 /** Engine rejections are caller-visible conflicts, not server faults. */
 function toConflict(error: unknown): AppError {
-  if (error instanceof EngineError) {
+  if (error instanceof EngineError || error instanceof RuntimeTaskError) {
     return new AppError(409, error.code, error.message);
   }
   return new AppError(409, "INSTANCE_CONFLICT", error instanceof Error ? error.message : "Event rejected");

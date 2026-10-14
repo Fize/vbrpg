@@ -52,6 +52,7 @@ export {
   recordPlayerAction,
   upsertAgentModelBinding,
   releaseLease,
+  setInstanceStatus,
   withTenantContext,
 } from "./repositories.js";
 export type { AgentModelBinding, DbExecutor, LeaseOptions, TenantContext } from "./repositories.js";

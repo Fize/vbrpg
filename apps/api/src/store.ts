@@ -44,7 +44,19 @@ import {
   projectPlayerView,
   type Viewer,
 } from "@vbrpg/workflow-engine";
-import { dispatchGameEvent } from "@vbrpg/runtime";
+import {
+  cancelInstance,
+  describeInstance,
+  dispatchGameEvent,
+  forceInstanceTimeout,
+  pauseInstance,
+  resumeInstance,
+} from "@vbrpg/runtime";
+import type {
+  AdminInstanceAction,
+  AdminInstanceView,
+  ForceTimeoutResult,
+} from "@vbrpg/runtime";
 
 export interface SessionRecord {
   id: string;
@@ -143,6 +155,11 @@ export interface PlatformStore {
     event: GameEvent,
   ): Promise<{ state: GameState; commands: ExternalCommand[]; replayed: boolean } | undefined>;
   projectInstanceView(instanceId: string, viewer: Viewer): Promise<PlayerView | undefined>;
+  pauseInstance(instanceId: string): Promise<AdminInstanceAction>;
+  resumeInstance(instanceId: string): Promise<AdminInstanceAction>;
+  cancelInstance(instanceId: string): Promise<AdminInstanceAction>;
+  forceInstanceTimeout(instanceId: string): Promise<ForceTimeoutResult>;
+  describeInstance(instanceId: string): Promise<AdminInstanceView | undefined>;
 
   recordAudit(input: {
     actorUserId: string | null;
@@ -289,7 +306,7 @@ export function createPlatformStore(db: ReturnType<typeof createDb>): PlatformSt
     getInstanceState: async (instanceId) => {
       const row = await getGameInstance(db, platformContext, instanceId);
       if (!row) return undefined;
-      const state = parseGameState(row.state_json);
+      const state = { ...parseGameState(row.state_json), status: row.status };
       return {
         instanceId: row.id,
         status: state.status,
@@ -317,6 +334,12 @@ export function createPlatformStore(db: ReturnType<typeof createDb>): PlatformSt
       }
       return projectPlayerView(parseGameDefinition(definition), parseGameState(row.state_json), viewer);
     },
+
+    pauseInstance: (instanceId) => pauseInstance(db, platformContext, instanceId),
+    resumeInstance: (instanceId) => resumeInstance(db, platformContext, instanceId),
+    cancelInstance: (instanceId) => cancelInstance(db, platformContext, instanceId),
+    forceInstanceTimeout: (instanceId) => forceInstanceTimeout(db, platformContext, instanceId),
+    describeInstance: (instanceId) => describeInstance(db, platformContext, instanceId),
 
     recordAudit: (input) =>
       recordAuditLog(db, {

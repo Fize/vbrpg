@@ -7,6 +7,7 @@ import {
 import type { GameEvent, GameState, ExternalCommand } from "@vbrpg/contracts";
 import { dispatchEvent, type CompiledGame } from "@vbrpg/workflow-engine";
 import { parseGameState } from "@vbrpg/contracts";
+import { RuntimeTaskError } from "./instance-loader.js";
 
 type PlatformDb = ReturnType<typeof createDb>;
 
@@ -81,6 +82,13 @@ export async function dispatchGameEvent(
       .forUpdate()
       .executeTakeFirst();
     if (!instance) throw new Error("Game instance not found");
+    // Platform lifecycle gates every writer, including the worker.
+    if (instance.status === "paused") {
+      throw new RuntimeTaskError("INSTANCE_PAUSED", "The instance is paused by an administrator");
+    }
+    if (instance.status === "cancelled") {
+      throw new RuntimeTaskError("INSTANCE_CANCELLED", "The instance was cancelled");
+    }
 
     const existing = await transaction
       .selectFrom("game_events")

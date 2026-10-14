@@ -44,7 +44,9 @@ export async function loadInstanceWithDefinition(
     }
 
     return {
-      state: parseGameState(instance.state_json),
+      // The row column is the platform lifecycle authority: pause and cancel live there,
+      // while state_json carries the engine's view. Normalising keeps one answer everywhere.
+      state: { ...parseGameState(instance.state_json), status: instance.status },
       currentSequence: instance.current_sequence,
       compiled: compileGameDefinition(definitionRow.definition_json),
     };

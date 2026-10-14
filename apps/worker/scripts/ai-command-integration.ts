@@ -7,6 +7,8 @@ import {
   createAiCommandHandler,
   createScheduledJobHandler,
   dispatchGameEvent,
+  pauseInstance,
+  resumeInstance,
   parseCredentialKey,
   sealCredential,
   type AiClient,
@@ -138,6 +140,7 @@ const seededCredentials: string[] = [];
 const timerCompiled = compileGameDefinition(timerDefinition());
 const timerVersionId = `ai-timer-version-${suffix}`;
 const timerInstanceId = `ai-timer-instance-${suffix}`;
+const pausedTimerInstanceId = `ai-paused-timer-${suffix}`;
 
 function timerDefinition() {
   return {
@@ -420,6 +423,32 @@ try {
   assert.equal(staleTimer.outcome, "skipped");
   assert.equal(staleTimer.reason, "INSTANCE_NOT_WAITING_FOR_TIMER");
   assert.equal((await eventTypes(timerInstanceId)).length, 2);
+
+  // An administrator pause keeps the timer queued: nothing is consumed, nothing is lost.
+  await createWaitingInstance(timerVersionId, pausedTimerInstanceId, timerCompiled);
+  assert.equal(await pauseInstance(db, { tenantId }, pausedTimerInstanceId), "paused");
+
+  const pausedRun = await timerWorker.runOnce();
+  assert.equal(pausedRun.claimed, 0);
+  const stillScheduled = await db
+    .selectFrom("scheduled_jobs")
+    .selectAll()
+    .where("instance_id", "=", pausedTimerInstanceId)
+    .executeTakeFirstOrThrow();
+  assert.equal(stillScheduled.status, "scheduled");
+  assert.equal(stillScheduled.attempts, 0);
+
+  assert.equal(await resumeInstance(db, { tenantId }, pausedTimerInstanceId), "resumed");
+  const resumedRun = await timerWorker.runOnce();
+  assert.equal(resumedRun.claimed, 1);
+  assert.equal(resumedRun.processed, 1);
+  const resumedState = await db
+    .selectFrom("game_instances")
+    .selectAll()
+    .where("id", "=", pausedTimerInstanceId)
+    .executeTakeFirstOrThrow();
+  assert.equal(resumedState.status, "completed");
+  assert.deepEqual(await eventTypes(pausedTimerInstanceId), ["instanceCreated", "timerExpired"]);
 
   console.log("AI command integration test passed");
 } finally {

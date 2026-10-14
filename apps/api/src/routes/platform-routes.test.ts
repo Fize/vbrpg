@@ -210,6 +210,9 @@ function createFakeStore(options: {
         return { state: entry.state, commands: [] as ExternalCommand[], replayed: true };
       }
       entry.seenKeys.add(event.idempotencyKey);
+      if (entry.state.status === "paused") {
+        throw new EngineError("INSTANCE_PAUSED", "The instance is paused by an administrator");
+      }
       if (entry.state.status === "completed" || entry.state.status === "cancelled") {
         throw new EngineError("UNEXPECTED_INPUT", "The instance is not waiting for player input");
       }
@@ -244,6 +247,67 @@ function createFakeStore(options: {
         publicState: { dayNumber: 2 },
         privateState: participant?.roleId === "werewolf" ? { wolfTeam: ["p1"] } : {},
         availableActions: [],
+      };
+    },
+
+    pauseInstance: async (instanceId) => {
+      const entry = instances.get(instanceId);
+      if (!entry || entry.state.status === "completed" || entry.state.status === "cancelled") {
+        return "rejected";
+      }
+      entry.state = { ...entry.state, status: "paused" };
+      return "paused";
+    },
+    resumeInstance: async (instanceId) => {
+      const entry = instances.get(instanceId);
+      if (!entry || entry.state.status !== "paused") return "rejected";
+      entry.state = { ...entry.state, status: entry.state.waiting === null ? "running" : "waiting" };
+      return "resumed";
+    },
+    cancelInstance: async (instanceId) => {
+      const entry = instances.get(instanceId);
+      if (!entry || entry.state.status === "completed" || entry.state.status === "cancelled") {
+        return "rejected";
+      }
+      entry.state = { ...entry.state, status: "cancelled" };
+      return "cancelled";
+    },
+    forceInstanceTimeout: async (instanceId) => {
+      const entry = instances.get(instanceId);
+      if (!entry) return { outcome: "skipped", reason: "INSTANCE_NOT_FOUND" };
+      const waiting = entry.state.waiting;
+      if (!waiting) return { outcome: "skipped", reason: "INSTANCE_NOT_WAITING" };
+      if (waiting.kind !== "timer" && waiting.kind !== "ai") {
+        return { outcome: "skipped", reason: `NOT_TIMEOUTABLE: ${waiting.kind}` };
+      }
+      entry.sequence += 1;
+      entry.state = { ...entry.state, sequence: entry.sequence, status: "completed" };
+      return { outcome: "completed" };
+    },
+    describeInstance: async (instanceId) => {
+      const entry = instances.get(instanceId);
+      if (!entry) return undefined;
+      return {
+        instanceId,
+        gameVersionId: entry.state.gameVersionId,
+        engineVersion: entry.state.engineVersion,
+        status: entry.state.status,
+        currentSequence: entry.sequence,
+        currentNodeId: entry.state.currentNodeId,
+        waiting: entry.state.waiting === null
+          ? null
+          : {
+            kind: entry.state.waiting.kind,
+            nodeId: entry.state.waiting.nodeId,
+            participantIds: entry.state.waiting.participantIds,
+          },
+        participants: {
+          total: entry.state.participants.length,
+          byRole: {},
+          byStatus: {},
+        },
+        variableKeys: Object.keys(entry.state.variables).sort(),
+        counts: { events: entry.seenKeys.size, pendingCommands: 0, scheduledJobs: 0 },
       };
     },
 
@@ -1060,5 +1124,158 @@ describe("game instances", () => {
     });
     assert.equal(stale.statusCode, 409);
     assert.equal(stale.json().code, "SEQUENCE_MISMATCH");
+  });
+});
+
+describe("admin instance controls", () => {
+  async function twoAccounts() {
+    const passwordHash = await hashPassword(PASSWORD);
+    const state = createFakeStore({
+      passwordHash,
+      users: [
+        makeUser({ passwordHash, username: "player-account" }),
+        makeUser({ passwordHash, username: "admin-account", role: "admin" }),
+      ],
+    });
+    const app = await createApp(state);
+    const player = await login(app, "player-account");
+    const admin = await login(app, "admin-account");
+    return { app, state, player, admin };
+  }
+
+  async function createdInstance(app: Awaited<ReturnType<typeof createApp>>, cookie: string, csrf: string) {
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers: { origin: ORIGIN, cookie, "x-csrf-token": csrf },
+      payload: { gameVersionId: "version-1" },
+    });
+    return (created.json() as { instanceId: string }).instanceId;
+  }
+
+  it("restricts lifecycle controls to administrators", async () => {
+    const { app, player } = await twoAccounts();
+    const instanceId = await createdInstance(app, player.cookie, player.body.csrfToken ?? "");
+
+    const asPlayer = await app.inject({
+      method: "POST",
+      url: `/v1/admin/instances/${instanceId}/pause`,
+      headers: { origin: ORIGIN, cookie: player.cookie, "x-csrf-token": player.body.csrfToken ?? "" },
+    });
+    assert.equal(asPlayer.statusCode, 403);
+    assert.equal(asPlayer.json().code, "INSUFFICIENT_ROLE");
+  });
+
+  it("pauses an instance, refuses its events, then resumes it", async () => {
+    const { app, state, admin } = await twoAccounts();
+    const instanceId = await createdInstance(app, admin.cookie, admin.body.csrfToken ?? "");
+    const adminHeaders = { origin: ORIGIN, cookie: admin.cookie, "x-csrf-token": admin.body.csrfToken ?? "" };
+
+    const paused = await app.inject({
+      method: "POST",
+      url: `/v1/admin/instances/${instanceId}/pause`,
+      headers: adminHeaders,
+    });
+    assert.equal(paused.statusCode, 200);
+    assert.equal(paused.json().status, "paused");
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/v1/instances/${instanceId}/events`,
+      headers: adminHeaders,
+      payload: { type: "playerInputReceived", payload: { participantId: "p1", value: "yes" } },
+    });
+    assert.equal(blocked.statusCode, 409);
+    assert.equal(blocked.json().code, "INSTANCE_PAUSED");
+
+    const resumed = await app.inject({
+      method: "POST",
+      url: `/v1/admin/instances/${instanceId}/resume`,
+      headers: adminHeaders,
+    });
+    assert.equal(resumed.statusCode, 200);
+    assert.equal(resumed.json().status, "resumed");
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/v1/instances/${instanceId}/events`,
+      headers: adminHeaders,
+      payload: { type: "playerInputReceived", payload: { participantId: "p1", value: "yes" } },
+    });
+    assert.equal(accepted.statusCode, 200);
+
+    assert.deepEqual(
+      state.audits
+        .map((entry) => entry.action)
+        .filter((action) => action.startsWith("instance.")),
+      ["instance.pause", "instance.resume"],
+    );
+  });
+
+  it("cancels an instance and refuses later lifecycle changes", async () => {
+    const { app, admin } = await twoAccounts();
+    const instanceId = await createdInstance(app, admin.cookie, admin.body.csrfToken ?? "");
+    const headers = { origin: ORIGIN, cookie: admin.cookie, "x-csrf-token": admin.body.csrfToken ?? "" };
+
+    const cancelled = await app.inject({
+      method: "POST",
+      url: `/v1/admin/instances/${instanceId}/cancel`,
+      headers,
+    });
+    assert.equal(cancelled.statusCode, 200);
+    assert.equal(cancelled.json().status, "cancelled");
+
+    const again = await app.inject({
+      method: "POST",
+      url: `/v1/admin/instances/${instanceId}/cancel`,
+      headers,
+    });
+    assert.equal(again.statusCode, 409);
+    assert.equal(again.json().code, "INSTANCE_NOT_CANCELLABLE");
+  });
+
+  it("force-times-out only timeoutable waits and returns a redacted status", async () => {
+    const { app, state, admin } = await twoAccounts();
+    const instanceId = await createdInstance(app, admin.cookie, admin.body.csrfToken ?? "");
+    const headers = { origin: ORIGIN, cookie: admin.cookie, "x-csrf-token": admin.body.csrfToken ?? "" };
+
+    // The fake instance waits on player input, which has no timeout semantics yet.
+    const refused = await app.inject({
+      method: "POST",
+      url: `/v1/admin/instances/${instanceId}/timeout`,
+      headers,
+    });
+    assert.equal(refused.statusCode, 409);
+    assert.equal(refused.json().code, "NOT_TIMEOUTABLE");
+    assert.equal(state.audits.some((entry) => entry.action === "instance.force_timeout"), false);
+
+    const badRequest = await app.inject({
+      method: "POST",
+      url: "/v1/admin/instances/instance-unknown/pause",
+      headers,
+    });
+    assert.equal(badRequest.statusCode, 409);
+    assert.equal(badRequest.json().code, "INSTANCE_NOT_PAUSABLE");
+
+    const status = await app.inject({
+      method: "GET",
+      url: `/v1/admin/instances/${instanceId}`,
+      headers: { cookie: admin.cookie },
+    });
+    assert.equal(status.statusCode, 200);
+    const body = status.json() as Record<string, unknown>;
+    assert.equal(body.instanceId, instanceId);
+    assert.equal(typeof body.currentSequence, "number");
+    assert.deepEqual(body.counts, { events: 1, pendingCommands: 0, scheduledJobs: 0 });
+    // Structure only: no variable values, no participant identities.
+    assert.ok(Array.isArray(body.variableKeys));
+    assert.ok(!JSON.stringify(body).includes("actorId"));
+
+    const missing = await app.inject({
+      method: "GET",
+      url: "/v1/admin/instances/instance-unknown",
+      headers: { cookie: admin.cookie },
+    });
+    assert.equal(missing.statusCode, 404);
   });
 });

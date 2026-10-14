@@ -179,6 +179,22 @@ export async function getWorkflowDefinitionByVersion(
   return row === undefined ? undefined : (row.definition_json as unknown);
 }
 
+/** Platform-level lifecycle change: pause, resume, cancel. Never a game event. */
+export async function setInstanceStatus(
+  db: DbExecutor,
+  context: TenantContext,
+  instanceId: string,
+  status: "created" | "running" | "waiting" | "paused" | "completed" | "cancelled",
+): Promise<boolean> {
+  const result = await db
+    .updateTable("game_instances")
+    .set({ status, updated_at: new Date() })
+    .where("tenant_id", "=", context.tenantId)
+    .where("id", "=", instanceId)
+    .executeTakeFirst();
+  return Number(result.numUpdatedRows ?? 0) > 0;
+}
+
 export async function getLatestSnapshot(
   db: DbExecutor,
   context: TenantContext,
@@ -295,6 +311,19 @@ export async function claimPendingCommands(
           ]),
         ]),
       )
+      // Paused, cancelled and finished instances keep their work queued instead of
+      // consuming it: resuming simply makes the same rows claimable again.
+      .where((expression) =>
+        expression(
+          "instance_id",
+          "in",
+          expression
+            .selectFrom("game_instances")
+            .select("id")
+            .whereRef("game_instances.tenant_id", "=", "pending_commands.tenant_id")
+            .where("game_instances.status", "in", ["created", "running", "waiting"]),
+        ),
+      )
       .where("available_at", "<=", now)
       .orderBy("available_at", "asc")
       .limit(limit)
@@ -344,6 +373,19 @@ export async function claimScheduledJobs(
             expression("lease_until", "<", now),
           ]),
         ]),
+      )
+      // Paused, cancelled and finished instances keep their work queued instead of
+      // consuming it: resuming simply makes the same rows claimable again.
+      .where((expression) =>
+        expression(
+          "instance_id",
+          "in",
+          expression
+            .selectFrom("game_instances")
+            .select("id")
+            .whereRef("game_instances.tenant_id", "=", "scheduled_jobs.tenant_id")
+            .where("game_instances.status", "in", ["created", "running", "waiting"]),
+        ),
       )
       .where("run_at", "<=", now)
       .orderBy("run_at", "asc")

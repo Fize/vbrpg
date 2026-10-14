@@ -233,7 +233,34 @@ Status codes worth knowing:
 - Client-submittable events are limited to `playerInputReceived`: timers and AI results come from
   `apps/worker`, and admin controls arrive with `P3-10`.
 
-### 7.1 What a player is allowed to see
+### 7.1 Administrative controls
+
+Administrators can pause, resume, cancel an instance, force the current wait to expire and read a
+redacted operational status. Lifecycle changes are platform state, not game events: they are audited
+in `audit_logs` and never enter the game event log.
+
+```bash
+curl -sS -b cookies.txt -X POST http://localhost:3000/v1/admin/instances/<id>/pause \
+  -H 'origin: http://localhost:5173' -H "x-csrf-token: $CSRF"
+curl -sS -b cookies.txt -X POST http://localhost:3000/v1/admin/instances/<id>/resume  -H 'origin: ...' -H "x-csrf-token: $CSRF"
+curl -sS -b cookies.txt -X POST http://localhost:3000/v1/admin/instances/<id>/cancel  -H 'origin: ...' -H "x-csrf-token: $CSRF"
+curl -sS -b cookies.txt -X POST http://localhost:3000/v1/admin/instances/<id>/timeout -H 'origin: ...' -H "x-csrf-token: $CSRF"
+curl -sS -b cookies.txt http://localhost:3000/v1/admin/instances/<id>
+```
+
+Behaviour worth knowing during an incident:
+
+- A paused or cancelled instance rejects new events with `409 INSTANCE_PAUSED` / `INSTANCE_CANCELLED`,
+  and the worker stops claiming its queued commands and jobs — nothing is consumed, nothing is lost, so
+  resuming makes the same rows claimable again with no re-arming step.
+- `timeout` ends the current wait immediately: a timer fires now, an AI node takes its declared
+  `fallbackNodeId`. Player-input waits return `409 NOT_TIMEOUTABLE` (there is no input-timeout
+  semantics yet).
+- The status endpoint returns structure without values: lifecycle status, sequence, current node,
+  what it is waiting for, participant counts by role and status, variable *names*, and queue counts.
+  It never returns variable values, so it is safe to paste into an incident ticket.
+
+### 7.2 What a player is allowed to see
 
 `GET /v1/instances/:instanceId` returns the **authoritative** state, hidden information included, and
 is therefore administrator-only. Participants read their own projection instead:
