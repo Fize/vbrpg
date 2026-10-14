@@ -1,13 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import StateBlock from "../components/StateBlock.vue";
-import {
-  api,
-  apiErrorMessage,
-  apiRequestId,
-  type Role,
-  type User,
-} from "../services/api";
+import { Plus, Refresh } from "@element-plus/icons-vue";
+import { api, apiRequestId, type Role, type User } from "../services/api";
+import { uiErrorMessage } from "../services/messages";
 
 const users = ref<User[]>([]);
 const loading = ref(false);
@@ -26,6 +21,11 @@ const rowBusyId = ref<string | null>(null);
 const rowError = ref<string | null>(null);
 const rowRequestId = ref<string | null>(null);
 
+const resetTarget = ref<User | null>(null);
+const resetValue = ref("");
+const resetError = ref<string | null>(null);
+const resetting = ref(false);
+
 function formatDate(value: string): string {
   return new Date(value).toLocaleString();
 }
@@ -37,7 +37,7 @@ async function load(): Promise<void> {
   try {
     users.value = await api.listUsers();
   } catch (error) {
-    loadError.value = apiErrorMessage(error);
+    loadError.value = uiErrorMessage(error);
     loadRequestId.value = apiRequestId(error);
   } finally {
     loading.value = false;
@@ -53,11 +53,11 @@ async function createUser(): Promise<void> {
 
   const username = createUsername.value.trim();
   if (username.length < 3) {
-    createError.value = "Username must be at least 3 characters.";
+    createError.value = "用户名至少 3 个字符。";
     return;
   }
   if (createPassword.value.length < 12) {
-    createError.value = "Temporary password must be at least 12 characters.";
+    createError.value = "临时密码至少 12 位。";
     return;
   }
 
@@ -68,14 +68,14 @@ async function createUser(): Promise<void> {
       temporaryPassword: createPassword.value,
       role: createRole.value,
     });
-    // The temporary password is consumed here and never kept in component state.
+    // 临时密码在此消费，不保留在组件状态中。
     createUsername.value = "";
     createPassword.value = "";
     createRole.value = "user";
-    createdNotice.value = `Created "${created.username}". The temporary password is never displayed again — deliver it to the user now.`;
+    createdNotice.value = `已创建「${created.username}」。临时密码不会再次显示，请立即交付给用户。`;
     await load();
   } catch (error) {
-    createError.value = apiErrorMessage(error);
+    createError.value = uiErrorMessage(error);
     createRequestId.value = apiRequestId(error);
   } finally {
     creating.value = false;
@@ -90,7 +90,7 @@ async function runRowAction(userId: string, action: () => Promise<User>): Promis
     await action();
     await load();
   } catch (error) {
-    rowError.value = apiErrorMessage(error);
+    rowError.value = uiErrorMessage(error);
     rowRequestId.value = apiRequestId(error);
   } finally {
     rowBusyId.value = null;
@@ -98,9 +98,6 @@ async function runRowAction(userId: string, action: () => Promise<User>): Promis
 }
 
 async function toggleActive(user: User): Promise<void> {
-  if (user.active && !window.confirm(`Disable "${user.username}"? Their sessions will be revoked.`)) {
-    return;
-  }
   await runRowAction(user.id, () => api.updateUser(user.id, { active: !user.active }));
 }
 
@@ -108,210 +105,285 @@ async function changeRole(user: User, role: Role): Promise<void> {
   await runRowAction(user.id, () => api.updateUser(user.id, { role }));
 }
 
-async function resetPassword(user: User): Promise<void> {
-  const next = window.prompt(`New temporary password for "${user.username}" (at least 12 characters):`);
-  if (next === null) return;
-  if (next.length < 12) {
-    rowError.value = "Temporary password must be at least 12 characters.";
+function openReset(user: User): void {
+  resetTarget.value = user;
+  resetValue.value = "";
+  resetError.value = null;
+}
+
+async function confirmReset(): Promise<void> {
+  const target = resetTarget.value;
+  if (!target) return;
+  if (resetValue.value.length < 12) {
+    resetError.value = "临时密码至少 12 位。";
     return;
   }
-  if (!window.confirm(`Reset the password for "${user.username}"? All sessions will be revoked.`)) {
-    return;
+  resetting.value = true;
+  try {
+    await runRowAction(target.id, () => api.updateUser(target.id, { resetPassword: resetValue.value }));
+    if (rowError.value === null) {
+      resetTarget.value = null;
+      resetValue.value = "";
+    }
+  } finally {
+    resetting.value = false;
   }
-  await runRowAction(user.id, () => api.updateUser(user.id, { resetPassword: next }));
 }
 </script>
 
 <template>
-  <section class="users-view">
-    <h1>Users</h1>
+  <section class="users">
+    <header class="page-head">
+      <h1>用户管理</h1>
+      <p class="page-sub">账号由管理员创建，无自助注册；新账号首次登录必须修改初始密码。</p>
+    </header>
 
-    <form class="create-card" novalidate @submit.prevent="createUser">
-      <h2>Create user</h2>
-      <div class="create-fields">
-        <label>
-          Username
-          <input v-model="createUsername" type="text" autocomplete="off" />
-        </label>
-        <label>
-          Temporary password
-          <input v-model="createPassword" type="password" autocomplete="new-password" />
-        </label>
-        <label>
-          Role
-          <select v-model="createRole">
-            <option value="user">user</option>
-            <option value="admin">admin</option>
-          </select>
-        </label>
-        <button type="submit" :disabled="creating">
-          {{ creating ? "Creating…" : "Create" }}
-        </button>
-      </div>
-      <p class="hint">Temporary password must be at least 12 characters.</p>
-      <p v-if="createError" class="form-error" role="alert">{{ createError }}</p>
-      <p v-if="createRequestId" class="request-id">requestId: {{ createRequestId }}</p>
-      <p v-if="createdNotice" class="created-notice" role="status">{{ createdNotice }}</p>
-    </form>
+    <el-card class="panel" shadow="never">
+      <template #header>
+        <span class="panel-title">创建账号</span>
+      </template>
 
-    <p v-if="rowError" class="form-error" role="alert">{{ rowError }}</p>
-    <p v-if="rowRequestId" class="request-id">requestId: {{ rowRequestId }}</p>
+      <el-form label-position="top" novalidate @submit.prevent="createUser">
+        <div class="form-row">
+          <el-form-item label="用户名">
+            <el-input v-model="createUsername" autocomplete="off" placeholder="至少 3 个字符" />
+          </el-form-item>
+          <el-form-item label="临时密码">
+            <el-input
+              v-model="createPassword"
+              type="password"
+              autocomplete="new-password"
+              placeholder="至少 12 位"
+              show-password
+            />
+          </el-form-item>
+          <el-form-item label="角色">
+            <el-select v-model="createRole" class="role-select">
+              <el-option label="普通用户" value="user" />
+              <el-option label="管理员" value="admin" />
+            </el-select>
+          </el-form-item>
+          <el-button
+            type="primary"
+            native-type="submit"
+            :icon="Plus"
+            :loading="creating"
+            class="form-submit"
+          >
+            创建
+          </el-button>
+        </div>
+      </el-form>
 
-    <StateBlock
-      :loading="loading"
-      :error="loadError"
-      :request-id="loadRequestId"
-      :empty="users.length === 0"
-      loading-text="Loading users…"
-      empty-text="No users yet."
-    >
-      <table class="users-table">
-        <thead>
-          <tr>
-            <th>Username</th>
-            <th>Role</th>
-            <th>Active</th>
-            <th>Must change password</th>
-            <th>Created</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="user in users" :key="user.id">
-            <td>{{ user.username }}</td>
-            <td>{{ user.role }}</td>
-            <td>{{ user.active ? "yes" : "no" }}</td>
-            <td>{{ user.mustChangePassword ? "yes" : "no" }}</td>
-            <td>{{ formatDate(user.createdAt) }}</td>
-            <td class="actions">
-              <button type="button" :disabled="rowBusyId === user.id" @click="toggleActive(user)">
-                {{ user.active ? "Disable" : "Enable" }}
-              </button>
-              <button
-                v-if="user.role === 'admin'"
-                type="button"
-                :disabled="rowBusyId === user.id"
-                @click="changeRole(user, 'user')"
+      <p class="hint">临时密码只在创建时显示一次，不会写入日志或接口响应。</p>
+      <el-alert
+        v-if="createError"
+        class="stack-sm"
+        data-testid="create-error"
+        type="error"
+        :title="createError"
+        :closable="false"
+        show-icon
+      />
+      <p v-if="createRequestId" class="meta">请求编号 {{ createRequestId }}</p>
+      <el-alert
+        v-if="createdNotice"
+        class="stack-sm"
+        data-testid="created-notice"
+        type="success"
+        :title="createdNotice"
+        :closable="false"
+        show-icon
+      />
+    </el-card>
+
+    <el-card class="panel" shadow="never">
+      <template #header>
+        <div class="panel-head">
+          <span class="panel-title">账号列表</span>
+          <el-button text :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+        </div>
+      </template>
+
+      <el-alert
+        v-if="loadError"
+        class="stack-sm"
+        data-testid="load-error"
+        type="error"
+        :title="loadError"
+        :closable="false"
+        show-icon
+      />
+      <p v-if="loadRequestId" class="meta">请求编号 {{ loadRequestId }}</p>
+
+      <el-alert
+        v-if="rowError"
+        class="stack-sm"
+        data-testid="row-error"
+        type="error"
+        :title="rowError"
+        :closable="false"
+        show-icon
+      />
+      <p v-if="rowRequestId" class="meta">请求编号 {{ rowRequestId }}</p>
+
+      <el-table v-loading="loading" :data="users" empty-text="暂无账号">
+        <el-table-column prop="username" label="用户名" min-width="140" />
+        <el-table-column label="角色" width="110">
+          <template #default="{ row }">
+            <el-tag :type="row.role === 'admin' ? 'warning' : 'info'" effect="plain" size="small">
+              {{ row.role === "admin" ? "管理员" : "普通用户" }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.active ? 'success' : 'danger'" effect="plain" size="small">
+              {{ row.active ? "正常" : "已停用" }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="需改密" width="100">
+          <template #default="{ row }">
+            {{ row.mustChangePassword ? "是" : "否" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="创建时间" min-width="180">
+          <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" min-width="300">
+          <template #default="{ row }">
+            <div class="row-actions">
+              <el-button :disabled="rowBusyId === row.id" @click="toggleActive(row)">
+                {{ row.active ? "停用" : "启用" }}
+              </el-button>
+              <el-button
+                v-if="row.role === 'admin'"
+                :disabled="rowBusyId === row.id"
+                @click="changeRole(row, 'user')"
               >
-                Make user
-              </button>
-              <button
+                设为普通用户
+              </el-button>
+              <el-button
                 v-else
-                type="button"
-                :disabled="rowBusyId === user.id"
-                @click="changeRole(user, 'admin')"
+                :disabled="rowBusyId === row.id"
+                @click="changeRole(row, 'admin')"
               >
-                Make admin
-              </button>
-              <button type="button" :disabled="rowBusyId === user.id" @click="resetPassword(user)">
-                Reset password
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </StateBlock>
+                设为管理员
+              </el-button>
+              <el-button :disabled="rowBusyId === row.id" @click="openReset(row)">
+                重置密码
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-dialog
+      :model-value="resetTarget !== null"
+      title="重置密码"
+      width="420px"
+      @update:model-value="resetTarget = null"
+    >
+      <p class="dialog-note">
+        为「{{ resetTarget?.username }}」设置新的临时密码。提交后该账号的全部会话会被撤销。
+      </p>
+      <el-input
+        v-model="resetValue"
+        type="password"
+        autocomplete="new-password"
+        placeholder="至少 12 位"
+        show-password
+      />
+      <p v-if="resetError" class="field-error">{{ resetError }}</p>
+      <template #footer>
+        <el-button @click="resetTarget = null">取消</el-button>
+        <el-button type="primary" :loading="resetting" @click="confirmReset">确认重置</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
 <style scoped>
-.users-view h1 {
-  margin-bottom: 1rem;
-}
-
-.create-card {
+.page-head {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 1rem;
-  margin-bottom: 1.5rem;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  gap: var(--space-2xs);
+  margin-bottom: var(--space-lg);
 }
 
-.create-card h2 {
-  margin: 0;
-  font-size: 1rem;
+.page-sub {
+  font-size: var(--text-base);
+  color: var(--muted);
 }
 
-.create-fields {
+.panel {
+  margin-bottom: var(--space-md);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.form-row {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 0.75rem;
+  gap: var(--space-md);
 }
 
-label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.85rem;
+.form-row :deep(.el-form-item) {
+  margin-bottom: 0;
 }
 
-input,
-select {
-  padding: 0.4rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
+.role-select {
+  width: 140px;
 }
 
-button {
-  padding: 0.45rem 0.75rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
-  background: #f8fafc;
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.form-submit {
+  margin-bottom: 1px;
 }
 
 .hint {
-  margin: 0;
-  font-size: 0.8rem;
-  color: #64748b;
+  margin-top: var(--space-sm);
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
 
-.form-error {
-  margin: 0;
-  font-size: 0.85rem;
-  color: #b91c1c;
+.meta {
+  margin-top: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--meta);
 }
 
-.created-notice {
-  margin: 0;
-  padding: 0.5rem 0.75rem;
-  border-radius: 4px;
-  background: #dcfce7;
-  color: #166534;
+.stack-sm {
+  margin-top: var(--space-sm);
 }
 
-.request-id {
-  margin: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.75rem;
-  color: #64748b;
-}
-
-.users-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: #fff;
-}
-
-.users-table th,
-.users-table td {
-  padding: 0.5rem 0.6rem;
-  border: 1px solid #e2e8f0;
-  text-align: left;
-  font-size: 0.85rem;
-}
-
-.actions {
+.row-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: var(--space-2xs);
+}
+
+.dialog-note {
+  margin-bottom: var(--space-sm);
+  font-size: var(--text-base);
+  color: var(--fg-2);
+}
+
+.field-error {
+  margin-top: var(--space-2xs);
+  font-size: var(--text-sm);
+  color: var(--danger);
 }
 </style>

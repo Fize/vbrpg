@@ -1,0 +1,138 @@
+/*
+ * VBRPG 平台设计令牌 —— 唯一来源。
+ * 分层：原始色板 (palette) → 语义令牌 (semantic) → 组件层（见 element-theme.css）。
+ * 组件只允许消费语义令牌，不得直接使用原始色板。
+ */
+
+:root {
+  /* ==================== 1. 原始色板 ==================== */
+  --palette-cyan-300: #4dfaff;
+  --palette-cyan-500: #00f0ff;
+  --palette-cyan-700: #00c4d4;
+  --palette-blue-600: #0080ff;
+  --palette-purple-500: #bf00ff;
+  --palette-pink-500: #ff00aa;
+
+  --palette-ink-900: #0b0d14;
+  --palette-ink-800: #12141d;
+  --palette-ink-700: #191c28;
+  --palette-ink-600: #222634;
+
+  --palette-slate-100: #f2f4f8;
+  --palette-slate-300: #c5cad6;
+  --palette-slate-500: #8b93a7;
+  --palette-slate-600: #7c8398;
+
+  --palette-green-500: #22d38a;
+  --palette-amber-500: #ffb020;
+  --palette-red-500: #ff4d6d;
+  --palette-sky-500: #38bdf8;
+
+  /* ==================== 2. 语义令牌：表面 ==================== */
+  --bg: var(--palette-ink-900);
+  --surface: var(--palette-ink-800);
+  --surface-warm: var(--palette-ink-700);
+  --surface-raised: var(--palette-ink-600);
+  --surface-glass: rgba(18, 20, 29, 0.72);
+  --surface-hover: rgba(255, 255, 255, 0.045);
+
+  /* ==================== 3. 语义令牌：文字 ==================== */
+  --fg: var(--palette-slate-100);
+  --fg-2: var(--palette-slate-300);
+  --muted: var(--palette-slate-500);
+  --meta: var(--palette-slate-600);
+
+  /* ==================== 4. 语义令牌：描边 ==================== */
+  /* --border 系列仅用于装饰性分隔（不承担识别控件职责），因此可以很弱； */
+  /* 控件边界必须能被识别，故单独使用 --border-control（≥3:1，见 WCAG 1.4.11）。 */
+  --border: rgba(255, 255, 255, 0.1);
+  --border-soft: rgba(255, 255, 255, 0.06);
+  --border-control: rgba(255, 255, 255, 0.34);
+  --border-accent: rgba(0, 240, 255, 0.35);
+
+  /* ==================== 5. 语义令牌：品牌强调色 ==================== */
+  --accent: var(--palette-cyan-500);
+  --accent-hover: var(--palette-cyan-300);
+  --accent-active: var(--palette-cyan-700);
+  --accent-on: #04121a;
+  --accent-secondary: var(--palette-purple-500);
+  --accent-tertiary: var(--palette-pink-500);
+  --accent-gradient: linear-gradient(
+    135deg,
+    var(--palette-cyan-500) 0%,
+    var(--palette-blue-600) 100%
+  );
+
+  /* ==================== 6. 语义令牌：状态 ==================== */
+  --success: var(--palette-green-500);
+  --warn: var(--palette-amber-500);
+  --danger: var(--palette-red-500);
+  --info: var(--palette-sky-500);
+
+  /* ==================== 7. 间距 ==================== */
+  --space-3xs: 2px;
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+
+  /* ==================== 8. 圆角 ==================== */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+
+  /* ==================== 9. 字阶 ==================== */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans", sans-serif;
+  --font-mono: "SF Mono", Monaco, "Roboto Mono", Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.6;
+  --tracking-tight: -0.01em;
+
+  /* ==================== 10. 阴影（弱发光，克制使用） ==================== */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.55);
+  --glow-accent: 0 0 0 3px rgba(0, 240, 255, 0.18);
+  --glow-brand: 0 0 24px rgba(0, 240, 255, 0.25);
+
+  /* ==================== 11. 动效 ==================== */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ==================== 12. 层级 ==================== */
+  --z-sticky: 1020;
+  --z-fixed: 1030;
+  --z-modal: 1050;
+  --z-tooltip: 1070;
+
+  /* ==================== 13. 布局 ==================== */
+  --container-max: 1120px;
+  --container-narrow: 420px;
+  --header-height: 60px;
+  --control-height: 36px;
+}
+
+/*
+ * 浅色主题预留位：本轮不实现，仅保留令牌结构，避免后续改动组件。
+ * :root[data-theme="light"] { --bg: ...; --surface: ...; }
+ */

@@ -54,3 +54,11 @@ docs/
 # Build artifacts
 dist/
 build/
+
+# Node workspaces (TypeScript platform)
+node_modules/
+**/node_modules/
+**/dist/
+test-results/
+playwright-report/
+coverage/

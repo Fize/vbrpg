@@ -1,80 +1,77 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { useRouter } from "vue-router";
-import StateBlock from "../components/StateBlock.vue";
-import { logout, sessionState } from "../stores/session";
+import { sessionState } from "../stores/session";
 
-const router = useRouter();
 const user = computed(() => sessionState.user);
+const roleLabel = computed(() => (user.value?.role === "admin" ? "管理员" : "普通用户"));
 
-async function handleLogout(): Promise<void> {
-  await logout();
-  await router.push({ name: "login" });
+function formatDate(value: string | undefined): string {
+  return value === undefined ? "—" : new Date(value).toLocaleString();
 }
 </script>
 
 <template>
-  <section class="lobby-view">
-    <h1>Lobby</h1>
+  <section class="lobby">
+    <header class="page-head">
+      <h1>大厅</h1>
+      <p class="page-sub">当前阶段仅开放账号与模型配置；游戏目录、对局与邀请将在后续阶段提供。</p>
+    </header>
 
-    <StateBlock :loading="!user" loading-text="Loading session…">
-      <div v-if="user" class="user-card">
-        <dl>
-          <dt>Username</dt>
-          <dd>{{ user.username }}</dd>
-          <dt>Role</dt>
-          <dd>{{ user.role }}</dd>
-          <dt>Account status</dt>
-          <dd>{{ user.active ? "active" : "disabled" }}</dd>
-          <dt>Member since</dt>
-          <dd>{{ new Date(user.createdAt).toLocaleString() }}</dd>
-        </dl>
-        <button type="button" @click="handleLogout">Log out</button>
-      </div>
+    <el-card class="panel" shadow="never">
+      <template #header>
+        <span class="panel-title">我的账号</span>
+      </template>
 
-      <StateBlock empty empty-text="The game lobby arrives in a later phase." />
-    </StateBlock>
+      <el-descriptions v-if="user" :column="2" border>
+        <el-descriptions-item label="用户名">{{ user.username }}</el-descriptions-item>
+        <el-descriptions-item label="角色">
+          <el-tag :type="user.role === 'admin' ? 'warning' : 'info'" effect="plain" size="small">
+            {{ roleLabel }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="账号状态">
+          <el-tag :type="user.active ? 'success' : 'danger'" effect="plain" size="small">
+            {{ user.active ? "正常" : "已停用" }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="创建时间">
+          {{ formatDate(user.createdAt) }}
+        </el-descriptions-item>
+      </el-descriptions>
+    </el-card>
+
+    <el-card class="panel" shadow="never">
+      <el-empty description="游戏大厅将在后续阶段开放">
+        <p class="empty-note">本阶段的验收范围：管理员建号与登录、Provider/模型统一配置。</p>
+      </el-empty>
+    </el-card>
   </section>
 </template>
 
 <style scoped>
-.lobby-view h1 {
-  margin-bottom: 1rem;
-}
-
-.user-card {
+.page-head {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  align-items: flex-start;
-  padding: 1rem;
-  margin-bottom: 1rem;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  gap: var(--space-2xs);
+  margin-bottom: var(--space-lg);
 }
 
-dl {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.35rem 1rem;
-  margin: 0;
+.page-sub {
+  font-size: var(--text-base);
+  color: var(--muted);
 }
 
-dt {
+.panel {
+  margin-bottom: var(--space-md);
+}
+
+.panel-title {
+  font-size: var(--text-base);
   font-weight: 600;
-  color: #475569;
 }
 
-dd {
-  margin: 0;
-}
-
-button {
-  padding: 0.5rem 0.9rem;
-  border: none;
-  border-radius: 4px;
-  background: #0f172a;
-  color: #fff;
+.empty-note {
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
 </style>

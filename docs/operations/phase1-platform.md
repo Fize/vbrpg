@@ -45,6 +45,34 @@ pnpm run db:migrate:platform
 pnpm --filter @vbrpg/api dev
 ```
 
+### 2.1 Docker stack (browser testing)
+
+`docker-compose.platform.yml` can also run the whole stack — PostgreSQL, migrations, API and nginx.
+Only the web port is published; the API is reachable solely through nginx inside the compose
+network, so a host process on port 3000 does not conflict.
+
+```bash
+# One-time: the local master key that seals provider credentials (see section 1).
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+# Store it as PLATFORM_CREDENTIAL_KEY in .env (git-ignored), optionally with PLATFORM_POSTGRES_PASSWORD.
+
+docker compose -f docker-compose.platform.yml up -d --build
+docker compose -f docker-compose.platform.yml ps     # platform-api healthy, platform-migrate exited 0
+
+# Create the first administrator; the password is passed through and never written to disk.
+docker compose -f docker-compose.platform.yml exec platform-api \
+  pnpm --filter @vbrpg/api exec tsx scripts/bootstrap-admin.ts --username admin --password '<12+ chars>'
+```
+
+Then open `http://localhost:8080`. The stack deliberately runs `NODE_ENV=development`: session
+cookies omit `Secure` and `TRUSTED_WEB_ORIGINS` is `http://localhost:8080,http://127.0.0.1:8080`.
+It is a local HTTP test stack, not a production profile — apply section 9 before any real release.
+
+```bash
+docker compose -f docker-compose.platform.yml down      # stop the stack
+docker compose -f docker-compose.platform.yml down -v   # stop and delete the database volume
+```
+
 ## 3. First administrator (one-time bootstrap)
 
 There is no self-registration. The first administrator is created by an operator-run CLI that

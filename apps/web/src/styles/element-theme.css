@@ -1,0 +1,171 @@
+/*
+ * Element Plus 主题映射。
+ * 只做「令牌 → 框架变量」的翻译，保证框架组件与自研页面同源；
+ * 不在业务组件里覆盖框架 DOM 样式。
+ */
+
+:root {
+  /* ---- 主色 ---- */
+  --el-color-primary: var(--accent);
+  --el-color-primary-light-3: color-mix(in srgb, var(--accent) 70%, #000);
+  --el-color-primary-light-5: color-mix(in srgb, var(--accent) 50%, #000);
+  --el-color-primary-light-7: color-mix(in srgb, var(--accent) 30%, #000);
+  --el-color-primary-light-8: color-mix(in srgb, var(--accent) 20%, #000);
+  --el-color-primary-light-9: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  --el-color-primary-dark-2: var(--accent-active);
+
+  /* ---- 状态色 ---- */
+  --el-color-success: var(--success);
+  --el-color-success-light-3: color-mix(in srgb, var(--success) 70%, #000);
+  --el-color-success-light-5: color-mix(in srgb, var(--success) 50%, #000);
+  --el-color-success-light-8: color-mix(in srgb, var(--success) 20%, #000);
+  --el-color-success-light-9: color-mix(in srgb, var(--success) 12%, var(--bg));
+
+  --el-color-warning: var(--warn);
+  --el-color-warning-light-3: color-mix(in srgb, var(--warn) 70%, #000);
+  --el-color-warning-light-5: color-mix(in srgb, var(--warn) 50%, #000);
+  --el-color-warning-light-8: color-mix(in srgb, var(--warn) 20%, #000);
+  --el-color-warning-light-9: color-mix(in srgb, var(--warn) 12%, var(--bg));
+
+  --el-color-danger: var(--danger);
+  --el-color-error: var(--danger);
+  --el-color-danger-light-3: color-mix(in srgb, var(--danger) 70%, #000);
+  --el-color-danger-light-5: color-mix(in srgb, var(--danger) 50%, #000);
+  --el-color-danger-light-8: color-mix(in srgb, var(--danger) 20%, #000);
+  --el-color-danger-light-9: color-mix(in srgb, var(--danger) 12%, var(--bg));
+  --el-color-error-light-3: var(--el-color-danger-light-3);
+  --el-color-error-light-5: var(--el-color-danger-light-5);
+  --el-color-error-light-8: var(--el-color-danger-light-8);
+  --el-color-error-light-9: var(--el-color-danger-light-9);
+
+  --el-color-info: var(--info);
+  --el-color-info-light-3: color-mix(in srgb, var(--info) 70%, #000);
+  --el-color-info-light-5: color-mix(in srgb, var(--info) 50%, #000);
+  --el-color-info-light-8: color-mix(in srgb, var(--info) 20%, #000);
+  --el-color-info-light-9: color-mix(in srgb, var(--info) 12%, var(--bg));
+
+  /* ---- 文本 ---- */
+  --el-text-color-primary: var(--fg);
+  --el-text-color-regular: var(--fg-2);
+  --el-text-color-secondary: var(--muted);
+  --el-text-color-placeholder: var(--meta);
+  --el-text-color-disabled: var(--meta);
+  --el-text-color-primary-inverse: var(--accent-on);
+
+  /* ---- 填充与表面 ---- */
+  --el-bg-color: var(--surface);
+  --el-bg-color-page: var(--bg);
+  --el-bg-color-overlay: var(--surface-warm);
+  --el-fill-color: var(--surface-warm);
+  --el-fill-color-light: var(--surface-hover);
+  --el-fill-color-lighter: var(--surface-hover);
+  --el-fill-color-extra-light: var(--surface-hover);
+  --el-fill-color-dark: var(--surface-raised);
+  --el-fill-color-darker: var(--surface-raised);
+  --el-fill-color-blank: var(--surface);
+  --el-mask-color: rgba(6, 8, 12, 0.7);
+  --el-mask-color-extra-light: rgba(6, 8, 12, 0.4);
+
+  /* ---- 描边 ---- */
+  --el-border-color: var(--border-control);
+  --el-border-color-light: var(--border);
+  --el-border-color-lighter: var(--border-soft);
+  --el-border-color-extra-light: var(--border-soft);
+  --el-border-color-hover: var(--border-accent);
+  --el-border-color-darker: var(--border-control);
+
+  /* ---- 圆角与字号 ---- */
+  --el-border-radius-base: var(--radius-sm);
+  --el-border-radius-small: var(--radius-xs);
+  --el-border-radius-round: var(--radius-full);
+  --el-font-family: var(--font-sans);
+  --el-font-size-base: var(--text-base);
+  --el-font-size-small: var(--text-sm);
+  --el-font-size-large: var(--text-md);
+  --el-component-size: var(--control-height);
+  --el-component-size-small: 30px;
+  --el-component-size-large: 42px;
+
+  /* ---- 阴影 ---- */
+  --el-box-shadow: var(--shadow-md);
+  --el-box-shadow-light: var(--shadow-sm);
+  --el-box-shadow-lighter: var(--shadow-sm);
+  --el-box-shadow-dark: var(--shadow-lg);
+
+  /* ---- 输入框 ---- */
+  --el-input-bg-color: var(--surface-warm);
+  --el-input-border-color: var(--border-control);
+  --el-input-text-color: var(--fg);
+  --el-input-placeholder-color: var(--meta);
+  --el-input-hover-border-color: var(--border-accent);
+  --el-input-focus-border-color: var(--accent);
+  --el-input-icon-color: var(--muted);
+
+  /* ---- 表单 ---- */
+  --el-form-label-font-size: var(--text-base);
+
+  /* ---- 卡片 ---- */
+  --el-card-bg-color: var(--surface);
+  --el-card-border-color: var(--border);
+  --el-card-padding: var(--space-lg);
+
+  /* ---- 表格 ---- */
+  --el-table-bg-color: var(--surface);
+  --el-table-tr-bg-color: var(--surface);
+  --el-table-header-bg-color: var(--surface-warm);
+  --el-table-header-text-color: var(--fg-2);
+  --el-table-text-color: var(--fg-2);
+  --el-table-border-color: var(--border-soft);
+  --el-table-row-hover-bg-color: var(--surface-hover);
+  --el-table-current-row-bg-color: var(--surface-warm);
+
+  /* ---- 标签 ---- */
+  --el-tag-bg-color: var(--surface-warm);
+  --el-tag-border-color: var(--border);
+  --el-tag-text-color: var(--fg-2);
+
+  /* ---- 弹层 ---- */
+  --el-overlay-color-lighter: rgba(6, 8, 12, 0.7);
+  --el-popup-modal-bg-color: var(--surface);
+
+  /* ---- 禁用态 ---- */
+  --el-disabled-bg-color: var(--surface-warm);
+  --el-disabled-text-color: var(--meta);
+  --el-disabled-border-color: var(--border-soft);
+}
+
+/* 表格在暗色下的表头分隔与斑马纹按令牌统一 */
+.el-table th.el-table__cell,
+.el-table td.el-table__cell {
+  border-bottom-color: var(--border-soft);
+}
+
+.el-table {
+  --el-table-row-hover-bg-color: var(--surface-hover);
+}
+
+/* 表单校验提示使用状态色而非框架默认浅色 */
+.el-form-item__error {
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+/*
+ * 品牌青作为背景时，白字只有 1.41:1；框架默认 --el-color-white 不适用于本主题，
+ * 因此按组件主题变量把强调色上的文字改为 --accent-on（13.5:1）。
+ */
+.el-button--primary {
+  --el-button-text-color: var(--accent-on);
+  --el-button-hover-text-color: var(--accent-on);
+  --el-button-active-text-color: var(--accent-on);
+  --el-button-hover-bg-color: var(--accent-hover);
+  --el-button-hover-border-color: var(--accent-hover);
+  --el-button-active-bg-color: var(--accent-active);
+  --el-button-active-border-color: var(--accent-active);
+}
+
+/* 开关：轨道用更深的品牌色，使白色滑块与轨道达到 3:1。 */
+.el-switch {
+  --el-switch-on-color: color-mix(in srgb, var(--accent) 45%, var(--surface));
+  --el-switch-off-color: var(--surface-raised);
+}

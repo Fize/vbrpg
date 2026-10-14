@@ -31,7 +31,6 @@ export default defineConfig({
         DATABASE_URL: databaseUrl,
         PLATFORM_CREDENTIAL_KEY: credentialKey,
         TRUSTED_WEB_ORIGINS: `http://127.0.0.1:${webPort}`,
-        API_PROXY_TARGET: `http://127.0.0.1:${apiPort}`,
         PORT: String(apiPort),
         LOG_LEVEL: "error",
       },
@@ -41,6 +40,10 @@ export default defineConfig({
       url: `http://127.0.0.1:${webPort}`,
       reuseExistingServer: !process.env.CI,
       timeout: 15_000,
+      env: {
+        // 开发服务器把 /v1 反向代理到 API；缺省值指向 3000，本机可能被其他进程占用。
+        API_PROXY_TARGET: `http://127.0.0.1:${apiPort}`,
+      },
     },
   ],
 });

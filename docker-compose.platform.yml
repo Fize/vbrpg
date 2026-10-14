@@ -15,5 +15,53 @@ services:
       timeout: 5s
       retries: 10
 
+  platform-migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: vbrpg-platform-runtime:local
+    command: ["pnpm", "--filter", "@vbrpg/db", "migrate"]
+    environment:
+      DATABASE_URL: postgres://vbrpg:${PLATFORM_POSTGRES_PASSWORD:-vbrpgpassword}@platform-postgres:5432/vbrpg_platform
+    depends_on:
+      platform-postgres:
+        condition: service_healthy
+    restart: "no"
+
+  platform-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: vbrpg-platform-runtime:local
+    environment:
+      # Local HTTP testing: production requires https origins and Secure cookies.
+      NODE_ENV: development
+      PORT: "3000"
+      LOG_LEVEL: ${PLATFORM_LOG_LEVEL:-info}
+      DATABASE_URL: postgres://vbrpg:${PLATFORM_POSTGRES_PASSWORD:-vbrpgpassword}@platform-postgres:5432/vbrpg_platform
+      PLATFORM_CREDENTIAL_KEY: ${PLATFORM_CREDENTIAL_KEY:-}
+      TRUSTED_WEB_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+    depends_on:
+      platform-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  platform-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      platform-api:
+        condition: service_healthy
+
 volumes:
   platform_postgres_data:

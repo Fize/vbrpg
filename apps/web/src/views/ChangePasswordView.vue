@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useRouter } from "vue-router";
-import { ApiError, apiErrorMessage, apiRequestId } from "../services/api";
+import { Lock } from "@element-plus/icons-vue";
+import { ApiError, apiRequestId } from "../services/api";
+import { uiErrorMessage } from "../services/messages";
 import { changePassword, sessionState } from "../stores/session";
 
 const router = useRouter();
@@ -20,11 +22,9 @@ const submitting = ref(false);
 const forced = sessionState.user?.mustChangePassword === true;
 
 function validate(): boolean {
-  currentError.value = currentPassword.value.length === 0 ? "Current password is required." : null;
-  newError.value =
-    newPassword.value.length < 12 ? "New password must be at least 12 characters." : null;
-  confirmError.value =
-    confirmPassword.value !== newPassword.value ? "Passwords do not match." : null;
+  currentError.value = currentPassword.value.length === 0 ? "请输入当前密码" : null;
+  newError.value = newPassword.value.length < 12 ? "新密码至少 12 位" : null;
+  confirmError.value = confirmPassword.value !== newPassword.value ? "两次输入的新密码不一致" : null;
   return currentError.value === null && newError.value === null && confirmError.value === null;
 }
 
@@ -39,7 +39,7 @@ async function submit(): Promise<void> {
     await changePassword(currentPassword.value, newPassword.value);
     router.push({ name: "lobby" });
   } catch (error) {
-    formError.value = apiErrorMessage(error);
+    formError.value = uiErrorMessage(error);
     requestId.value = apiRequestId(error);
     errorCode.value = error instanceof ApiError ? error.code : null;
   } finally {
@@ -49,109 +49,133 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <section class="change-password-view">
-    <h1>Change password</h1>
-    <p v-if="forced" class="notice">You must set a new password before continuing.</p>
-    <form class="card" novalidate @submit.prevent="submit">
-      <label for="current-password">Current password</label>
-      <input
-        id="current-password"
-        v-model="currentPassword"
-        type="password"
-        autocomplete="current-password"
+  <section class="auth">
+    <div class="auth-panel">
+      <header class="auth-head">
+        <span class="auth-mark">[AI]</span>
+        <h1>修改密码</h1>
+        <p class="auth-sub">设置新密码后可继续使用平台。</p>
+      </header>
+
+      <el-alert
+        v-if="forced"
+        class="auth-alert"
+        type="warning"
+        title="首次登录需要先设置新密码。"
+        :closable="false"
+        show-icon
       />
-      <p v-if="currentError" class="field-error">{{ currentError }}</p>
 
-      <label for="new-password">New password</label>
-      <input id="new-password" v-model="newPassword" type="password" autocomplete="new-password" />
-      <p class="hint">At least 12 characters.</p>
-      <p v-if="newError" class="field-error">{{ newError }}</p>
+      <el-form class="auth-form" label-position="top" novalidate @submit.prevent="submit">
+        <el-form-item label="当前密码" :error="currentError ?? undefined">
+          <el-input
+            v-model="currentPassword"
+            type="password"
+            :prefix-icon="Lock"
+            autocomplete="current-password"
+          />
+        </el-form-item>
 
-      <label for="confirm-password">Confirm new password</label>
-      <input
-        id="confirm-password"
-        v-model="confirmPassword"
-        type="password"
-        autocomplete="new-password"
-      />
-      <p v-if="confirmError" class="field-error">{{ confirmError }}</p>
+        <el-form-item label="新密码" :error="newError ?? undefined">
+          <el-input
+            v-model="newPassword"
+            type="password"
+            :prefix-icon="Lock"
+            autocomplete="new-password"
+          />
+          <p class="auth-hint">至少 12 位。</p>
+        </el-form-item>
 
-      <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
-      <p v-if="errorCode" class="error-code">code: {{ errorCode }}</p>
-      <p v-if="requestId" class="request-id">requestId: {{ requestId }}</p>
+        <el-form-item label="确认新密码" :error="confirmError ?? undefined">
+          <el-input
+            v-model="confirmPassword"
+            type="password"
+            :prefix-icon="Lock"
+            autocomplete="new-password"
+          />
+        </el-form-item>
 
-      <button type="submit" :disabled="submitting">
-        {{ submitting ? "Saving…" : "Save new password" }}
-      </button>
-    </form>
+        <el-alert
+          v-if="formError"
+          class="auth-alert"
+          data-testid="auth-error"
+          type="error"
+          :title="formError"
+          :closable="false"
+          show-icon
+        />
+        <p v-if="errorCode" class="auth-meta">错误码 {{ errorCode }}</p>
+        <p v-if="requestId" class="auth-meta">请求编号 {{ requestId }}</p>
+
+        <el-button class="auth-submit" type="primary" native-type="submit" :loading="submitting">
+          {{ submitting ? "保存中…" : "保存新密码" }}
+        </el-button>
+      </el-form>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.change-password-view {
-  max-width: 400px;
-  margin: 3rem auto;
+.auth {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-2xl) 0;
 }
 
-.notice {
-  padding: 0.5rem 0.75rem;
-  border-radius: 4px;
-  background: #fef9c3;
-  color: #854d0e;
+.auth-panel {
+  width: 100%;
+  max-width: var(--container-narrow);
+  padding: var(--space-xl);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
 }
 
-.card {
+.auth-head {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 1.25rem;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  gap: var(--space-2xs);
+  margin-bottom: var(--space-lg);
 }
 
-input {
-  padding: 0.5rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
+.auth-mark {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  background: var(--accent-gradient);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
 }
 
-.hint,
-.field-error,
-.form-error,
-.error-code,
-.request-id {
-  margin: 0;
-  font-size: 0.85rem;
+.auth-sub {
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
 
-.hint {
-  color: #64748b;
+.auth-form :deep(.el-form-item) {
+  margin-bottom: var(--space-md);
 }
 
-.field-error,
-.form-error {
-  color: #b91c1c;
+.auth-hint {
+  margin-top: var(--space-3xs);
+  font-size: var(--text-xs);
+  color: var(--meta);
 }
 
-.error-code,
-.request-id {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.75rem;
-  color: #64748b;
+.auth-alert {
+  margin-bottom: var(--space-sm);
 }
 
-button {
-  margin-top: 0.5rem;
-  padding: 0.55rem;
-  border: none;
-  border-radius: 4px;
-  background: #0f172a;
-  color: #fff;
+.auth-meta {
+  margin-bottom: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--meta);
 }
 
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.auth-submit {
+  width: 100%;
 }
 </style>
