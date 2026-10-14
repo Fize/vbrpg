@@ -1,0 +1,369 @@
+openapi: 3.1.0
+info:
+  title: VBRPG Phase 1 API
+  version: 1.0.0
+servers:
+  - url: /v1
+paths:
+  /auth/login:
+    post:
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username, password]
+              properties:
+                username: { type: string, minLength: 3, maxLength: 64 }
+                password: { type: string, minLength: 1, maxLength: 256 }
+      responses:
+        '200':
+          description: Authenticated; sets HttpOnly session cookie.
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResult' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post:
+      operationId: logout
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      responses:
+        '204': { description: Session revoked; clears cookie. }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /auth/csrf:
+    get:
+      operationId: getCsrfToken
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: CSRF token for state-changing requests.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [csrfToken]
+                properties:
+                  csrfToken: { type: string }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/password:
+    post:
+      operationId: changePassword
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string, minLength: 1, maxLength: 256 }
+                newPassword: { type: string, minLength: 12, maxLength: 256 }
+      responses:
+        '200':
+          description: Password changed; other sessions revoked and CSRF token rotated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResult' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /me:
+    get:
+      operationId: getCurrentUser
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Current account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Error' }
+  /admin/users:
+    get:
+      operationId: listUsers
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: User accounts without password or session data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users]
+                properties:
+                  users: { type: array, items: { $ref: '#/components/schemas/User' } }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      operationId: createUser
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username, temporaryPassword, role]
+              properties:
+                username: { type: string, minLength: 3, maxLength: 64 }
+                temporaryPassword: { type: string, minLength: 12, maxLength: 256 }
+                role: { type: string, enum: [admin, user] }
+      responses:
+        '201':
+          description: Created account; never returns temporary password.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /admin/users/{userId}:
+    patch:
+      operationId: updateUser
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      parameters:
+        - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                role: { type: string, enum: [admin, user] }
+                active: { type: boolean }
+                resetPassword: { type: string, minLength: 12, maxLength: 256 }
+      responses:
+        '200':
+          description: Updated account; role/status/password changes revoke sessions.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /providers:
+    get:
+      operationId: listEnabledProviders
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Enabled provider/model public metadata, no secret fields.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [providers]
+                properties:
+                  providers: { type: array, items: { $ref: '#/components/schemas/Provider' } }
+  /admin/providers:
+    get:
+      operationId: listProviders
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Provider metadata and secretConfigured only.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [providers]
+                properties:
+                  providers: { type: array, items: { $ref: '#/components/schemas/Provider' } }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      operationId: createProvider
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProviderInput' }
+      responses:
+        '201':
+          description: Provider created; secret is write-only.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Provider' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /admin/providers/{providerId}:
+    patch:
+      operationId: updateProvider
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      parameters:
+        - { name: providerId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+                baseUrl: { type: string, format: uri, maxLength: 2048 }
+                enabled: { type: boolean }
+                apiKey: { type: string, minLength: 1, maxLength: 4096 }
+      responses:
+        '200':
+          description: Updated provider; API key never returned.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Provider' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /admin/providers/{providerId}/test:
+    post:
+      operationId: testProvider
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      parameters:
+        - { name: providerId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Sanitized connection test outcome.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, latencyMs, checkedAt, errorCode]
+                properties:
+                  ok: { type: boolean }
+                  latencyMs: { type: integer, minimum: 0, maximum: 8000 }
+                  checkedAt: { type: string, format: date-time }
+                  errorCode: { type: [string, 'null'], enum: [null, timeout, dns_rejected, tls_error, unauthorized, rate_limited, provider_error, invalid_response] }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /admin/providers/{providerId}/models:
+    post:
+      operationId: createProviderModel
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      parameters:
+        - { name: providerId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [modelId, displayName]
+              properties:
+                modelId: { type: string, minLength: 1, maxLength: 200 }
+                displayName: { type: string, minLength: 1, maxLength: 100 }
+                enabled: { type: boolean, default: true }
+      responses:
+        '201':
+          description: Model created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProviderModel' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /admin/models/{modelId}:
+    patch:
+      operationId: updateProviderModel
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      parameters:
+        - { name: modelId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                modelId: { type: string, minLength: 1, maxLength: 200 }
+                displayName: { type: string, minLength: 1, maxLength: 100 }
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: Updated model.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProviderModel' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    sessionCookie: { type: apiKey, in: cookie, name: vbrpg_session }
+    csrfHeader: { type: apiKey, in: header, name: x-csrf-token }
+  schemas:
+    User:
+      type: object
+      required: [id, username, role, active, mustChangePassword, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        role: { type: string, enum: [admin, user] }
+        active: { type: boolean }
+        mustChangePassword: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    LoginResult:
+      type: object
+      required: [user, csrfToken, expiresAt]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        csrfToken: { type: string }
+        expiresAt: { type: string, format: date-time }
+    Provider:
+      type: object
+      required: [id, name, baseUrl, enabled, secretConfigured, models]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        baseUrl: { type: string, format: uri }
+        enabled: { type: boolean }
+        secretConfigured: { type: boolean }
+        models: { type: array, items: { $ref: '#/components/schemas/ProviderModel' } }
+    ProviderInput:
+      type: object
+      additionalProperties: false
+      required: [name, baseUrl, apiKey]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        baseUrl: { type: string, format: uri, maxLength: 2048 }
+        apiKey: { type: string, minLength: 1, maxLength: 4096 }
+    ProviderModel:
+      type: object
+      required: [id, providerId, modelId, displayName, enabled]
+      properties:
+        id: { type: string, format: uuid }
+        providerId: { type: string, format: uuid }
+        modelId: { type: string }
+        displayName: { type: string }
+        enabled: { type: boolean }
+    AgentModelBinding:
+      type: object
+      additionalProperties: false
+      required: [providerModelId]
+      properties:
+        providerModelId: { type: string, format: uuid }
+    Error:
+      type: object
+      required: [error, code, details, requestId]
+      properties:
+        error: { type: string }
+        code: { type: string }
+        details: { type: object }
+        requestId: { type: string }
+  responses:
+    Error:
+      description: Standard platform error.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

@@ -44,6 +44,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build:platform
+      - run: pnpm run typecheck:web
+      - run: pnpm run build:web
+      - run: pnpm run test:web
+      - run: pnpm run test:contracts
+      - run: pnpm --filter @vbrpg/db test
       - run: pnpm run test:platform
       - run: pnpm run db:migrate:platform
         env:
@@ -54,3 +59,14 @@ jobs:
       - run: pnpm --filter @vbrpg/api test:integration
         env:
           DATABASE_URL: postgres://vbrpg:vbrpgpassword@localhost:5432/vbrpg_platform
+      # Down migrations must be runnable, not just documented.
+      - run: pnpm --filter @vbrpg/db migrate:down -- --steps=1
+        env:
+          DATABASE_URL: postgres://vbrpg:vbrpgpassword@localhost:5432/vbrpg_platform
+      - run: pnpm run db:migrate:platform
+        env:
+          DATABASE_URL: postgres://vbrpg:vbrpgpassword@localhost:5432/vbrpg_platform
+      # Advisory report only: the repository already carries open high-severity
+      # findings in production dependency chains. Review before release.
+      - run: pnpm audit --prod --audit-level=high
+        continue-on-error: true

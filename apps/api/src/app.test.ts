@@ -83,7 +83,7 @@ describe("API foundation", () => {
   it("rejects unauthenticated requests to protected routes", async () => {
     const app = buildApp({ config });
     apps.push(app);
-    const response = await app.inject({ method: "GET", url: "/v1/me" });
+    const response = await app.inject({ method: "GET", url: "/v1/tenant/me" });
 
     expect(response.statusCode).toBe(401);
     expect(response.json()).toMatchObject({ code: "AUTH_REQUIRED" });
@@ -99,7 +99,7 @@ describe("API foundation", () => {
     );
     const response = await app.inject({
       method: "GET",
-      url: "/v1/me",
+      url: "/v1/tenant/me",
       headers: { authorization: `Bearer ${token}`, "x-tenant-id": "tenant-b" },
     });
 
@@ -145,7 +145,7 @@ describe("API foundation", () => {
     );
     const response = await app.inject({
       method: "GET",
-      url: "/v1/me",
+      url: "/v1/tenant/me",
       headers: { authorization: `Bearer ${token}`, "x-tenant-id": "tenant-a" },
     });
 

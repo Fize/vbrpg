@@ -3,6 +3,11 @@ import type { Generated } from "kysely";
 export type JsonObject = Record<string, unknown>;
 export type TenantRole = "owner" | "admin" | "developer" | "player";
 export type TenantStatus = "active" | "suspended" | "archived";
+export type PlatformRole = "admin" | "user";
+export type ProviderType = "openai_compatible";
+
+/** Single-platform tenant that owns Phase 1 sessions and provider records. */
+export const PLATFORM_TENANT_ID = "platform";
 
 export interface TenantsTable {
   id: string;
@@ -16,6 +21,10 @@ export interface TenantsTable {
 export interface UsersTable {
   id: string;
   username: string;
+  password_hash: string | null;
+  platform_role: Generated<PlatformRole>;
+  is_active: Generated<boolean>;
+  must_change_password: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -32,10 +41,39 @@ export interface AuthSessionsTable {
   tenant_id: string;
   user_id: string;
   refresh_token_hash: Buffer | null;
+  token_hash: Buffer | null;
+  csrf_token_hash: Buffer | null;
   created_at: Generated<Date>;
   expires_at: Date;
+  absolute_expires_at: Date;
   last_seen_at: Generated<Date>;
   revoked_at: Date | null;
+}
+
+export interface ProvidersTable {
+  id: string;
+  tenant_id: string;
+  name: string;
+  provider_type: Generated<ProviderType>;
+  base_url: string;
+  enabled: Generated<boolean>;
+  credential_ciphertext: Buffer;
+  credential_nonce: Buffer;
+  credential_tag: Buffer;
+  credential_key_version: number;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface ProviderModelsTable {
+  id: string;
+  tenant_id: string;
+  provider_id: string;
+  model_id: string;
+  display_name: string;
+  enabled: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
 }
 
 export interface GamesTable {
@@ -230,6 +268,8 @@ export interface Database {
   users: UsersTable;
   tenant_memberships: TenantMembershipsTable;
   auth_sessions: AuthSessionsTable;
+  providers: ProvidersTable;
+  provider_models: ProviderModelsTable;
   games: GamesTable;
   game_versions: GameVersionsTable;
   workflow_definitions: WorkflowDefinitionsTable;

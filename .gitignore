@@ -53,6 +53,8 @@ Thumbs.db
 logs/
 
 # Testing
+playwright-report/
+test-results/
 .pytest_cache/
 .coverage
 htmlcov/

@@ -10,7 +10,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "migrate": "tsx scripts/migrate.ts",
-    "test:integration": "tsx scripts/integration.ts"
+    "test:integration": "tsx scripts/integration.ts",
+    "migrate:down": "tsx scripts/migrate.ts --down",
+    "test": "tsx --test src/migrations.test.ts"
   },
   "dependencies": {
     "kysely": "^0.28.2",

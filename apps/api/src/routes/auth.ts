@@ -7,7 +7,7 @@ export async function registerAuthRoutes(
   _config: ApiConfig,
   authenticateRequest: preHandlerHookHandler,
 ): Promise<void> {
-  app.get("/v1/me", { preHandler: authenticateRequest }, async (request) => ({
+  app.get("/v1/tenant/me", { preHandler: authenticateRequest }, async (request) => ({
     userId: request.authPrincipal?.userId,
     tenantId: request.authPrincipal?.tenantId,
     roles: request.authPrincipal?.roles,

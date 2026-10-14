@@ -1,5 +1,35 @@
 export { closeDb, createDb } from "./client.js";
 export type { DbOptions } from "./client.js";
+export { downMigrationFileName, selectUpMigrationFiles } from "./migrations.js";
+export { PLATFORM_TENANT_ID } from "./types.js";
+export {
+  bootstrapPlatformAdmin,
+  countActiveAdmins,
+  createAuthSession,
+  createPlatformUser,
+  createProvider,
+  createProviderModel,
+  findPlatformUserByUsername,
+  getAuthSessionByTokenHash,
+  getPlatformUser,
+  getProvider,
+  listPlatformUsers,
+  listProvidersWithModels,
+  platformContext,
+  recordAuditLog,
+  revokeAuthSession,
+  revokeUserSessions,
+  setAuthSessionCsrfHash,
+  touchAuthSession,
+  updatePlatformUser,
+  updateProvider,
+  updateProviderModel,
+} from "./platform-repositories.js";
+export type {
+  PlatformUserRecord,
+  ProviderCredentialColumns,
+  ProviderWithModels,
+} from "./platform-repositories.js";
 export {
   claimOutboxEvents,
   claimPendingCommands,
@@ -32,7 +62,11 @@ export type {
   JsonObject,
   OutboxEventsTable,
   PendingCommandsTable,
+  PlatformRole,
   PlayerActionsTable,
+  ProviderModelsTable,
+  ProviderType,
+  ProvidersTable,
   ScheduledJobsTable,
   TenantSecretsTable,
   TenantMembershipsTable,

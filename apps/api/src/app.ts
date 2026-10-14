@@ -6,6 +6,10 @@ import { authenticate, authenticateWithSession, type AuthSessionLookup } from ".
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerRuntimeRoutes } from "./routes/runtime.js";
+import { registerPlatformAuthRoutes } from "./routes/platform-auth.js";
+import { registerPlatformAdminRoutes } from "./routes/platform-admin.js";
+import type { PlatformStore } from "./store.js";
+import { createPlatformRequestContext } from "./platform-auth.js";
 import { createOpenAiCompatibleClient } from "./ai.js";
 import type { AiClient } from "./ai.js";
 
@@ -19,6 +23,7 @@ export interface BuildAppOptions {
   config?: ApiConfig;
   sessionLookup?: AuthSessionLookup;
   aiClient?: AiClient;
+  platformStore?: PlatformStore;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -88,6 +93,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     }
     request.authPrincipal = principal;
   });
+  if (options.platformStore) {
+    const platformContext = createPlatformRequestContext(options.platformStore, config);
+    void registerPlatformAuthRoutes(app, platformContext);
+    void registerPlatformAdminRoutes(app, platformContext);
+  }
   void registerRuntimeRoutes(app, options.aiClient ?? createOpenAiCompatibleClient({
     ...(config.aiApiKey === undefined ? {} : { apiKey: config.aiApiKey }),
     baseUrl: config.aiApiBaseUrl,

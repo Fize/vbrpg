@@ -1,6 +1,7 @@
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { closeDb, createDb, getActiveAuthSession, getTenantMembership, withTenantContext } from "@vbrpg/db";
+import { createPlatformStore } from "./store.js";
 
 const config = loadConfig();
 const db = config.databaseUrl ? createDb({ databaseUrl: config.databaseUrl }) : undefined;
@@ -8,6 +9,7 @@ const app = buildApp({
   config,
   ...(db
     ? {
+      platformStore: createPlatformStore(db),
       sessionLookup: async (sessionId, tenantId) => withTenantContext(db, { tenantId }, async (transaction) => {
         const session = await getActiveAuthSession(transaction, { tenantId }, sessionId);
         if (!session) return undefined;

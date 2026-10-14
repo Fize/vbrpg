@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "test": "vitest run --config vitest.config.ts",
     "test:integration": "tsx scripts/game-dispatch-integration.ts",
-    "demo:ai": "tsx scripts/ai-demo.ts"
+    "demo:ai": "tsx scripts/ai-demo.ts",
+    "check:provider-endpoint": "tsx scripts/provider-connection-check.ts"
   },
   "dependencies": {
     "@vbrpg/contracts": "workspace:*",
