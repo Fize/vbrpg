@@ -103,6 +103,41 @@ const aiDefinition: GameDefinition = {
   },
 };
 
+const loopDefinition: GameDefinition = {
+  ...definition,
+  manifest: { ...definition.manifest, gameId: "loop-spike", slug: "loop-spike" },
+  workflow: {
+    entryNodeId: "start",
+    nodes: [
+      { id: "start", type: "start", config: {}, next: ["loop"] },
+      {
+        id: "loop",
+        type: "loop",
+        config: {
+          bodyNodeId: "tally",
+          counterKey: "round",
+          maxIterations: 3,
+          while: { op: "lt", args: [{ op: "var", name: "round" }, { op: "lit", value: 3 }] },
+        },
+        next: ["end"],
+      },
+      {
+        id: "tally",
+        type: "setVariable",
+        config: {
+          key: "total",
+          valueExpr: { op: "add", args: [{ op: "var", name: "total" }, { op: "lit", value: 1 }] },
+        },
+        next: ["loop"],
+      },
+      { id: "end", type: "end", config: {}, next: [] },
+    ],
+  },
+  variables: { round: 0, total: 0 },
+};
+
+const loopState: GameState = { ...initialState, variables: { round: 0, total: 0 } };
+
 function event(
   sequence: number,
   type: GameEvent["type"],
@@ -378,5 +413,38 @@ describe("deterministic randomness", () => {
       idempotencyKey: "create",
       payload: {},
     }).state.variables.roll).not.toBe(reseeded.state.variables.roll);
+  });
+
+  it("repeats the loop body while the condition holds and exits on it", () => {
+    const result = transition(loopDefinition, loopState, event(1, "instanceCreated"));
+
+    expect(result.state.variables).toEqual({ round: 3, total: 3 });
+    expect(result.state.status).toBe("completed");
+    expect(result.commands).toEqual([]);
+  });
+
+  it("stops at maxIterations when the loop declares no condition", () => {
+    const bounded: GameDefinition = {
+      ...loopDefinition,
+      workflow: {
+        ...loopDefinition.workflow,
+        nodes: loopDefinition.workflow.nodes.map((node) =>
+          node.id === "loop"
+            ? { ...node, config: { bodyNodeId: "tally", counterKey: "round", maxIterations: 2 } }
+            : node,
+        ),
+      },
+    };
+
+    const result = transition(bounded, loopState, event(1, "instanceCreated"));
+
+    expect(result.state.variables).toEqual({ round: 2, total: 2 });
+    expect(result.state.status).toBe("completed");
+  });
+
+  it("replays a loop to an identical state", () => {
+    expect(transition(loopDefinition, loopState, event(1, "instanceCreated")).state).toEqual(
+      transition(loopDefinition, loopState, event(1, "instanceCreated")).state,
+    );
   });
 });

@@ -175,6 +175,7 @@ function transition(
 - `timer`
 - `vote`
 - `random`
+- `loop`
 - `aiGenerate`
 - `emitEvent`
 - `subflow`
@@ -200,7 +201,7 @@ Draft -> Testing -> Published
 编译器至少拒绝以下定义：
 
 - 没有唯一入口、节点不可达或没有任何可达终点。
-- 非显式循环、无退出条件循环，或可能无限自动执行的节点链。
+- 图里存在不经 `loop` 节点的环：显式循环是唯一合法的环，必须声明循环头（`loop`）、循环体入口（`bodyNodeId`）与上界（`maxIterations`），并把计数器（`counterKey`）交给循环节点独占写入，运行时按 `counterKey` 与 `while` 决定是否再进一轮。
 - 引用不存在的角色、变量、资源、子流程或节点。
 - 玩家输入不符合声明的 schema。
 - `parallel` 没有明确的 `join`、法定人数或超时策略。
@@ -373,9 +374,9 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 任务：
 
 - [/] `P3-01`：完成 `workflow-schema` v1 和 schema 版本迁移机制。 — 核验 2026-10-14：DSL v1 + `dslVersion`/`engineVersion` + 稳定 definition hash 已实现；schema 版本迁移机制未实现
-- [/] `P3-02`：实现发布前的图结构、引用、循环、可见性、AI 降级和等待点校验。 — 核验 2026-10-14：图结构校验已实现；可见性规则与表达式校验已补齐（未声明变量/角色、非法操作、深度与节点数上限）；仍有 AI 降级与等待点的显式校验缺失
+- [/] `P3-02`：实现发布前的图结构、引用、循环、可见性、AI 降级和等待点校验。 — 核验 2026-10-15：图结构校验已实现；可见性规则与表达式校验已补齐（未声明变量/角色、非法操作、深度与节点数上限）；循环规则已收口——只有经过 `loop` 节点的环合法，其余环仍报 `IMPLICIT_CYCLE`，且循环计数器不得被其他节点写入；仍有 AI 降级与等待点的显式校验缺失
 - [/] `P3-03`：实现纯 `transition`、显式随机种子、虚拟时钟和事件回放。 — 核验 2026-10-14：纯 `transition`、显式 `randomSeed`、`replayEvents` 已实现；虚拟时钟未实现（timer 依赖 `deadlineMs`）
-- [/] `P3-04`：实现 start/end、变量、分支、等待、收集、计时、投票、随机、事件节点。 — 核验 2026-10-14：start/end、setVariable、branch、waitForPlayerInput、collectInput、timer、vote、aiGenerate、emitEvent、`random` 已实现（`random` 由 `randomSeed`+节点 id+序号确定性派生，2026-10-14 第二轮）
+- [/] `P3-04`：实现 start/end、变量、分支、等待、收集、计时、投票、随机、事件节点。 — 核验 2026-10-15：start/end、setVariable、branch、waitForPlayerInput、collectInput、timer、vote、aiGenerate、emitEvent、`random`、`loop` 均已实现（`random` 2026-10-14 第二轮；`loop` 2026-10-15：计数器 + `while` 条件 + `maxIterations` 上界，回合制循环的唯一合法形式）
 - [ ] `P3-05`：实现 subflow、parallel/join 和多玩家输入聚合。 — 核验 2026-10-14：未实现，且 validator 现已在发布期拒绝这三类节点（`UNSUPPORTED_NODE_TYPE`）。实现需要调用栈与分支合并的状态模型，而当前没有游戏需要它们；计划本身要求「用真实游戏验证抽象」，因此留到 P4 由游戏驱动。注：多玩家输入聚合（`collectInput`/`vote` 收齐再推进）已可用
 - [/] `P3-06`：实现快照策略、乐观/悲观并发控制、动作幂等和实例级顺序号。 — 核验 2026-10-14：实例行锁 + 顺序号校验 + idempotency key 幂等追加已实现（`services/game-dispatch.ts`）；快照写入策略与并发竞争测试未做
 - [ ] `P3-07`：实现公共视图、角色视图、个人视图的投影器，并加入防泄漏测试。 — 核验 2026-10-14：未实现（`playerViewSchema` 已定义但无投影器与防泄漏测试）
@@ -396,7 +397,7 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 任务：
 
 - [/] `P4-01`：从现有 Python 逻辑提取角色、阶段、动作、胜负、超时和可见性规格。 — 核验 2026-10-14：角色/阶段/动作/胜负规则已提取为黄金轨迹；超时与可见性规格未提取（可见性改由新的 `visibility` 规则集直接表达）
-- [ ] `P4-02`：把狼人杀表示为游戏包，而不是在引擎中增加狼人杀专用分支。 — 核验 2026-10-14 第二轮：**第一增量已落地**：`docs/fixtures/werewolf-package.json` 用现有节点 + 新增白名单表达式（`branch.when`/`setVariable.valueExpr`）表达单轮狼人杀并跑通胜负判定，引擎侧无狼人杀专用分支。仍缺：发牌（角色分配由实例创建方提供 participants）、回合循环（validator 一律拒绝隐式环，缺显式循环节点）、参与者状态变更节点（淘汰目前用计数变量而非 `participants[].status`）
+- [ ] `P4-02`：把狼人杀表示为游戏包，而不是在引擎中增加狼人杀专用分支。 — 核验 2026-10-15：**第二增量已落地**：`docs/fixtures/werewolf-package.json` 改为多回合（`loop` 回合循环 + 每回合重置票箱 + 由 `winner` 条件退出），两回合剧本与投影隔离测试通过，引擎侧仍无狼人杀专用分支。仍缺：发牌（角色分配由实例创建方提供 participants）、参与者状态变更节点（淘汰目前用计数变量而非 `participants[].status`）
 - [ ] `P4-03`：将 AI 行为改为外部 activity；prompt、模型参数和输出 schema 随游戏版本保存。 — 核验 2026-10-14：未实现（AI 行为仍是 api 进程内同步调用，prompt/模型参数未随游戏版本保存）
 - [ ] `P4-04`：用 Phase 0 黄金轨迹比较旧系统和新引擎；差异必须归类为缺陷修复或经批准的规则变更。 — 核验 2026-10-14：未实现
 - [ ] `P4-05`：实现旧用户、历史对局和默认 `legacy` 租户的数据回填脚本，并提供 dry-run 报告。 — 核验 2026-10-14：未实现
@@ -628,6 +629,12 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 5. **契约未覆盖并存端点**：`docs/api/phase1-openapi.yaml` 的 13 条路径（方法级逐项比对）全部已实现，无多余项；但仓库另有未纳入该契约的端点——legacy bearer 线（`/v1/tenant/me`、`/v1/tenant/management-check`）、MVP 无状态线（`/v1/mvp/runtime/{compile,instances,dispatch,ai-dispatch}`）与运维端点（`/health`、`/ready`）。
 6. **一键启动仍不完整**：`docker-compose.platform.yml` 提供 `platform-postgres`/`platform-migrate`/`platform-api`/`platform-web`，没有 worker 服务。
 
+### 第三轮（2026-10-15）：显式循环节点
+
+- 新增 `loop` 节点：`bodyNodeId`（循环体入口）、`counterKey`（计数器）、`maxIterations`（上界）、可选 `while`（续轮条件）。循环体最后一个节点以回边指向 `loop`，由 `loop` 决定再进一轮还是走 `next` 出口。
+- 发布期环规则收口：只有经过 `loop` 节点的环合法，其余环仍报 `IMPLICIT_CYCLE`；`counterKey` 禁止被任何其他节点写入，因此自动执行始终有界。运行时的单遍访问守卫改为 10000 步预算（原守卫会把合法回边误判为自动死循环）。
+- 狼人杀包升级为多回合（`docs/fixtures/werewolf-package.json` v0.2.0）：回合循环、每回合重置票箱、由 `winner` 条件退出，引擎侧无狼人杀专用分支；两回合剧本、回合中等待态、回放一致性与投影隔离均有测试覆盖。
+
 ### 下一步建议顺序
 
 1. **Agent 执行链（`P3-09` + `P4-03` 前置）**：新增 agent 定义与绑定表（`game_version_id` + `agent_id` → `provider_model_id`）；实现 AI command handler：按绑定解析启用中的 provider/model → 用 `secret-box` 解密凭据 → 调用 OpenAI-compatible → 生成 `aiResultReceived`；补齐超时、有限重试、预算、用量记账与降级事件。
@@ -635,7 +642,7 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 3. **投影器（`P3-07`）**：公共/角色/个人视图 + 防泄漏测试；没有投影就无法验证 AI 结果对玩家可见性与信息隔离。
 4. **worker handler 接入（`P2-07` 收口）**：把 AI command、计时器到期与广播 handler 注入 `createWorker`，并加死信观测。
 5. ~~补齐 `P3-04`/`P3-05`~~：`random` 已实现（2026-10-14 第二轮）；subflow/parallel/join 已改为发布期拒绝，待 P4 由真实游戏驱动再实现。
-6. **DSL 缺口（P4-02 暴露）**：发牌/洗牌与索引、显式循环节点（回合制必需）、参与者状态变更节点（把淘汰写回 `participants[].status`）、投票计票的多数决已有（`mode`）。这些应由第二个真实游戏继续驱动，而不是提前发明。
+6. **DSL 缺口（P4-02 暴露）**：~~显式循环节点~~ 已落地（2026-10-15，`loop` + 发布期环规则收口）；仍缺发牌/洗牌与索引、参与者状态变更节点（把淘汰写回 `participants[].status`）。投票计票的多数决已有（`mode`）。这些应由第二个真实游戏继续驱动，而不是提前发明。
 
 7. **工程门禁**：CI 增加 lint 与格式检查（当前完全缺失，`P1-05` 未收口）；密钥轮换流程（`P2-06`）；处置 `pnpm audit` 的 15 high。
 8. **决策收口**：`P0-05` 的 LangGraph JS 对照与书面结论仍未产出，ADR-002 的定稿条件未满足；鉴于运行时已由原生解释器承载，建议明确写出“第一版采用 NativeRuntime”的结论或正式放弃该 spike。

@@ -28,6 +28,7 @@ export const nodeTypeSchema = z.enum([
   "timer",
   "vote",
   "random",
+  "loop",
   "aiGenerate",
   "emitEvent",
   "subflow",

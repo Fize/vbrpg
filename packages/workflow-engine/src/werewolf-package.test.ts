@@ -67,19 +67,50 @@ describe("werewolf reference package", () => {
     expect(completed.variables.victim).toBe("p3");
   });
 
-  it("reaches a villager win when the pack turns on itself", () => {
+  it("carries the game across rounds until the pack is wiped out", () => {
     const completed = play([
       event(1, "instanceCreated", {}),
       event(2, "playerInputReceived", { participantId: "p1", value: "p2" }),
       event(3, "playerInputReceived", { participantId: "p2", value: "p1" }),
+      // Round two only resolves because the loop reset the vote box on re-entry.
+      event(4, "playerInputReceived", { participantId: "p1", value: "p1" }),
+      event(5, "playerInputReceived", { participantId: "p2", value: "p1" }),
     ]);
 
-    // Two wolves, one vote each: the tie resolves to the first value seen, deterministically.
-    expect(completed.variables.victim).toBe("p2");
-    expect(completed.variables.wolvesAlive).toBe(1);
+    // Round one ties at one vote each: the first value seen wins deterministically.
+    expect(completed.variables.dayNumber).toBe(2);
+    expect(completed.variables.winner).toBe("villagers");
+    expect(completed.variables.wolvesAlive).toBe(0);
     expect(completed.variables.villagersAlive).toBe(1);
-    expect(completed.variables.winner).toBe("undecided");
+    expect(completed.variables.nightVotes).toEqual({ p1: "p1", p2: "p1" });
     expect(completed.status).toBe("completed");
+  });
+
+  it("keeps waiting in the second round after the first one resolved", () => {
+    const compiled = compileGameDefinition(pkg);
+    const started = createInitialState(compiled, {
+      instanceId: "werewolf-1",
+      gameVersionId: "version-1",
+      randomSeed: "werewolf-seed",
+      participants,
+    });
+
+    const events = [
+      event(1, "instanceCreated", {}),
+      event(2, "playerInputReceived", { participantId: "p1", value: "p2" }),
+      event(3, "playerInputReceived", { participantId: "p2", value: "p1" }),
+    ];
+    let state = started;
+    for (const next of events) state = transition(compiled.definition, state, next).state;
+
+    expect(state.waiting).toEqual({
+      kind: "collectInput",
+      nodeId: "night",
+      participantIds: ["p1", "p2"],
+      deadlineMs: undefined,
+    });
+    expect(state.variables.dayNumber).toBe(2);
+    expect(state.variables.nightVotes).toEqual({});
   });
 
   it("waits for every wolf before resolving the night", () => {

@@ -13,6 +13,12 @@ export interface TransitionResult {
   commands: ExternalCommand[];
 }
 
+/**
+ * An explicit `loop` node may re-enter its body; nothing else may, and the validator guarantees
+ * that is bounded. This budget is the runtime backstop for definitions that skipped publication.
+ */
+const AUTOMATIC_STEP_LIMIT = 10_000;
+
 export class EngineError extends Error {
   readonly code: string;
 
@@ -254,15 +260,9 @@ function runAutomaticNodes(
 ): { state: GameState; commands: ExternalCommand[] } {
   let state = initialState;
   const commands: ExternalCommand[] = [];
-  const visited = new Set<string>();
 
-  for (let step = 0; step < 100; step += 1) {
+  for (let step = 0; step < AUTOMATIC_STEP_LIMIT; step += 1) {
     const node = findNode(definition, state.currentNodeId);
-    if (visited.has(node.id)) {
-      throw new EngineError("AUTOMATIC_LOOP", `Automatic workflow loop reached node: ${node.id}`);
-    }
-    visited.add(node.id);
-
     const config = asConfig(node.config);
     switch (node.type) {
       case "start":
@@ -366,6 +366,28 @@ function runAutomaticNodes(
         state = advance(state, nextNodeId(node));
         continue;
       }
+      case "loop": {
+        const counterKey = requiredString(config, "counterKey");
+        const bodyNodeId = requiredString(config, "bodyNodeId");
+        const maxIterations = requiredPositiveInteger(config, "maxIterations");
+        const previous = state.variables[counterKey];
+        const iteration =
+          typeof previous === "number" && Number.isInteger(previous) ? previous + 1 : 1;
+        // The condition reads the committed state, so `round < 3` plays rounds 1..3, while the
+        // counter is committed together with the body and therefore names the round in progress.
+        const repeats =
+          iteration <= maxIterations &&
+          (config.while === undefined ||
+            evaluateExpression(config.while, { variables: state.variables, state }) === true);
+        if (!repeats) {
+          state = advance(state, nextNodeId(node));
+          continue;
+        }
+        const variables = cloneVariables(state.variables);
+        variables[counterKey] = iteration;
+        state = advance({ ...state, variables }, bodyNodeId);
+        continue;
+      }
       case "end":
         return { state: { ...state, status: "completed", waiting: null }, commands };
       default:
@@ -373,7 +395,10 @@ function runAutomaticNodes(
     }
   }
 
-  throw new EngineError("AUTOMATIC_LOOP", "Automatic workflow exceeded the 100-node safety limit");
+  throw new EngineError(
+    "AUTOMATIC_LOOP",
+    `Automatic workflow exceeded the ${AUTOMATIC_STEP_LIMIT}-step safety limit`,
+  );
 }
 
 export function transition(

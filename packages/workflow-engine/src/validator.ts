@@ -68,6 +68,10 @@ function referencedNodeIds(node: Node, issues: ValidationIssue[]): string[] {
     const fallback = stringConfig(node, "fallbackNodeId", issues);
     if (fallback) references.push(fallback);
   }
+  if (node.type === "loop") {
+    const body = stringConfig(node, "bodyNodeId", issues);
+    if (body) references.push(body);
+  }
   if (node.type === "subflow") {
     const entry = stringConfig(node, "entryNodeId", issues);
     if (entry) references.push(entry);
@@ -135,6 +139,18 @@ function validateNodeConfig(node: Node, issues: ValidationIssue[]): void {
         });
       }
       break;
+    case "loop":
+      stringConfig(node, "counterKey", issues);
+      stringConfig(node, "bodyNodeId", issues);
+      positiveIntegerConfig(node, "maxIterations", issues);
+      if (node.next.length === 0) {
+        issues.push({
+          code: "INVALID_CONFIG",
+          nodeId: node.id,
+          message: "loop requires an exit node in next",
+        });
+      }
+      break;
     case "setVariable":
       stringConfig(node, "key", issues);
       if (config.value === undefined && config.valueExpr === undefined) {
@@ -175,6 +191,7 @@ function validateNodeExpressions(definition: GameDefinition, issues: ValidationI
     const config = configOf(node);
     const candidates: Array<[string, unknown]> = [];
     if (node.type === "branch" && config.when !== undefined) candidates.push(["when", config.when]);
+    if (node.type === "loop" && config.while !== undefined) candidates.push(["while", config.while]);
     if (node.type === "setVariable" && config.valueExpr !== undefined) {
       candidates.push(["valueExpr", config.valueExpr]);
     }
@@ -205,6 +222,47 @@ function validateVisibility(definition: GameDefinition, issues: ValidationIssue[
         code: "INVALID_CONFIG",
         message: `Visibility rule for "${variable}" references undeclared role: ${rule.roleId}`,
       });
+    }
+  }
+}
+
+/** Each write key a node assigns. Used to keep loop counters out of any other node's reach. */
+function writtenKeys(node: Node): unknown[] {
+  const config = configOf(node);
+  switch (node.type) {
+    case "setVariable":
+    case "random":
+      return [config.key];
+    case "waitForPlayerInput":
+      return [config.inputKey];
+    case "collectInput":
+    case "vote":
+      return [config.collectionKey];
+    default:
+      return [];
+  }
+}
+
+/** A loop owns its counter: any other node writing it would remove the only termination bound. */
+function validateLoopCounters(nodes: Node[], issues: ValidationIssue[]): void {
+  const counterKeys = new Set<string>();
+  for (const node of nodes) {
+    const counterKey = configOf(node).counterKey;
+    if (node.type === "loop" && typeof counterKey === "string" && counterKey.length > 0) {
+      counterKeys.add(counterKey);
+    }
+  }
+
+  for (const node of nodes) {
+    if (node.type === "loop") continue;
+    for (const key of writtenKeys(node)) {
+      if (typeof key === "string" && counterKeys.has(key)) {
+        issues.push({
+          code: "INVALID_CONFIG",
+          nodeId: node.id,
+          message: `A loop counter can only be written by its loop node: ${key}`,
+        });
+      }
     }
   }
 }
@@ -261,6 +319,9 @@ export function validateGameDefinition(definition: GameDefinition): ValidationRe
     issues.push({ code: "NO_REACHABLE_END", message: "Workflow has no reachable end node" });
   }
 
+  // A cycle is legal only when it passes through an explicit loop node, so cycle detection
+  // runs on the graph with every loop node removed and every node as a root.
+  const loopNodeIds = new Set(nodes.filter((node) => node.type === "loop").map((node) => node.id));
   const active = new Set<string>();
   const checked = new Set<string>();
   const detectCycle = (nodeId: string): void => {
@@ -268,13 +329,14 @@ export function validateGameDefinition(definition: GameDefinition): ValidationRe
       issues.push({ code: "IMPLICIT_CYCLE", nodeId, message: `Workflow contains a cycle at node: ${nodeId}` });
       return;
     }
-    if (checked.has(nodeId) || !nodeById.has(nodeId)) return;
+    if (checked.has(nodeId) || !nodeById.has(nodeId) || loopNodeIds.has(nodeId)) return;
     active.add(nodeId);
     for (const target of edges.get(nodeId) ?? []) detectCycle(target);
     active.delete(nodeId);
     checked.add(nodeId);
   };
-  detectCycle(definition.workflow.entryNodeId);
+  for (const node of nodes) detectCycle(node.id);
+  validateLoopCounters(nodes, issues);
   validateVisibility(definition, issues);
   validateNodeExpressions(definition, issues);
 

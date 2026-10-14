@@ -147,6 +147,108 @@ describe("workflow definition validator", () => {
     expect(result.issues.map((issue) => issue.code)).toContain("INVALID_CONFIG");
   });
 
+  it("accepts an explicit loop and still rejects cycles that skip it", () => {
+    const loopNode = {
+      id: "loop",
+      type: "loop" as const,
+      config: { bodyNodeId: "body", counterKey: "round", maxIterations: 3 },
+      next: ["end"],
+    };
+    const body = { id: "body", type: "setVariable" as const, config: { key: "tally", value: 1 }, next: ["loop"] };
+
+    expect(
+      validateGameDefinition(
+        definition({
+          nodes: [
+            { id: "start", type: "start", config: {}, next: ["loop"] },
+            loopNode,
+            body,
+            { id: "end", type: "end", config: {}, next: [] },
+          ],
+        }),
+      ),
+    ).toEqual({ valid: true, issues: [] });
+
+    const innerCycle = validateGameDefinition(
+      definition({
+        nodes: [
+          { id: "start", type: "start", config: {}, next: ["loop"] },
+          loopNode,
+          { id: "body", type: "branch", config: { when: { op: "lit", value: true }, whenTrue: "again", whenFalse: "loop" }, next: [] },
+          { id: "again", type: "setVariable", config: { key: "tally", value: 1 }, next: ["body"] },
+          { id: "end", type: "end", config: {}, next: [] },
+        ],
+      }),
+    );
+    expect(innerCycle.issues.map((issue) => issue.code)).toContain("IMPLICIT_CYCLE");
+  });
+
+  it("rejects a loop without a counter or an exit", () => {
+    const result = validateGameDefinition(
+      definition({
+        nodes: [
+          { id: "start", type: "start", config: {}, next: ["loop"] },
+          { id: "loop", type: "loop", config: { bodyNodeId: "body" }, next: ["end"] },
+          { id: "body", type: "setVariable", config: { key: "round", value: 1 }, next: ["loop"] },
+          { id: "end", type: "end", config: {}, next: [] },
+        ],
+      }),
+    );
+
+    expect(result.issues.filter((issue) => issue.code === "INVALID_CONFIG")).toHaveLength(2);
+    expect(result.issues.map((issue) => issue.message).join(" ")).toMatch(/counterKey/);
+    expect(result.issues.map((issue) => issue.message).join(" ")).toMatch(/maxIterations/);
+  });
+
+  it("keeps a loop counter out of every other node's reach", () => {
+    const result = validateGameDefinition(
+      definition({
+        nodes: [
+          { id: "start", type: "start", config: {}, next: ["loop"] },
+          {
+            id: "loop",
+            type: "loop",
+            config: { bodyNodeId: "body", counterKey: "round", maxIterations: 2 },
+            next: ["end"],
+          },
+          { id: "body", type: "setVariable", config: { key: "round", value: 0 }, next: ["loop"] },
+          { id: "end", type: "end", config: {}, next: [] },
+        ],
+      }),
+    );
+
+    expect(result.issues.map((issue) => issue.code)).toEqual(["INVALID_CONFIG"]);
+    expect(result.issues[0]?.message).toMatch(/loop counter can only be written/);
+  });
+
+  it("checks the loop condition against declared variables", () => {
+    const result = validateGameDefinition({
+      ...definition({
+        nodes: [
+          { id: "start", type: "start", config: {}, next: ["loop"] },
+          {
+            id: "loop",
+            type: "loop",
+            config: {
+              bodyNodeId: "body",
+              counterKey: "round",
+              maxIterations: 2,
+              while: { op: "eq", args: [{ op: "var", name: "ghost" }, { op: "lit", value: true }] },
+            },
+            next: ["end"],
+          },
+          { id: "body", type: "setVariable", config: { key: "tally", value: 1 }, next: ["loop"] },
+          { id: "end", type: "end", config: {}, next: [] },
+        ],
+      }),
+      variables: { round: 0, tally: 0 },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain("INVALID_EXPRESSION");
+    expect(result.issues.map((issue) => issue.message).join(" ")).toMatch(/unknown variable "ghost"/);
+  });
+
   it("rejects implicit cycles and invalid AI configuration", () => {
     const result = validateGameDefinition(
       definition({

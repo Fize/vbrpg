@@ -289,6 +289,32 @@ waits on that participant (`playerInput`/`collectInput`); it carries the waiting
 Instance state is authoritative in `game_instances.state_json`; this path does not write
 `game_participants` yet.
 
+### 7.3 Round loops
+
+A turn-based definition repeats rounds with a `loop` node instead of a back edge to an arbitrary
+node, and the release gate rejects every other cycle:
+
+```json
+{
+  "id": "round-loop",
+  "type": "loop",
+  "config": {
+    "bodyNodeId": "begin-round",
+    "counterKey": "dayNumber",
+    "maxIterations": 6,
+    "while": { "op": "eq", "args": [{ "op": "var", "name": "winner" }, { "op": "lit", "value": null }] }
+  },
+  "next": ["end"]
+}
+```
+
+The body's last node points back at the `loop` node. The loop increments `counterKey` (naming the
+round in progress) and re-enters `bodyNodeId` while `while` holds and the round count is within
+`maxIterations`; otherwise it continues to `next`. The condition reads the committed state, so
+`round < 3` plays rounds 1..3. `counterKey` is owned by the loop: the validator rejects any other
+node writing it, which is what keeps replay and automatic execution bounded. `docs/fixtures/werewolf-package.json`
+is the working example.
+
 ## 8. Master key rotation
 
 1. Generate a new key and set `PLATFORM_CREDENTIAL_KEY` / `PLATFORM_CREDENTIAL_KEY_VERSION` to the

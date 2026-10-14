@@ -2,17 +2,34 @@
   "manifest": {
     "gameId": "werewolf",
     "slug": "werewolf",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "dslVersion": "v1",
     "engineVersion": "native-test",
     "authorId": "platform",
     "license": "CC-BY-4.0",
-    "attribution": "Reference package for the DSL capability slice. Roles are supplied by the instance creator: dealing is not part of the DSL yet."
+    "attribution": "Reference package for the DSL capability slice. Roles are supplied by the instance creator: dealing and participant-status writes are not part of the DSL yet."
   },
   "workflow": {
     "entryNodeId": "start",
     "nodes": [
-      { "id": "start", "type": "start", "config": {}, "next": ["night"] },
+      { "id": "start", "type": "start", "config": {}, "next": ["round-loop"] },
+      {
+        "id": "round-loop",
+        "type": "loop",
+        "config": {
+          "bodyNodeId": "begin-round",
+          "counterKey": "dayNumber",
+          "maxIterations": 6,
+          "while": { "op": "eq", "args": [{ "op": "var", "name": "winner" }, { "op": "lit", "value": null }] }
+        },
+        "next": ["end"]
+      },
+      {
+        "id": "begin-round",
+        "type": "setVariable",
+        "config": { "key": "nightVotes", "valueExpr": { "op": "lit", "value": {} } },
+        "next": ["night"]
+      },
       {
         "id": "night",
         "type": "collectInput",
@@ -90,7 +107,7 @@
             "args": [{ "op": "var", "name": "villagersAlive" }, { "op": "lit", "value": 0 }]
           },
           "whenTrue": "werewolves-win",
-          "whenFalse": "undecided"
+          "whenFalse": "round-loop"
         },
         "next": []
       },
@@ -98,19 +115,13 @@
         "id": "villagers-win",
         "type": "setVariable",
         "config": { "key": "winner", "value": "villagers" },
-        "next": ["end"]
+        "next": ["round-loop"]
       },
       {
         "id": "werewolves-win",
         "type": "setVariable",
         "config": { "key": "winner", "value": "werewolves" },
-        "next": ["end"]
-      },
-      {
-        "id": "undecided",
-        "type": "setVariable",
-        "config": { "key": "winner", "value": "undecided" },
-        "next": ["end"]
+        "next": ["round-loop"]
       },
       { "id": "end", "type": "end", "config": {}, "next": [] }
     ]
@@ -120,7 +131,7 @@
     { "id": "villager", "name": "Villager" }
   ],
   "variables": {
-    "dayNumber": 1,
+    "dayNumber": 0,
     "wolvesAlive": 2,
     "villagersAlive": 1,
     "nightVotes": {},
@@ -136,6 +147,6 @@
     "villagersAlive": "public"
   },
   "presentation": {
-    "title": "Werewolf (one round)"
+    "title": "Werewolf (round loop)"
   }
 }
