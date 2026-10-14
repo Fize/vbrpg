@@ -634,6 +634,7 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 - 新增 `loop` 节点：`bodyNodeId`（循环体入口）、`counterKey`（计数器）、`maxIterations`（上界）、可选 `while`（续轮条件）。循环体最后一个节点以回边指向 `loop`，由 `loop` 决定再进一轮还是走 `next` 出口。
 - 发布期环规则收口：只有经过 `loop` 节点的环合法，其余环仍报 `IMPLICIT_CYCLE`；`counterKey` 禁止被任何其他节点写入，因此自动执行始终有界。运行时的单遍访问守卫改为 10000 步预算（原守卫会把合法回边误判为自动死循环）。
 - 狼人杀包升级为多回合（`docs/fixtures/werewolf-package.json` v0.2.0）：回合循环、每回合重置票箱、由 `winner` 条件退出，引擎侧无狼人杀专用分支；两回合剧本、回合中等待态、回放一致性与投影隔离均有测试覆盖。
+- 修复复现出来的领取缺陷：`pending_commands.available_at` / `scheduled_jobs.run_at` 由数据库默认值（数据库时钟）写入，而领取查询用进程时钟比较；当 Postgres 与 worker 进程时钟相差约 120ms 时，worker 会跳过刚入队的任务（集成脚本报 `claimed 0 !== 2`）。改为与数据库时钟比较（`packages/db/src/repositories.ts`），worker 集成脚本即为回归证据。同类比较：`lease_until` 由进程时钟写入，故仍与进程时钟比较。
 
 ### 下一步建议顺序
 

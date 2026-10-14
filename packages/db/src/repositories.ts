@@ -47,6 +47,13 @@ function leaseUntil(now: Date, leaseMs: number): Date {
   return new Date(now.getTime() + leaseMs);
 }
 
+/**
+ * `available_at` and `run_at` default to the database clock, so claims must be compared against
+ * the same clock. A worker host whose clock runs slightly behind Postgres would otherwise skip
+ * every row it just queued and only pick it up on a later poll.
+ */
+const databaseNow = sql<Date>`now()`;
+
 export async function getGameInstance(
   db: DbExecutor,
   context: TenantContext,
@@ -324,7 +331,7 @@ export async function claimPendingCommands(
             .where("game_instances.status", "in", ["created", "running", "waiting"]),
         ),
       )
-      .where("available_at", "<=", now)
+      .where("available_at", "<=", databaseNow)
       .orderBy("available_at", "asc")
       .limit(limit)
       .forUpdate()
@@ -387,7 +394,7 @@ export async function claimScheduledJobs(
             .where("game_instances.status", "in", ["created", "running", "waiting"]),
         ),
       )
-      .where("run_at", "<=", now)
+      .where("run_at", "<=", databaseNow)
       .orderBy("run_at", "asc")
       .limit(limit)
       .forUpdate()
@@ -433,7 +440,7 @@ export async function claimOutboxEvents(
           expression("lease_until", "<", now),
         ]),
       )
-      .where("available_at", "<=", now)
+      .where("available_at", "<=", databaseNow)
       .orderBy("available_at", "asc")
       .limit(limit)
       .forUpdate()
