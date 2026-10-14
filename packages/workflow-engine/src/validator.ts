@@ -1,4 +1,5 @@
 import type { GameDefinition } from "@vbrpg/contracts";
+import { parseVisibilityRule } from "./projector.js";
 
 export interface ValidationIssue {
   code: string;
@@ -121,6 +122,29 @@ function validateNodeConfig(node: Node, issues: ValidationIssue[]): void {
   }
 }
 
+/** Unparseable visibility rules block publication: the projector refuses them at runtime too. */
+function validateVisibility(definition: GameDefinition, issues: ValidationIssue[]): void {
+  const roleIds = new Set(definition.roles.map((role) => role.id));
+  for (const [variable, raw] of Object.entries(definition.visibility)) {
+    let rule;
+    try {
+      rule = parseVisibilityRule(variable, raw);
+    } catch (error) {
+      issues.push({
+        code: "INVALID_CONFIG",
+        message: error instanceof Error ? error.message : `Invalid visibility rule for ${variable}`,
+      });
+      continue;
+    }
+    if (rule.kind === "role" && !roleIds.has(rule.roleId)) {
+      issues.push({
+        code: "INVALID_CONFIG",
+        message: `Visibility rule for "${variable}" references undeclared role: ${rule.roleId}`,
+      });
+    }
+  }
+}
+
 export function validateGameDefinition(definition: GameDefinition): ValidationResult {
   const issues: ValidationIssue[] = [];
   const nodes = definition.workflow.nodes;
@@ -187,6 +211,7 @@ export function validateGameDefinition(definition: GameDefinition): ValidationRe
     checked.add(nodeId);
   };
   detectCycle(definition.workflow.entryNodeId);
+  validateVisibility(definition, issues);
 
   return { valid: issues.length === 0, issues };
 }

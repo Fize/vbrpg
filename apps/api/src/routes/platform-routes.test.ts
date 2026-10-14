@@ -226,6 +226,27 @@ function createFakeStore(options: {
       return { state: entry.state, commands, replayed: false };
     },
 
+    projectInstanceView: async (instanceId, viewer) => {
+      const entry = instances.get(instanceId);
+      if (!entry) return undefined;
+      const participant =
+        viewer.kind === "participant"
+          ? entry.state.participants.find((item) => item.participantId === viewer.participantId)
+          : undefined;
+      if (viewer.kind === "participant" && !participant) {
+        throw new EngineError("UNKNOWN_PARTICIPANT", "Participant is not part of the instance");
+      }
+      return {
+        instanceId,
+        gameVersionId: entry.state.gameVersionId,
+        sequence: entry.sequence,
+        status: entry.state.status,
+        publicState: { dayNumber: 2 },
+        privateState: participant?.roleId === "werewolf" ? { wolfTeam: ["p1"] } : {},
+        availableActions: [],
+      };
+    },
+
     recordAudit: async (input) => {
       audits.push({ ...input });
     },
@@ -769,17 +790,23 @@ describe("audit trail", () => {
 });
 
 describe("game instances", () => {
-  async function signedIn(options: { gameVersions?: string[]; appendError?: Error } = {}) {
+  async function signedIn(
+    options: { gameVersions?: string[]; appendError?: Error; role?: "admin" | "user" } = {},
+  ) {
     const passwordHash = await hashPassword(PASSWORD);
+    const user = makeUser({
+      passwordHash,
+      ...(options.role === undefined ? {} : { role: options.role }),
+    });
     const state = createFakeStore({
       passwordHash,
-      users: [makeUser({ passwordHash })],
+      users: [user],
       ...(options.gameVersions === undefined ? {} : { gameVersions: options.gameVersions }),
       ...(options.appendError === undefined ? {} : { appendError: options.appendError }),
     });
     const app = await createApp(state);
     const { cookie, body } = await login(app);
-    return { app, cookie, csrf: body.csrfToken ?? "" };
+    return { app, cookie, csrf: body.csrfToken ?? "", userId: user.id };
   }
 
   it("rejects unauthenticated and cross-origin instance writes", async () => {
@@ -820,14 +847,96 @@ describe("game instances", () => {
     assert.equal(body.state.randomSeed, "seed-1");
     assert.equal(body.commands.length, 1);
     assert.equal(body.commands[0]?.type, "emit");
+  });
 
-    const read = await app.inject({
+  it("hides the authoritative state from ordinary accounts", async () => {
+    // One store, two accounts: the read is rejected regardless of who created the instance.
+    const passwordHash = await hashPassword(PASSWORD);
+    const state = createFakeStore({
+      passwordHash,
+      users: [
+        makeUser({ passwordHash, username: "player-account" }),
+        makeUser({ passwordHash, username: "admin-account", role: "admin" }),
+      ],
+    });
+    const app = await createApp(state);
+    const player = await login(app, "player-account");
+    const admin = await login(app, "admin-account");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers: { origin: ORIGIN, cookie: player.cookie, "x-csrf-token": player.body.csrfToken ?? "" },
+      payload: { gameVersionId: "version-1" },
+    });
+    const { instanceId } = created.json() as { instanceId: string };
+
+    const asUser = await app.inject({
       method: "GET",
-      url: `/v1/instances/${body.instanceId}`,
+      url: `/v1/instances/${instanceId}`,
+      headers: { cookie: player.cookie },
+    });
+    assert.equal(asUser.statusCode, 403);
+    assert.equal(asUser.json().code, "INSUFFICIENT_ROLE");
+
+    const asAdmin = await app.inject({
+      method: "GET",
+      url: `/v1/instances/${instanceId}`,
+      headers: { cookie: admin.cookie },
+    });
+    assert.equal(asAdmin.statusCode, 200);
+    assert.equal((asAdmin.json() as { currentSequence: number }).currentSequence, 1);
+  });
+
+  it("projects a view for the account that controls the seat only", async () => {
+    const { app, cookie, csrf, userId } = await signedIn();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers: { origin: ORIGIN, cookie, "x-csrf-token": csrf },
+      payload: {
+        gameVersionId: "version-1",
+        participants: [
+          { participantId: "p1", actorId: userId, roleId: "werewolf", control: "human", status: "active" },
+          { participantId: "p2", actorId: "someone-else", roleId: "villager", control: "human", status: "active" },
+        ],
+      },
+    });
+    const { instanceId } = created.json() as { instanceId: string };
+
+    const own = await app.inject({
+      method: "GET",
+      url: `/v1/instances/${instanceId}/view?participantId=p1`,
       headers: { cookie },
     });
-    assert.equal(read.statusCode, 200);
-    assert.equal((read.json() as { currentSequence: number }).currentSequence, 1);
+    assert.equal(own.statusCode, 200);
+    assert.deepEqual(own.json().publicState, { dayNumber: 2 });
+    assert.deepEqual(own.json().privateState, { wolfTeam: ["p1"] });
+    assert.ok(!JSON.stringify(own.json()).includes("actorId"));
+
+    const other = await app.inject({
+      method: "GET",
+      url: `/v1/instances/${instanceId}/view?participantId=p2`,
+      headers: { cookie },
+    });
+    assert.equal(other.statusCode, 403);
+    assert.equal(other.json().code, "NOT_YOUR_PARTICIPANT");
+
+    const unknown = await app.inject({
+      method: "GET",
+      url: `/v1/instances/${instanceId}/view?participantId=p9`,
+      headers: { cookie },
+    });
+    assert.equal(unknown.statusCode, 404);
+    assert.equal(unknown.json().code, "PARTICIPANT_NOT_FOUND");
+
+    const missing = await app.inject({
+      method: "GET",
+      url: `/v1/instances/${instanceId}/view`,
+      headers: { cookie },
+    });
+    assert.equal(missing.statusCode, 400);
+    assert.equal(missing.json().code, "PARTICIPANT_REQUIRED");
   });
 
   it("reports an unknown game version and an unknown instance", async () => {
@@ -842,10 +951,11 @@ describe("game instances", () => {
     assert.equal(missingVersion.statusCode, 404);
     assert.equal(missingVersion.json().code, "GAME_VERSION_NOT_FOUND");
 
-    const missingInstance = await app.inject({
+    const admin = await signedIn({ role: "admin" });
+    const missingInstance = await admin.app.inject({
       method: "GET",
       url: "/v1/instances/instance-unknown",
-      headers: { cookie },
+      headers: { cookie: admin.cookie },
     });
     assert.equal(missingInstance.statusCode, 404);
     assert.equal(missingInstance.json().code, "INSTANCE_NOT_FOUND");

@@ -33,11 +33,17 @@ import type {
   GameEvent,
   GameState,
   Participant,
+  PlayerView,
   PlatformRole,
   ProviderModel,
 } from "@vbrpg/contracts";
-import { parseGameState } from "@vbrpg/contracts";
-import { compileGameDefinition, createInitialState } from "@vbrpg/workflow-engine";
+import { parseGameDefinition, parseGameState } from "@vbrpg/contracts";
+import {
+  compileGameDefinition,
+  createInitialState,
+  projectPlayerView,
+  type Viewer,
+} from "@vbrpg/workflow-engine";
 import { dispatchGameEvent } from "@vbrpg/runtime";
 
 export interface SessionRecord {
@@ -136,6 +142,7 @@ export interface PlatformStore {
     instanceId: string,
     event: GameEvent,
   ): Promise<{ state: GameState; commands: ExternalCommand[]; replayed: boolean } | undefined>;
+  projectInstanceView(instanceId: string, viewer: Viewer): Promise<PlayerView | undefined>;
 
   recordAudit(input: {
     actorUserId: string | null;
@@ -299,6 +306,16 @@ export function createPlatformStore(db: ReturnType<typeof createDb>): PlatformSt
       }
       const compiled = compileGameDefinition(definition);
       return dispatchGameEvent(db, platformContext, compiled, event);
+    },
+
+    projectInstanceView: async (instanceId, viewer) => {
+      const row = await getGameInstance(db, platformContext, instanceId);
+      if (!row) return undefined;
+      const definition = await getWorkflowDefinitionByVersion(db, platformContext, row.game_version_id);
+      if (definition === undefined) {
+        throw new Error("Instance references a game version without a workflow definition");
+      }
+      return projectPlayerView(parseGameDefinition(definition), parseGameState(row.state_json), viewer);
     },
 
     recordAudit: (input) =>

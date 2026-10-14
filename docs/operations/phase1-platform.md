@@ -228,6 +228,32 @@ Status codes worth knowing:
 - Client-submittable events are limited to `playerInputReceived`: timers and AI results come from
   `apps/worker`, and admin controls arrive with `P3-10`.
 
+### 7.1 What a player is allowed to see
+
+`GET /v1/instances/:instanceId` returns the **authoritative** state, hidden information included, and
+is therefore administrator-only. Participants read their own projection instead:
+
+```bash
+curl -sS -b cookies.txt "http://localhost:3000/v1/instances/<instance-id>/view?participantId=p1"
+```
+
+`view` is rejected with `403 NOT_YOUR_PARTICIPANT` unless the seat's `actorId` is the signed-in
+account (administrators may read any seat), and with `404 PARTICIPANT_NOT_FOUND` for a participant
+that is not in the instance. The projection follows the definition's `visibility` map and is
+**fail-closed** — a variable the definition does not declare never appears:
+
+| `visibility` entry | Who sees it | Bucket |
+| --- | --- | --- |
+| *(key absent)* | nobody | — |
+| `"public"` | everyone, including spectators | `publicState` |
+| `{ "role": "<roleId>" }` | participants whose `roleId` matches | `privateState` |
+| `{ "participant": "<participantId>" }` | that participant only | `privateState` |
+
+Any other shape is rejected at publish time by the definition validator and again by the runtime, so
+a typo cannot silently widen visibility. `availableActions` is non-empty only while the instance
+waits on that participant (`playerInput`/`collectInput`); it carries the waiting node id and the
+`participantId` to submit.
+
 Instance state is authoritative in `game_instances.state_json`; this path does not write
 `game_participants` yet.
 

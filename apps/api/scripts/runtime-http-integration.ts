@@ -33,7 +33,7 @@ try {
     id: userId,
     username,
     passwordHash: await hashPassword(password),
-    role: "admin",
+    role: "user",
     mustChangePassword: false,
   });
 
@@ -91,9 +91,16 @@ try {
             { id: "end", type: "end", config: {}, next: [] },
           ],
         },
-        roles: [],
-        variables: {},
-        visibility: {},
+        roles: [
+          { id: "werewolf", name: "Werewolf" },
+          { id: "villager", name: "Villager" },
+        ],
+        variables: { dayNumber: 1, wolfTeam: ["p1"], seerResult: "p2", leakCanary: "never-visible" },
+        visibility: {
+          dayNumber: "public",
+          wolfTeam: { role: "werewolf" },
+          seerResult: { participant: "p2" },
+        },
         presentation: {},
       },
     })
@@ -125,7 +132,14 @@ try {
     method: "POST",
     url: "/v1/instances",
     headers: writeHeaders,
-    payload: { gameVersionId: versionId, randomSeed: "runtime-seed" },
+    payload: {
+      gameVersionId: versionId,
+      randomSeed: "runtime-seed",
+      participants: [
+        { participantId: "p1", actorId: userId, roleId: "werewolf", control: "human", status: "active" },
+        { participantId: "p2", actorId: "another-account", roleId: "villager", control: "human", status: "active" },
+      ],
+    },
   });
   assert.equal(created.statusCode, 201);
   const createdBody = created.json() as {
@@ -136,13 +150,48 @@ try {
   assert.equal(createdBody.state.status, "waiting");
   assert.equal(createdBody.state.waiting?.kind, "playerInput");
 
-  const read = await app.inject({
+  // The authoritative state is a debugging surface: an ordinary account must not read it.
+  const fullState = await app.inject({
     method: "GET",
     url: `/v1/instances/${instanceId}`,
     headers: { cookie },
   });
-  assert.equal(read.statusCode, 200);
-  assert.equal((read.json() as { currentSequence: number }).currentSequence, 1);
+  assert.equal(fullState.statusCode, 403);
+  assert.equal(fullState.json().code, "INSUFFICIENT_ROLE");
+
+  const ownView = await app.inject({
+    method: "GET",
+    url: `/v1/instances/${instanceId}/view?participantId=p1`,
+    headers: { cookie },
+  });
+  assert.equal(ownView.statusCode, 200);
+  const ownViewBody = ownView.json() as {
+    publicState: Record<string, unknown>;
+    privateState: Record<string, unknown>;
+    availableActions: Array<{ actionId: string }>;
+  };
+  assert.deepEqual(ownViewBody.publicState, { dayNumber: 1 });
+  assert.deepEqual(ownViewBody.privateState, { wolfTeam: ["p1"] });
+  assert.deepEqual(ownViewBody.availableActions, [{ actionId: "ask", input: { participantId: "p1" } }]);
+  assert.ok(!("seerResult" in ownViewBody.publicState));
+  assert.ok(!("seerResult" in ownViewBody.privateState));
+  assert.ok(!JSON.stringify(ownViewBody).includes("never-visible"));
+
+  const otherSeat = await app.inject({
+    method: "GET",
+    url: `/v1/instances/${instanceId}/view?participantId=p2`,
+    headers: { cookie },
+  });
+  assert.equal(otherSeat.statusCode, 403);
+  assert.equal(otherSeat.json().code, "NOT_YOUR_PARTICIPANT");
+
+  const unknownSeat = await app.inject({
+    method: "GET",
+    url: `/v1/instances/${instanceId}/view?participantId=p9`,
+    headers: { cookie },
+  });
+  assert.equal(unknownSeat.statusCode, 404);
+  assert.equal(unknownSeat.json().code, "PARTICIPANT_NOT_FOUND");
 
   const eventHeaders = { ...writeHeaders, "idempotency-key": "answer-1" };
   const answered = await app.inject({

@@ -10,6 +10,7 @@ import { AppError } from "@vbrpg/runtime";
 import { EngineError } from "@vbrpg/workflow-engine";
 import {
   authenticatePlatform,
+  authenticatePlatformAdminRead,
   authenticatePlatformWithCsrf,
   requirePasswordChanged,
   type PlatformRequestContext,
@@ -80,15 +81,48 @@ export async function registerGameInstanceRoutes(
     };
   });
 
+  // Full authoritative state is a debugging surface: hidden information lives here.
   app.get(
     "/v1/instances/:instanceId",
+    { preHandler: [authenticatePlatformAdminRead(context)] },
+    async (request) => {
+      const { instanceId } = request.params as { instanceId: string };
+      const view = await context.store.getInstanceState(instanceId);
+      if (!view) throw new AppError(404, "INSTANCE_NOT_FOUND", "Unknown game instance");
+      return view;
+    },
+  );
+
+  app.get(
+    "/v1/instances/:instanceId/view",
     { preHandler: [authenticatePlatform(context)] },
     async (request) => {
       const principal = request.platformPrincipal;
       if (!principal) throw new AppError(401, "SESSION_INVALID", "Authentication is required");
       requirePasswordChanged(principal);
+
       const { instanceId } = request.params as { instanceId: string };
-      const view = await context.store.getInstanceState(instanceId);
+      const query = request.query as { participantId?: unknown };
+      if (typeof query.participantId !== "string" || query.participantId === "") {
+        throw new AppError(400, "PARTICIPANT_REQUIRED", "A participantId query parameter is required");
+      }
+      const participantId = query.participantId;
+
+      const instance = await context.store.getInstanceState(instanceId);
+      if (!instance) throw new AppError(404, "INSTANCE_NOT_FOUND", "Unknown game instance");
+      const participant = instance.state.participants.find(
+        (candidate) => candidate.participantId === participantId,
+      );
+      if (!participant) throw new AppError(404, "PARTICIPANT_NOT_FOUND", "Unknown participant");
+      // Only the account that controls the seat, or an administrator, may read its secrets.
+      if (principal.role !== "admin" && participant.actorId !== principal.userId) {
+        throw new AppError(403, "NOT_YOUR_PARTICIPANT", "This participant belongs to another account");
+      }
+
+      const view = await context.store.projectInstanceView(instanceId, {
+        kind: "participant",
+        participantId,
+      });
       if (!view) throw new AppError(404, "INSTANCE_NOT_FOUND", "Unknown game instance");
       return view;
     },

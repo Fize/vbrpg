@@ -1,4 +1,6 @@
 export { EngineError, transition } from "./native-runtime.js";
+export { parseVisibilityRule, parseVisibilityRules, projectPlayerView } from "./projector.js";
+export type { Viewer, VisibilityRule } from "./projector.js";
 export type { TransitionResult } from "./native-runtime.js";
 export { compileGameDefinition, DefinitionCompileError } from "./compiler.js";
 export type { CompiledGame } from "./compiler.js";

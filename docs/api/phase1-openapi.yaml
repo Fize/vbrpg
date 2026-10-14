@@ -334,6 +334,7 @@ paths:
   /instances/{instanceId}:
     get:
       operationId: getInstance
+      summary: Authoritative state, including hidden information; administrators only.
       security: [{ sessionCookie: [] }]
       parameters:
         - { name: instanceId, in: path, required: true, schema: { type: string } }
@@ -346,6 +347,24 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /instances/{instanceId}/view:
+    get:
+      operationId: getInstanceView
+      summary: Projection for one participant, filtered by the definition's visibility rules.
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { name: instanceId, in: path, required: true, schema: { type: string } }
+        - { name: participantId, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Public and private projections for that seat.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerView' }
+        '400': { description: participantId is missing. }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { description: The seat belongs to another account and the caller is not an administrator. }
+        '404': { description: Unknown instance or unknown participant. }
   /instances/{instanceId}/events:
     post:
       operationId: submitGameEvent
@@ -435,6 +454,24 @@ components:
         state: { type: object, additionalProperties: true }
         commands: { type: array, items: { type: object, additionalProperties: true } }
         replayed: { type: boolean }
+    PlayerView:
+      type: object
+      required: [instanceId, gameVersionId, sequence, status, publicState, privateState, availableActions]
+      properties:
+        instanceId: { type: string }
+        gameVersionId: { type: string }
+        sequence: { type: integer, minimum: 0 }
+        status: { type: string }
+        publicState: { type: object, additionalProperties: true }
+        privateState: { type: object, additionalProperties: true }
+        availableActions:
+          type: array
+          items:
+            type: object
+            required: [actionId, input]
+            properties:
+              actionId: { type: string }
+              input: { type: object, additionalProperties: true }
     InstanceView:
       type: object
       required: [instanceId, status, currentSequence, state]

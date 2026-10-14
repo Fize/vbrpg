@@ -54,6 +54,30 @@ describe("workflow definition validator", () => {
     );
   });
 
+  it("validates visibility rules at publication time", () => {
+    const valid = validateGameDefinition({
+      ...definition(),
+      roles: [{ id: "werewolf", name: "Werewolf" }],
+      visibility: { day: "public", wolfTeam: { role: "werewolf" }, seerResult: { participant: "p3" } },
+    });
+    expect(valid).toEqual({ valid: true, issues: [] });
+
+    const undeclaredRole = validateGameDefinition({
+      ...definition(),
+      visibility: { wolfTeam: { role: "ghost" } },
+    });
+    expect(undeclaredRole.valid).toBe(false);
+    expect(undeclaredRole.issues.map((issue) => issue.code)).toContain("INVALID_CONFIG");
+    expect(undeclaredRole.issues[0]?.message).toMatch(/undeclared role: ghost/);
+
+    const unparseable = validateGameDefinition({
+      ...definition(),
+      visibility: { secret: { visible: true } },
+    });
+    expect(unparseable.valid).toBe(false);
+    expect(unparseable.issues[0]?.message).toMatch(/Visibility rule for "secret"/);
+  });
+
   it("requires an agent on every AI node", () => {
     const result = validateGameDefinition(
       definition({
