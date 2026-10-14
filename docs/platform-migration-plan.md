@@ -2,6 +2,7 @@
 
 > 状态：提案 / 可执行基线
 > 更新日期：2026-08-24
+> 状态核验：2026-10-14 逐项对照代码、测试与提交核验 §8/§13 任务状态；结论与下一步见 §16。
 > 适用范围：将当前 Python + Vue 项目迁移为以 TypeScript 为主、由用户定义游戏工作流的多租户游戏分发平台
 
 > 当前执行模式：Greenfield 新项目。旧 Python/Vue 系统、数据迁移、兼容层、双轨切流、旧版本行为兼容和历史黄金轨迹不属于当前交付门槛；旧实现仅作为可选领域参考。后续验收以新 TypeScript 平台、PostgreSQL、DSL v1 和新运行时为准。
@@ -306,13 +307,13 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 
 任务：
 
-- `P0-01`：编写 ADR，确认 PostgreSQL、Fastify、schema 工具、查询构建器和 Node LTS 版本。
-- `P0-02`：冻结旧 Python 对外行为；为创建房间、加入、开始、角色分配、夜间行动、投票、胜负和断线恢复生成黄金事件轨迹。
-- `P0-03`：给现有测试分类为“有效回归、过时规格、真实缺陷”，先建立可解释的测试基线。
-- `P0-04`：定义 `GameDefinition`、`GameEvent`、`GameState`、`PlayerView` 和 `ExternalCommand` v0 schema。
-- `P0-05`：完成上一节的 LangGraph JS 技术验证，并以相同测试夹具实现最小原生解释器对照。
-- `P0-06`：定义 Beta 负载模型。默认起点为 100 个活跃房间、每房 10 人、峰值每秒 20 次动作；产品数据出现后再调整。
-- `P0-07`：确定旧数据处置：创建默认 `legacy` 租户，保留历史对局，进行中房间切换时排空。
+- [x] `P0-01`：编写 ADR，确认 PostgreSQL、Fastify、schema 工具、查询构建器和 Node LTS 版本。 — 核验 2026-10-14：`docs/adr/` 5 份 ADR 已提交
+- [/] `P0-02`：冻结旧 Python 对外行为；为创建房间、加入、开始、角色分配、夜间行动、投票、胜负和断线恢复生成黄金事件轨迹。 — 核验 2026-10-14：旧引擎规则轨迹 10 条已冻结并通过校验（`docs/fixtures/werewolf-golden-trace-suite.json`）；超时/断线/AI fallback 需从服务层补录，未做
+- [x] `P0-03`：给现有测试分类为“有效回归、过时规格、真实缺陷”，先建立可解释的测试基线。 — 核验 2026-10-14：`docs/phase0-test-baseline.md` 已完成前端分类；后端基线因缺 Python 测试环境未补录
+- [x] `P0-04`：定义 `GameDefinition`、`GameEvent`、`GameState`、`PlayerView` 和 `ExternalCommand` v0 schema。 — 核验 2026-10-14：`packages/contracts/src/domain.ts` 已定义 GameDefinition/GameEvent/GameState/PlayerView/ExternalCommand v0
+- [/] `P0-05`：完成上一节的 LangGraph JS 技术验证，并以相同测试夹具实现最小原生解释器对照。 — 核验 2026-10-14：NativeRuntime 已完成（`packages/workflow-engine` 15 用例）；LangGraph JS 无依赖、无对照结论
+- [x] `P0-06`：定义 Beta 负载模型。默认起点为 100 个活跃房间、每房 10 人、峰值每秒 20 次动作；产品数据出现后再调整。 — 核验 2026-10-14：`docs/phase0-load-and-legacy-decision.md` 已记录容量模型与旧数据处置假设
+- [/] `P0-07`：确定旧数据处置：创建默认 `legacy` 租户，保留历史对局，进行中房间切换时排空。 — 核验 2026-10-14：`legacy` 租户处置已决策；回填脚本属 Phase 4，未实现
 
 交付物：ADR、领域 schema v0、黄金轨迹、技术验证报告、测试债务清单、负载与数据迁移决策。
 
@@ -330,13 +331,13 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 
 任务：
 
-- [x] `P1-01`：建立 pnpm workspace 和 `apps/api`、`apps/worker`、`packages/contracts`、`packages/db`。
-- [x] `P1-02`：创建 Fastify 健康检查、统一错误模型、请求 ID、结构化日志和配置校验。
-- `P1-03`：把前端构建逐步切到 TypeScript；先迁移 API、Socket.IO、Pinia store 边界，再迁移组件。
-- `P1-04`：建立 PostgreSQL Compose、迁移命令、测试数据库隔离和种子数据。
-- `P1-05`：配置格式化、lint、单元测试、集成测试、构建和依赖审计 CI。
-- `P1-06`：统一 Node 开发版、CI 版和容器版，消除 Vite 与 Node 版本冲突。
-- `P1-07`：从共享 schema 生成或推导前后端类型，禁止手写重复 DTO。
+- [x] `P1-01`：建立 pnpm workspace 和 `apps/api`、`apps/worker`、`packages/contracts`、`packages/db`。 — 核验 2026-10-14：workspace 含 `apps/api`、`apps/web`、`apps/worker`、`packages/contracts`、`packages/db`、`packages/workflow-engine`
+- [x] `P1-02`：创建 Fastify 健康检查、统一错误模型、请求 ID、结构化日志和配置校验。 — 核验 2026-10-14：`app.ts` 提供 request id、结构化日志入口、统一错误响应、`/health`、`/ready`；`config.ts` 用 Zod 校验配置
+- [/] `P1-03`：把前端构建逐步切到 TypeScript；先迁移 API、Socket.IO、Pinia store 边界，再迁移组件。 — 核验 2026-10-14：`apps/web` 已全 TypeScript（Vue 3 + Vite + vue-tsc 通过）；旧 `frontend/` 的 Pinia store 与 Socket.IO 仍是 JS，按 greenfield 决策不迁
+- [x] `P1-04`：建立 PostgreSQL Compose、迁移命令、测试数据库隔离和种子数据。 — 核验 2026-10-14：`docker-compose.platform.yml` Compose + 迁移 up/down + 独立集成库 `vbrpg_db_integration_clean` + `bootstrap-admin` 种子脚本
+- [/] `P1-05`：配置格式化、lint、单元测试、集成测试、构建和依赖审计 CI。 — 核验 2026-10-14：`platform-ci.yml` 已含 build/typecheck/unit/契约/真实 PG 集成/迁移回滚/`pnpm audit`；缺 lint、格式检查与 E2E
+- [x] `P1-06`：统一 Node 开发版、CI 版和容器版，消除 Vite 与 Node 版本冲突。 — 核验 2026-10-14：`.nvmrc` 24、CI `node-version-file`、pnpm 11.22.0、Docker `node:24-alpine` 已一致
+- [x] `P1-07`：从共享 schema 生成或推导前后端类型，禁止手写重复 DTO。 — 核验 2026-10-14：契约由 Zod 定义并导出 `z.infer` 类型，前后端共用 `@vbrpg/contracts`
 
 交付物：可独立部署的新 API/worker 空壳、共享契约、PostgreSQL 开发环境和绿色 CI。
 
@@ -350,14 +351,14 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 
 任务：
 
-- `P2-01`：实现用户认证、会话或令牌刷新、密码/第三方身份策略。
-- `P2-02`：实现租户、邀请、成员和 Owner/Admin/Developer/Player RBAC。
-- `P2-03`：创建核心表、租户级索引、唯一约束、外键和软删除/归档策略。
-- `P2-04`：建立 tenant-scoped repository；代码评审禁止无租户上下文的业务查询。
-- `P2-05`：为关键表启用并测试 PostgreSQL RLS。
-- `P2-06`：实现审计日志、租户密钥信封加密、密钥轮换接口和日志脱敏。
-- `P2-07`：实现 Outbox、`pending_commands`、`scheduled_jobs` 的 claim、lease、重试和死信状态。
-- `P2-08`：建立跨租户 REST、WebSocket、worker 和直接对象引用攻击测试。
+- [x] `P2-01`：实现用户认证、会话或令牌刷新、密码/第三方身份策略。 — 核验 2026-10-14：平台账号 + 持久化 session（HttpOnly Cookie、CSRF、scrypt、首登强制改密、管理员重置撤销旧 session）；无公开注册
+- [/] `P2-02`：实现租户、邀请、成员和 Owner/Admin/Developer/Player RBAC。 — 核验 2026-10-14：`tenants`/`tenant_memberships` 与 Owner/Admin/Developer/Player 角色守卫已实现；邀请流程未实现，产品层只暴露 admin/user
+- [x] `P2-03`：创建核心表、租户级索引、唯一约束、外键和软删除/归档策略。 — 核验 2026-10-14：0001/0002/0003/0005 覆盖控制面与运行时表、`(tenant_id, id)` 复合外键与租户级唯一约束；软删除用 status 字段
+- [/] `P2-04`：建立 tenant-scoped repository；代码评审禁止无租户上下文的业务查询。 — 核验 2026-10-14：`withTenantContext` + `SET LOCAL app.tenant_id` 与租户作用域仓储已实现；无禁止无租户查询的静态门禁
+- [x] `P2-05`：为关键表启用并测试 PostgreSQL RLS。 — 核验 2026-10-14：0004 RLS 已启用，非 owner 角色跨租户隔离在真实 PostgreSQL 验证
+- [/] `P2-06`：实现审计日志、租户密钥信封加密、密钥轮换接口和日志脱敏。 — 核验 2026-10-14：`audit_logs` 与审计写入、`secret-box` AEAD 信封加密与密钥版本已实现；密钥轮换操作流程未实现
+- [/] `P2-07`：实现 Outbox、`pending_commands`、`scheduled_jobs` 的 claim、lease、重试和死信状态。 — 核验 2026-10-14：claim/lease/完成/退避失败与死信已实现（DB + worker 轮询）；生产 handler 未接入，worker 仍空轮询
+- [/] `P2-08`：建立跨租户 REST、WebSocket、worker 和直接对象引用攻击测试。 — 核验 2026-10-14：DB 层跨租户隔离测试已通过；REST/WebSocket/worker 攻击测试未做（WebSocket 未实现）
 
 交付物：完整租户控制面、首版数据库 schema、可靠任务底座、安全测试套件。
 
@@ -371,16 +372,16 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 
 任务：
 
-- `P3-01`：完成 `workflow-schema` v1 和 schema 版本迁移机制。
-- `P3-02`：实现发布前的图结构、引用、循环、可见性、AI 降级和等待点校验。
-- `P3-03`：实现纯 `transition`、显式随机种子、虚拟时钟和事件回放。
-- `P3-04`：实现 start/end、变量、分支、等待、收集、计时、投票、随机、事件节点。
-- `P3-05`：实现 subflow、parallel/join 和多玩家输入聚合。
-- `P3-06`：实现快照策略、乐观/悲观并发控制、动作幂等和实例级顺序号。
-- `P3-07`：实现公共视图、角色视图、个人视图的投影器，并加入防泄漏测试。
-- `P3-08`：按 Phase 0 决策接入 LangGraph JS 适配器或原生解释器。
-- `P3-09`：实现 AI command、超时、有限重试、预算限制、模型用量记账和 fallback 事件。
-- `P3-10`：实现管理员暂停、取消、强制超时和查看脱敏运行状态的能力。
+- [/] `P3-01`：完成 `workflow-schema` v1 和 schema 版本迁移机制。 — 核验 2026-10-14：DSL v1 + `dslVersion`/`engineVersion` + 稳定 definition hash 已实现；schema 版本迁移机制未实现
+- [/] `P3-02`：实现发布前的图结构、引用、循环、可见性、AI 降级和等待点校验。 — 核验 2026-10-14：图结构校验已实现（未知引用、不可达、隐式循环、无终点、等待/计时/AI 配置）；可见性与 AI 降级校验未实现
+- [/] `P3-03`：实现纯 `transition`、显式随机种子、虚拟时钟和事件回放。 — 核验 2026-10-14：纯 `transition`、显式 `randomSeed`、`replayEvents` 已实现；虚拟时钟未实现（timer 依赖 `deadlineMs`）
+- [/] `P3-04`：实现 start/end、变量、分支、等待、收集、计时、投票、随机、事件节点。 — 核验 2026-10-14：start/end、setVariable、branch、waitForPlayerInput、collectInput、timer、vote、aiGenerate、emitEvent 已实现；`random` 仅在 schema 中，引擎未支持
+- [ ] `P3-05`：实现 subflow、parallel/join 和多玩家输入聚合。 — 核验 2026-10-14：未实现（schema 有 subflow/parallel/join，引擎无对应分支）
+- [/] `P3-06`：实现快照策略、乐观/悲观并发控制、动作幂等和实例级顺序号。 — 核验 2026-10-14：实例行锁 + 顺序号校验 + idempotency key 幂等追加已实现（`services/game-dispatch.ts`）；快照写入策略与并发竞争测试未做
+- [ ] `P3-07`：实现公共视图、角色视图、个人视图的投影器，并加入防泄漏测试。 — 核验 2026-10-14：未实现（`playerViewSchema` 已定义但无投影器与防泄漏测试）
+- [/] `P3-08`：按 Phase 0 决策接入 LangGraph JS 适配器或原生解释器。 — 核验 2026-10-14：已由原生解释器承载；ADR-002 要求先完成对照再定稿，LangGraph 对照与书面结论缺失
+- [ ] `P3-09`：实现 AI command、超时、有限重试、预算限制、模型用量记账和 fallback 事件。 — 核验 2026-10-14：未实现（只有 MVP 同步 `ai-dispatch` + 进程级 env 密钥；`ai_usage_ledger` 无写入方；无超时/重试/预算/fallback）
+- [ ] `P3-10`：实现管理员暂停、取消、强制超时和查看脱敏运行状态的能力。 — 核验 2026-10-14：未实现（契约含 `paused`/`cancelled`/`adminCommandApplied`，无 API）
 
 交付物：可复用工作流引擎、运行时适配器、发布校验器、事件回放器、投影器。
 
@@ -394,13 +395,13 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 
 任务：
 
-- `P4-01`：从现有 Python 逻辑提取角色、阶段、动作、胜负、超时和可见性规格。
-- `P4-02`：把狼人杀表示为游戏包，而不是在引擎中增加狼人杀专用分支。
-- `P4-03`：将 AI 行为改为外部 activity；prompt、模型参数和输出 schema 随游戏版本保存。
-- `P4-04`：用 Phase 0 黄金轨迹比较旧系统和新引擎；差异必须归类为缺陷修复或经批准的规则变更。
-- `P4-05`：实现旧用户、历史对局和默认 `legacy` 租户的数据回填脚本，并提供 dry-run 报告。
-- `P4-06`：让内部测试租户创建新引擎房间，旧生产路径继续服务其他用户。
-- `P4-07`：完成断线重连、多设备、并发投票、AI 失败、worker 重启和版本升级 E2E。
+- [/] `P4-01`：从现有 Python 逻辑提取角色、阶段、动作、胜负、超时和可见性规格。 — 核验 2026-10-14：角色/阶段/动作/胜负规则已提取为黄金轨迹；超时与可见性规格未提取
+- [ ] `P4-02`：把狼人杀表示为游戏包，而不是在引擎中增加狼人杀专用分支。 — 核验 2026-10-14：未实现
+- [ ] `P4-03`：将 AI 行为改为外部 activity；prompt、模型参数和输出 schema 随游戏版本保存。 — 核验 2026-10-14：未实现（AI 行为仍是 api 进程内同步调用，prompt/模型参数未随游戏版本保存）
+- [ ] `P4-04`：用 Phase 0 黄金轨迹比较旧系统和新引擎；差异必须归类为缺陷修复或经批准的规则变更。 — 核验 2026-10-14：未实现
+- [ ] `P4-05`：实现旧用户、历史对局和默认 `legacy` 租户的数据回填脚本，并提供 dry-run 报告。 — 核验 2026-10-14：未实现
+- [ ] `P4-06`：让内部测试租户创建新引擎房间，旧生产路径继续服务其他用户。 — 核验 2026-10-14：未实现（无房间/实例 HTTP 入口）
+- [ ] `P4-07`：完成断线重连、多设备、并发投票、AI 失败、worker 重启和版本升级 E2E。 — 核验 2026-10-14：未实现
 
 交付物：第一个正式游戏包、兼容性报告、数据回填工具、内部灰度环境。
 
@@ -414,14 +415,14 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 
 任务：
 
-- `P5-01`：实现游戏元数据、草稿、测试版本、发布版本、撤回和 fork。
-- `P5-02`：实现结构化编辑器、JSON schema 自动补全、校验问题定位和只读流程图。
-- `P5-03`：实现测试控制台：注入事件、虚拟时间推进、查看不同玩家投影和回放。
-- `P5-04`：实现目录、搜索、标签、可见范围、安装和版本更新提示。
-- `P5-05`：实现资源上传、类型/大小限制、内容摘要、授权和恶意文件检测。
-- `P5-06`：实现发布权限、审计、举报、下架和租户配额。
-- `P5-07`：提供游戏包示例、DSL 文档、作者教程和兼容性说明。
-- `P5-08`：定义可移植游戏包格式，实现导入、导出、内容摘要、许可证和署名校验；禁止包格式绑定 LangGraph 内部结构。
+- [ ] `P5-01`：实现游戏元数据、草稿、测试版本、发布版本、撤回和 fork。 — 核验 2026-10-14：未实现（仅预留 `games`/`game_versions` 表，无 API/UI）
+- [ ] `P5-02`：实现结构化编辑器、JSON schema 自动补全、校验问题定位和只读流程图。 — 核验 2026-10-14：未实现
+- [ ] `P5-03`：实现测试控制台：注入事件、虚拟时间推进、查看不同玩家投影和回放。 — 核验 2026-10-14：未实现
+- [ ] `P5-04`：实现目录、搜索、标签、可见范围、安装和版本更新提示。 — 核验 2026-10-14：未实现
+- [ ] `P5-05`：实现资源上传、类型/大小限制、内容摘要、授权和恶意文件检测。 — 核验 2026-10-14：未实现
+- [ ] `P5-06`：实现发布权限、审计、举报、下架和租户配额。 — 核验 2026-10-14：未实现
+- [ ] `P5-07`：提供游戏包示例、DSL 文档、作者教程和兼容性说明。 — 核验 2026-10-14：未实现
+- [ ] `P5-08`：定义可移植游戏包格式，实现导入、导出、内容摘要、许可证和署名校验；禁止包格式绑定 LangGraph 内部结构。 — 核验 2026-10-14：未实现
 
 交付物：作者工作台、分发目录、发布流程和游戏 SDK 文档。
 
@@ -435,15 +436,15 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 
 任务：
 
-- `P6-01`：完成容量测试、长时间稳定性测试、并发动作测试和故障注入。
-- `P6-02`：建立 API、worker、队列积压、动作延迟、AI 成功率/成本、对局卡住率和跨租户拒绝指标。
-- `P6-03`：验证备份、时间点恢复、迁移回滚、密钥轮换和灾难恢复手册。
-- `P6-04`：执行安全评审：认证、授权、RLS、WebSocket、提示词注入、文件上传、日志隐私和供应链。
-- `P6-05`：先按内部租户、测试租户、小比例新房间逐级放量。
-- `P6-06`：冻结 Python 新房间创建，等待短期对局自然结束；长期历史数据保持只读。
-- `P6-07`：更新部署、用户、作者、运维、故障处理和数据保留文档。
-- `P6-08`：达到发布门槛后删除流量依赖，但至少保留一个发布周期的 Python 镜像和只读数据访问能力。
-- `P6-09`：完成服务条款、隐私说明、内容许可、数据导出/删除和侵权/举报处理流程的发布评审。
+- [ ] `P6-01`：完成容量测试、长时间稳定性测试、并发动作测试和故障注入。 — 核验 2026-10-14：未开始
+- [ ] `P6-02`：建立 API、worker、队列积压、动作延迟、AI 成功率/成本、对局卡住率和跨租户拒绝指标。 — 核验 2026-10-14：未开始
+- [ ] `P6-03`：验证备份、时间点恢复、迁移回滚、密钥轮换和灾难恢复手册。 — 核验 2026-10-14：未开始
+- [ ] `P6-04`：执行安全评审：认证、授权、RLS、WebSocket、提示词注入、文件上传、日志隐私和供应链。 — 核验 2026-10-14：未开始
+- [ ] `P6-05`：先按内部租户、测试租户、小比例新房间逐级放量。 — 核验 2026-10-14：未开始
+- [ ] `P6-06`：冻结 Python 新房间创建，等待短期对局自然结束；长期历史数据保持只读。 — 核验 2026-10-14：未开始
+- [ ] `P6-07`：更新部署、用户、作者、运维、故障处理和数据保留文档。 — 核验 2026-10-14：未开始
+- [ ] `P6-08`：达到发布门槛后删除流量依赖，但至少保留一个发布周期的 Python 镜像和只读数据访问能力。 — 核验 2026-10-14：未开始
+- [ ] `P6-09`：完成服务条款、隐私说明、内容许可、数据导出/删除和侵权/举报处理流程的发布评审。 — 核验 2026-10-14：未开始
 
 交付物：公开 Beta、监控面板、告警、备份恢复证据、切换记录和运行手册。
 
@@ -550,27 +551,27 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 ### Iteration 1（第 1～2 周）
 
 - [x] `P0-01` 提交 5 份 ADR：数据库、运行时边界、schema 工具、数据访问层、资源存储。
-- [ ] `P0-02` 录制至少 8 条旧系统黄金轨迹，覆盖正常、超时、断线和胜负。
+- [/] `P0-02` 录制至少 8 条旧系统黄金轨迹，覆盖正常、超时、断线和胜负。
 - [x] `P0-03` 给当前失败测试建立分类清单，确定真正的阻塞测试集。
 - [x] `P0-04` 在 `packages/contracts` 原型中定义 v0 领域事件和状态 schema。
-- [ ] `P0-05` 完成 LangGraph JS 与最小解释器对照验证的前半部分。
+- [/] `P0-05` 完成 LangGraph JS 与最小解释器对照验证的前半部分。
 - [x] `P0-06` 评审 Beta 负载、租户角色和旧数据处置假设。
-- [x] `P0-07` 确定旧数据处置：创建默认 `legacy` 租户，保留历史对局，进行中房间切换时排空。
+- [/] `P0-07` 确定旧数据处置：创建默认 `legacy` 租户，保留历史对局，进行中房间切换时排空。
 
-迭代进度：`P0-01`、`P0-03`、`P0-04`、`P0-06` 和 `P0-07` 已完成；`P0-03` 的后端基线需在安装 Python 测试环境后补录。`P0-02` 已生成 10 条旧引擎规则轨迹，但超时、断线和 AI fallback 仍需从服务层补录，因此尚未完成。`P0-05` 的 NativeRuntime 前半部分已完成，LangGraph/持久化对照仍未完成。
+核验 2026-10-14：`P0-01`、`P0-03`、`P0-04`、`P0-06` 已完成；`P0-07` 的处置决策已完成、回填脚本仍属 Phase 4。原迭代进度记录如下：`P0-01`、`P0-03`、`P0-04`、`P0-06` 和 `P0-07` 已完成；`P0-03` 的后端基线需在安装 Python 测试环境后补录。`P0-02` 已生成 10 条旧引擎规则轨迹，但超时、断线和 AI fallback 仍需从服务层补录，因此尚未完成。`P0-05` 的 NativeRuntime 前半部分已完成，LangGraph/持久化对照仍未完成。
 
 迭代验收：可以用同一份测试夹具驱动旧 Python 行为记录和至少一个 TS 运行时原型；关键 ADR 已评审，无悬而未决的数据库选择。
 
 ### Iteration 2（第 3～4 周）
 
-- [ ] 完成 LangGraph JS 技术验证的重启、并发、幂等、投影、版本和 AI fallback 测试。
-- [ ] 形成保留或放弃 LangGraph 作为第一版运行时的书面结论。
+- [ ] 完成 LangGraph JS 技术验证的重启、并发、幂等、投影、版本和 AI fallback 测试。 — 核验 2026-10-14：未开始，无 LangGraph 依赖
+- [ ] 形成保留或放弃 LangGraph 作为第一版运行时的书面结论。 — 核验 2026-10-14：缺失；当前实际由 NativeRuntime 承载
 - [x] 建立 pnpm workspace、Fastify API、worker 和共享契约包。
 - [x] 建立 PostgreSQL Compose 与第一条迁移。
-- [ ] 建立 CI：lint、typecheck、unit、PG integration、build。
-- [ ] 修正 Node/Vite/ESLint 基线，使新骨架全绿。
+- [/] 建立 CI：lint、typecheck、unit、PG integration、build。 — 核验 2026-10-14：除 lint 外均已落地（`.github/workflows/platform-ci.yml`）
+- [/] 修正 Node/Vite/ESLint 基线，使新骨架全绿。 — 核验 2026-10-14：Node/pnpm 已统一；仓库无 ESLint 配置，lint 门禁仍缺
 
-迭代进度：已建立 workspace、Fastify API、worker、共享契约包、Kysely PostgreSQL 客户端、PostgreSQL Compose、控制面与游戏运行时核心表迁移、租户作用域仓储、Outbox/command/job claim-lease 基础、签名访问令牌/RBAC 原型、数据库 session/membership 查询接线、RLS 迁移和基础 CI。真实 PostgreSQL 迁移、重复迁移和非 owner RLS 集成测试均已通过；lint、刷新 token、跨租户 REST/WebSocket/worker 攻击测试、前端 TypeScript 边界和一键启动仍未完成。
+核验 2026-10-14：workspace、API、worker、契约、Kysely、Compose、控制面与运行时迁移、租户仓储、Outbox/command/job claim-lease、session/membership 与 RLS 均已落地并通过真实 PostgreSQL 测试；仍缺 lint、刷新 token、跨租户 REST/WebSocket/worker 攻击测试、一键启动脚本和生产 handler。原迭代进度记录如下：已建立 workspace、Fastify API、worker、共享契约包、Kysely PostgreSQL 客户端、PostgreSQL Compose、控制面与游戏运行时核心表迁移、租户作用域仓储、Outbox/command/job claim-lease 基础、签名访问令牌/RBAC 原型、数据库 session/membership 查询接线、RLS 迁移和基础 CI。真实 PostgreSQL 迁移、重复迁移和非 owner RLS 集成测试均已通过；lint、刷新 token、跨租户 REST/WebSocket/worker 攻击测试、前端 TypeScript 边界和一键启动仍未完成。
 
 迭代验收：新 TS 骨架可在全新环境一键启动；CI 全绿；运行时选择已锁定；尚未把生产流量切入新系统。
 
@@ -598,7 +599,35 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 | 旧进行中对局 | 默认排空，不自动迁移 | `P0-07` |
 | Beta 容量目标 | 默认 100 房间 / 1000 在线 / 20 动作每秒 | `P0-06` |
 
-## 16. 参考资料
+## 16. 核验结论与下一步（2026-10-14）
+
+核验方式：对照 `apps/`、`packages/` 源码、迁移文件、测试与已提交历史逐项判定，不采信进度报告的自我描述。§8 的 56 项任务当前为 **12 项完成、17 项部分完成、27 项未开始**。
+
+### 已完成的主干
+
+- 工程骨架与 CI：pnpm workspace、Fastify API、worker、`packages/{contracts,db,workflow-engine}`、真实 PostgreSQL 集成与迁移回滚门禁（`P1-01`、`P1-02`、`P1-04`、`P1-06`、`P1-07`）。
+- 控制面与认证：平台账号、持久化 session、首登强制改密、管理员建号与重置、Provider/Model 管理、AEAD 凭据加密、审计（`P2-01`、`P2-03`、`P2-05`）。
+- 确定性运行时：DSL v1 编译 + 图结构校验 + 稳定 hash + 纯 `transition` + 事件重放（`P3-01` 至 `P3-04` 的主干部分）。
+- 持久化运行时底座：租户事务内实例行锁、顺序号校验、幂等事件追加与命令落库（`apps/api/src/services/game-dispatch.ts`）。
+
+### 关键断点（比任务勾选更重要）
+
+1. `dispatchGameEvent` 只有集成脚本调用，**没有 HTTP 入口**；已暴露的 `/v1/mvp/runtime/*` 是无状态路由（客户端传 definition + state + event），不落库、不锁实例、不做幂等。
+2. `apps/worker` 以**空依赖**启动：claim/lease 与退避失败已实现，但没有任何生产 handler 被注入，队列实际不被消费。
+3. AI 只有 `POST /v1/mvp/runtime/ai-dispatch` 一条同步路径：模型与密钥取进程级环境变量，与 `providers`/`provider_models` 表和 `agentModelBinding` 契约完全未接线；`ai_usage_ledger` 表无写入方；无超时、重试上限、预算与 fallback 事件。
+4. `playerViewSchema` 已定义但无投影器实现，隐藏信息隔离（`P3-07`）没有任何代码或测试支撑。
+
+### 下一步建议顺序
+
+1. **Agent 执行链（`P3-09` + `P4-03` 前置）**：新增 agent 定义与绑定表（`game_version_id` + `agent_id` → `provider_model_id`）；实现 AI command handler：按绑定解析启用中的 provider/model → 用 `secret-box` 解密凭据 → 调用 OpenAI-compatible → 生成 `aiResultReceived`；补齐超时、有限重试、预算、用量记账与降级事件。
+2. **实例与事件 HTTP 入口**：把 `dispatchGameEvent` 接成受租户鉴权保护的实例创建/事件提交端点，与 AI command 入队合并为同一事务路径（`P3-06` 收口）。
+3. **投影器（`P3-07`）**：公共/角色/个人视图 + 防泄漏测试；没有投影就无法验证 AI 结果对玩家可见性与信息隔离。
+4. **worker handler 接入（`P2-07` 收口）**：把 AI command、计时器到期与广播 handler 注入 `createWorker`，并加死信观测。
+5. **补齐 `P3-04`/`P3-05`**：`random` 节点引擎实现，subflow/parallel/join 与多玩家输入聚合。
+6. **工程门禁**：CI 增加 lint 与格式检查（当前完全缺失，`P1-05` 未收口）；密钥轮换流程（`P2-06`）；处置 `pnpm audit` 的 15 high。
+7. **决策收口**：`P0-05` 的 LangGraph JS 对照与书面结论仍未产出，ADR-002 的定稿条件未满足；鉴于运行时已由原生解释器承载，建议明确写出“第一版采用 NativeRuntime”的结论或正式放弃该 spike。
+
+## 17. 参考资料
 
 - [LangGraph JS Overview](https://docs.langchain.com/oss/javascript/langgraph/overview)
 - [LangGraph JS Persistence](https://docs.langchain.com/oss/javascript/langgraph/persistence)
