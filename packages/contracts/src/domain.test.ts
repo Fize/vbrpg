@@ -57,6 +57,7 @@ describe("contracts v0", () => {
       commandId: "command-1",
       instanceId: "instance-1",
       type: "aiGenerate",
+      agentId: "seer",
       input: { promptKey: "werewolf.vote" },
       timeoutMs: 10_000,
       maxAttempts: 2,
@@ -68,6 +69,34 @@ describe("contracts v0", () => {
       throw new Error("Expected an AI command");
     }
     expect(command.maxAttempts).toBe(2);
+    expect(command.agentId).toBe("seer");
+  });
+
+  it("rejects an AI command without an agent binding target", () => {
+    expect(() => parseExternalCommand({
+      commandId: "command-1",
+      instanceId: "instance-1",
+      type: "aiGenerate",
+      input: {},
+      timeoutMs: 10_000,
+      maxAttempts: 1,
+      fallbackNodeId: "fallback",
+    })).toThrow();
+  });
+
+  it("accepts a degraded AI failure event", () => {
+    const event = gameEventSchema.parse({
+      eventId: "event-2",
+      instanceId: "instance-1",
+      sequence: 2,
+      type: "aiFailed",
+      actor: null,
+      occurredAtMs: 0,
+      idempotencyKey: "instance-1:2",
+      payload: { reason: "PROVIDER_ERROR", attempts: 2 },
+    });
+
+    expect(event.type).toBe("aiFailed");
   });
 
   it("represents a player projection separately from authority state", () => {

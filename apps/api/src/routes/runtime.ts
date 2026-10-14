@@ -2,8 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { parseGameEvent, parseGameState, participantSchema } from "@vbrpg/contracts";
 import { compileGameDefinition, createInitialState, DefinitionCompileError, dispatchEvent } from "@vbrpg/workflow-engine";
-import { AppError } from "../errors.js";
-import type { AiClient } from "../ai.js";
+import { AppError } from "@vbrpg/runtime";
+import type { AiClient } from "@vbrpg/runtime";
 
 const compileRequestSchema = z.object({ definition: z.unknown() });
 const dispatchRequestSchema = z.object({

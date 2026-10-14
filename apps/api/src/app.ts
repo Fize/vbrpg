@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { ZodError } from "zod";
 import { loadConfig, type ApiConfig } from "./config.js";
-import { AppError, type ErrorResponse } from "./errors.js";
+import { AppError, type ErrorResponse } from "@vbrpg/runtime";
 import { authenticate, authenticateWithSession, type AuthSessionLookup } from "./auth.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -10,8 +10,8 @@ import { registerPlatformAuthRoutes } from "./routes/platform-auth.js";
 import { registerPlatformAdminRoutes } from "./routes/platform-admin.js";
 import type { PlatformStore } from "./store.js";
 import { createPlatformRequestContext } from "./platform-auth.js";
-import { createOpenAiCompatibleClient } from "./ai.js";
-import type { AiClient } from "./ai.js";
+import { createOpenAiCompatibleClient } from "@vbrpg/runtime";
+import type { AiClient } from "@vbrpg/runtime";
 
 declare module "fastify" {
   interface FastifyRequest {

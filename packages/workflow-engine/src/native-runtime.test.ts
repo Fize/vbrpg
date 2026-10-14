@@ -89,6 +89,7 @@ const aiDefinition: GameDefinition = {
         id: "ai",
         type: "aiGenerate",
         config: {
+          agentId: "seer",
           input: { promptKey: "runtime-spike" },
           timeoutMs: 5_000,
           maxAttempts: 2,
@@ -258,6 +259,7 @@ describe("native workflow runtime spike", () => {
       commandId: "instance-1:ai:1:ai",
       instanceId: "instance-1",
       type: "aiGenerate",
+      agentId: "seer",
       input: { promptKey: "runtime-spike" },
       timeoutMs: 5_000,
       maxAttempts: 2,
@@ -271,5 +273,15 @@ describe("native workflow runtime spike", () => {
     );
     expect(completed.state.status).toBe("completed");
     expect(completed.state.variables.aiResult).toEqual({ choice: "seer" });
+  });
+
+  it("routes an exhausted AI command to its declared fallback node", () => {
+    const waiting = transition(aiDefinition, initialState, event(1, "instanceCreated"));
+
+    const failed = transition(aiDefinition, waiting.state, event(2, "aiFailed", { reason: "TIMEOUT" }));
+
+    expect(failed.state.status).toBe("completed");
+    expect(failed.state.waiting).toBeNull();
+    expect(failed.state.variables.aiResult).toBeUndefined();
   });
 });

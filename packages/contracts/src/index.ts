@@ -56,10 +56,12 @@ export type {
 } from "./domain.js";
 
 export {
+  agentModelBindingRecordSchema,
   agentModelBindingSchema,
   connectionTestResultSchema,
   createProviderModelRequestSchema,
   parseAgentModelBinding,
+  parseAgentModelBindingRecord,
   parseCreateProviderModelRequest,
   parseProviderInput,
   parseUpdateProviderModelRequest,
@@ -78,6 +80,7 @@ export {
 
 export type {
   AgentModelBinding,
+  AgentModelBindingRecord,
   ConnectionTestResult,
   CreateProviderModelRequest,
   Provider,

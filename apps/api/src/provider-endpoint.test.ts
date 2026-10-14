@@ -8,7 +8,7 @@ import {
   resolvePublicEndpoint,
   testProviderConnection,
 } from "./provider-endpoint.js";
-import { AppError } from "./errors.js";
+import { AppError } from "@vbrpg/runtime";
 
 describe("provider endpoint policy", () => {
   it("accepts a public https endpoint", () => {

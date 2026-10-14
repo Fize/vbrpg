@@ -7,7 +7,7 @@ import {
 } from "@vbrpg/db";
 import { compileGameDefinition, createInitialState } from "@vbrpg/workflow-engine";
 import type { GameEvent } from "@vbrpg/contracts";
-import { dispatchGameEvent } from "../src/services/game-dispatch.js";
+import { dispatchGameEvent } from "@vbrpg/runtime";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {

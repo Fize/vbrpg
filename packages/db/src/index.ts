@@ -13,6 +13,7 @@ export {
   getAuthSessionByTokenHash,
   getPlatformUser,
   getProvider,
+  getProviderModelWithProvider,
   listPlatformUsers,
   listProvidersWithModels,
   platformContext,
@@ -28,6 +29,7 @@ export {
 export type {
   PlatformUserRecord,
   ProviderCredentialColumns,
+  ProviderModelWithProvider,
   ProviderWithModels,
 } from "./platform-repositories.js";
 export {
@@ -39,15 +41,18 @@ export {
   completeScheduledJob,
   failLeasedTask,
   getActiveAuthSession,
+  getAgentModelBinding,
   getGameInstance,
   getLatestSnapshot,
   getTenantMembership,
   listActiveTenantIds,
+  listAgentModelBindings,
   recordPlayerAction,
+  upsertAgentModelBinding,
   releaseLease,
   withTenantContext,
 } from "./repositories.js";
-export type { DbExecutor, LeaseOptions, TenantContext } from "./repositories.js";
+export type { AgentModelBinding, DbExecutor, LeaseOptions, TenantContext } from "./repositories.js";
 export type {
   AiUsageLedgerTable,
   AuthSessionsTable,

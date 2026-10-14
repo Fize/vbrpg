@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { AppError } from "./errors.js";
+import { AppError } from "@vbrpg/runtime";
 
 export const tenantRoles = ["owner", "admin", "developer", "player"] as const;
 export type TenantRole = (typeof tenantRoles)[number];

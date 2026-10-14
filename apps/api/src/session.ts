@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { AppError } from "./errors.js";
+import { AppError } from "@vbrpg/runtime";
 
 export const SESSION_COOKIE_NAME = "vbrpg_session";
 export const SESSION_IDLE_MS = 30 * 60_000;

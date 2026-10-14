@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { AppError } from "./errors.js";
+import { AppError } from "@vbrpg/runtime";
 import { constantTimeEquals, hashToken } from "./session.js";
 
 export function createCsrfToken(): string {

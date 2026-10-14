@@ -2,7 +2,7 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { request as httpsRequest } from "node:https";
 import type { ConnectionTestResult, ProviderErrorCode } from "@vbrpg/contracts";
-import { AppError } from "./errors.js";
+import { AppError } from "@vbrpg/runtime";
 
 export const CONNECT_TIMEOUT_MS = 3000;
 export const TOTAL_TIMEOUT_MS = 8000;

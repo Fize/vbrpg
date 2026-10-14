@@ -1,7 +1,7 @@
 import type { FastifyRequest, preHandlerHookHandler } from "fastify";
 import type { PlatformRole } from "@vbrpg/contracts";
 import type { ApiConfig } from "./config.js";
-import { AppError } from "./errors.js";
+import { AppError } from "@vbrpg/runtime";
 import { assertTrustedOrigin, csrfTokenMatches } from "./csrf.js";
 import { createConcurrencyLimiter, createRateLimiter, type ConcurrencyLimiter, type RateLimiter } from "./rate-limit.js";
 import {

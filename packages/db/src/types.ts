@@ -76,6 +76,16 @@ export interface ProviderModelsTable {
   updated_at: Generated<Date>;
 }
 
+export interface AgentModelBindingsTable {
+  id: string;
+  tenant_id: string;
+  game_version_id: string;
+  agent_id: string;
+  provider_model_id: string;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
 export interface GamesTable {
   id: string;
   tenant_id: string;
@@ -270,6 +280,7 @@ export interface Database {
   auth_sessions: AuthSessionsTable;
   providers: ProvidersTable;
   provider_models: ProviderModelsTable;
+  agent_model_bindings: AgentModelBindingsTable;
   games: GamesTable;
   game_versions: GameVersionsTable;
   workflow_definitions: WorkflowDefinitionsTable;

@@ -5,7 +5,7 @@ import {
   type LoginResult,
   type PlatformUser,
 } from "@vbrpg/contracts";
-import { AppError } from "../errors.js";
+import { AppError } from "@vbrpg/runtime";
 import { hashPassword, verifyPassword } from "../password.js";
 import { createCsrfToken, hashCsrfToken } from "../csrf.js";
 import {

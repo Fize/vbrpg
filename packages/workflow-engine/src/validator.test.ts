@@ -54,6 +54,26 @@ describe("workflow definition validator", () => {
     );
   });
 
+  it("requires an agent on every AI node", () => {
+    const result = validateGameDefinition(
+      definition({
+        nodes: [
+          { id: "start", type: "start", config: {}, next: ["ai"] },
+          {
+            id: "ai",
+            type: "aiGenerate",
+            config: { timeoutMs: 5_000, maxAttempts: 1, fallbackNodeId: "end", input: {}, resultKey: "out" },
+            next: ["end"],
+          },
+          { id: "end", type: "end", config: {}, next: [] },
+        ],
+      }),
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain("INVALID_CONFIG");
+  });
+
   it("rejects implicit cycles and invalid AI configuration", () => {
     const result = validateGameDefinition(
       definition({
@@ -62,7 +82,7 @@ describe("workflow definition validator", () => {
           {
             id: "ai",
             type: "aiGenerate",
-            config: { timeoutMs: 0, maxAttempts: 1, fallbackNodeId: "start", input: [] },
+            config: { agentId: "seer", timeoutMs: 0, maxAttempts: 1, fallbackNodeId: "start", input: [] },
             next: ["start"],
           },
         ],

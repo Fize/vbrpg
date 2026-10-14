@@ -16,6 +16,7 @@ boundaries are defined in `docs/security/phase1-auth-provider-threat-model.md` a
 | `TRUSTED_WEB_ORIGINS` | yes in production | Comma-separated exact origins allowed for cookie-authenticated writes |
 | `PORT`, `LOG_LEVEL`, `NODE_ENV` | no | Server basics |
 | `AUTH_TOKEN_SECRET` | legacy | Only used by the legacy `/v1/tenant/*` bearer path |
+| `AI_TIMEOUT_MS`, `AI_MAX_INPUT_TOKENS`, `AI_CONTEXT_WINDOW_TOKENS` | no | AI command caps for `apps/worker` (and the MVP demo client) |
 
 Startup fails when production configuration is weak:
 
@@ -43,6 +44,7 @@ pnpm install --frozen-lockfile
 pnpm run build:platform
 pnpm run db:migrate:platform
 pnpm --filter @vbrpg/api dev
+pnpm --filter @vbrpg/worker dev
 ```
 
 ### 2.1 Docker stack (browser testing)
@@ -156,7 +158,43 @@ Endpoint rules (enforced on create, update and every connection test):
 
 Private and on-premises endpoints are intentionally unsupported in Phase 1.
 
-## 6. Master key rotation
+## 6. Agent model bindings and AI command execution
+
+An `aiGenerate` node names an `agentId`, and that agent resolves to exactly one model through
+`agent_model_bindings`, keyed by `(tenant_id, game_version_id, agent_id)`. The binding lives with the
+game version, so a published version keeps the model it shipped with.
+
+Bindings are provisioned with SQL until an admin endpoint exists:
+
+```sql
+insert into agent_model_bindings (id, tenant_id, game_version_id, agent_id, provider_model_id)
+values (gen_random_uuid()::text, '<tenant-id>', '<game-version-id>', 'seer', '<provider-model-id>');
+```
+
+`apps/worker` consumes `pending_commands` and executes AI commands:
+
+```bash
+export DATABASE_URL=postgres://vbrpg:vbrpgpassword@localhost:5433/vbrpg_platform
+export PLATFORM_CREDENTIAL_KEY=<the key that sealed the provider credential>
+pnpm --filter @vbrpg/worker dev
+```
+
+For each claimed command the worker resolves the binding, rejects disabled providers or models,
+decrypts the provider credential with the master key, calls the OpenAI-compatible endpoint with a
+timeout of `min(node timeoutMs, AI_TIMEOUT_MS)`, appends `aiResultReceived` and writes an
+`ai_usage_ledger` row.
+
+Behaviour to know before an incident:
+
+- A provider failure below `maxAttempts` returns the command to the queue with exponential backoff.
+- At `maxAttempts` the worker appends `aiFailed` and the workflow continues at the node's
+  `fallbackNodeId`; an instance is never left parked on an AI node.
+- A missing binding, a disabled model, or an undecryptable credential degrades immediately, with no
+  retries.
+- A command whose instance is no longer waiting for AI is skipped, so a redelivered command cannot
+  advance an instance twice.
+
+## 7. Master key rotation
 
 1. Generate a new key and set `PLATFORM_CREDENTIAL_KEY` / `PLATFORM_CREDENTIAL_KEY_VERSION` to the
    new values.
@@ -166,7 +204,7 @@ Private and on-premises endpoints are intentionally unsupported in Phase 1.
    an error rather than falling back to the previous key. Run a connection test per provider to
    confirm re-sealing.
 
-## 7. Database migration and rollback
+## 8. Database migration and rollback
 
 ```bash
 pnpm run db:migrate:platform          # apply all `.sql` migrations
@@ -177,7 +215,7 @@ pnpm run migrate:down:platform        # roll back the last migration (use --step
 delete provider data first. The `platform` tenant row seeded by `0005` is intentionally left in
 place on rollback. `.down.sql` files are never applied as forward migrations.
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Symptom | Cause |
 | --- | --- |
@@ -190,7 +228,7 @@ place on rollback. `.down.sql` files are never applied as forward migrations.
 | `dns_rejected` on a connection test | Endpoint resolves to a non-public address |
 | `SESSION_INVALID` after a password or role change | Sessions are revoked by design |
 
-## 9. Release checklist
+## 10. Release checklist
 
 - [ ] `pnpm run build:platform` and `pnpm run test:platform` pass.
 - [ ] `pnpm run test:contracts` and `pnpm run test:db` pass.

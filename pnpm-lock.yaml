@@ -16,6 +16,9 @@ importers:
       '@vbrpg/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@vbrpg/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       '@vbrpg/workflow-engine':
         specifier: workspace:*
         version: link:../../packages/workflow-engine
@@ -84,6 +87,12 @@ importers:
       '@vbrpg/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@vbrpg/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@vbrpg/workflow-engine':
+        specifier: workspace:*
+        version: link:../../packages/workflow-engine
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -135,6 +144,31 @@ importers:
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
+
+  packages/runtime:
+    dependencies:
+      '@vbrpg/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@vbrpg/db':
+        specifier: workspace:*
+        version: link:../db
+      '@vbrpg/workflow-engine':
+        specifier: workspace:*
+        version: link:../workflow-engine
+      kysely:
+        specifier: ^0.28.2
+        version: 0.28.17
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@types/node@24.13.3)(happy-dom@21.0.1)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12))
 
   packages/workflow-engine:
     dependencies:
@@ -921,11 +955,6 @@ packages:
   muggle-string@0.4.1:
     resolution: {integrity: sha512-VNTrAak/KhO2i8dqqnqnAHOa3cYBwXEZe9h+D5h/1ZqFSTEFHdM65lR7RoIqq3tBBYavsOXV84NoHXZ0AkPyqQ==}
 
-  nanoid@3.3.18:
-    resolution: {integrity: sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w==}
-    engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
-    hasBin: true
-
   nanoid@3.3.20:
     resolution: {integrity: sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
@@ -1017,10 +1046,6 @@ packages:
     resolution: {integrity: sha512-kVzTnYFYEyQ9RGzBjNCd2+yEqWmVbxl3AHPynv3qQ6JTjv4a+kwRcnqQwIpuP3NnrnIrE/Q6wWAIAvMfIE2/Yg==}
     engines: {node: '>=20'}
     hasBin: true
-
-  postcss@8.5.26:
-    resolution: {integrity: sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==}
-    engines: {node: ^10 || ^12 || >=14}
 
   postcss@8.5.29:
     resolution: {integrity: sha512-49cGhUbXj8Qenv0iTMxA1cFBzxXoctpC9Ujd77t1WcbJIr6nF/eI7g/8MgxrYldFRuAXvja7xQRwavoW7kgrxQ==}
@@ -1979,8 +2004,6 @@ snapshots:
 
   muggle-string@0.4.1: {}
 
-  nanoid@3.3.18: {}
-
   nanoid@3.3.20: {}
 
   nopt@10.0.1:
@@ -2066,12 +2089,6 @@ snapshots:
   playwright@1.64.0:
     dependencies:
       playwright-core: 1.64.0
-
-  postcss@8.5.26:
-    dependencies:
-      nanoid: 3.3.18
-      picocolors: 1.1.1
-      source-map-js: 1.2.1
 
   postcss@8.5.29:
     dependencies:
@@ -2189,7 +2206,7 @@ snapshots:
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.5
-      postcss: 8.5.26
+      postcss: 8.5.29
       rolldown: 1.2.5
       tinyglobby: 0.2.17
     optionalDependencies:

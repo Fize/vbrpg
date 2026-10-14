@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { sql, type Kysely, type Selectable, type Transaction } from "kysely";
 import type {
   Database,
@@ -57,6 +58,87 @@ export async function getGameInstance(
     .where("tenant_id", "=", context.tenantId)
     .where("id", "=", instanceId)
     .executeTakeFirst();
+}
+
+export interface AgentModelBinding {
+  id: string;
+  gameVersionId: string;
+  agentId: string;
+  providerModelId: string;
+}
+
+export async function listAgentModelBindings(
+  db: DbExecutor,
+  context: TenantContext,
+  gameVersionId: string,
+): Promise<AgentModelBinding[]> {
+  const rows = await db
+    .selectFrom("agent_model_bindings")
+    .selectAll()
+    .where("tenant_id", "=", context.tenantId)
+    .where("game_version_id", "=", gameVersionId)
+    .orderBy("agent_id", "asc")
+    .execute();
+  return rows.map((row) => ({
+    id: row.id,
+    gameVersionId: row.game_version_id,
+    agentId: row.agent_id,
+    providerModelId: row.provider_model_id,
+  }));
+}
+
+export async function getAgentModelBinding(
+  db: DbExecutor,
+  context: TenantContext,
+  input: { gameVersionId: string; agentId: string },
+): Promise<AgentModelBinding | undefined> {
+  const row = await db
+    .selectFrom("agent_model_bindings")
+    .selectAll()
+    .where("tenant_id", "=", context.tenantId)
+    .where("game_version_id", "=", input.gameVersionId)
+    .where("agent_id", "=", input.agentId)
+    .executeTakeFirst();
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    gameVersionId: row.game_version_id,
+    agentId: row.agent_id,
+    providerModelId: row.provider_model_id,
+  };
+}
+
+/** Rebinding an agent replaces the previous model: the scope unique key is the conflict target. */
+export async function upsertAgentModelBinding(
+  db: DbExecutor,
+  context: TenantContext,
+  input: { gameVersionId: string; agentId: string; providerModelId: string },
+): Promise<AgentModelBinding> {
+  const row = await db
+    .insertInto("agent_model_bindings")
+    .values({
+      id: randomUUID(),
+      tenant_id: context.tenantId,
+      game_version_id: input.gameVersionId,
+      agent_id: input.agentId,
+      provider_model_id: input.providerModelId,
+    })
+    .onConflict((conflict) =>
+      conflict
+        .columns(["tenant_id", "game_version_id", "agent_id"])
+        .doUpdateSet({
+          provider_model_id: input.providerModelId,
+          updated_at: new Date(),
+        }),
+    )
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  return {
+    id: row.id,
+    gameVersionId: row.game_version_id,
+    agentId: row.agent_id,
+    providerModelId: row.provider_model_id,
+  };
 }
 
 export async function getLatestSnapshot(

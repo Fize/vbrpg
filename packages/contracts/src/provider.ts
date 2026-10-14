@@ -132,6 +132,18 @@ export const providerListSchema = z.object({ providers: z.array(providerSchema) 
  */
 export const agentModelBindingSchema = z.object({ providerModelId: uuidSchema }).strict();
 
+/**
+ * A persisted binding: one agent inside one game version resolves to exactly one
+ * model. `agentId` follows the game definition id space, so it is not a UUID.
+ */
+export const agentModelBindingRecordSchema = z
+  .object({
+    gameVersionId: uuidSchema,
+    agentId: z.string().min(1),
+    providerModelId: uuidSchema,
+  })
+  .strict();
+
 export type ProviderModel = z.infer<typeof providerModelSchema>;
 export type Provider = z.infer<typeof providerSchema>;
 export type ProviderInput = z.infer<typeof providerInputSchema>;
@@ -140,6 +152,7 @@ export type CreateProviderModelRequest = z.infer<typeof createProviderModelReque
 export type UpdateProviderModelRequest = z.infer<typeof updateProviderModelRequestSchema>;
 export type ConnectionTestResult = z.infer<typeof connectionTestResultSchema>;
 export type AgentModelBinding = z.infer<typeof agentModelBindingSchema>;
+export type AgentModelBindingRecord = z.infer<typeof agentModelBindingRecordSchema>;
 
 export function parseProviderInput(input: unknown): ProviderInput {
   return providerInputSchema.parse(input);
@@ -159,6 +172,10 @@ export function parseUpdateProviderModelRequest(input: unknown): UpdateProviderM
 
 export function parseAgentModelBinding(input: unknown): AgentModelBinding {
   return agentModelBindingSchema.parse(input);
+}
+
+export function parseAgentModelBindingRecord(input: unknown): AgentModelBindingRecord {
+  return agentModelBindingRecordSchema.parse(input);
 }
 
 /**

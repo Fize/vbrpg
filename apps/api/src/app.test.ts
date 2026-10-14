@@ -234,6 +234,7 @@ describe("API foundation", () => {
             id: "ai",
             type: "aiGenerate",
             config: {
+              agentId: "seer",
               input: { action: "choose" },
               timeoutMs: 1000,
               maxAttempts: 1,

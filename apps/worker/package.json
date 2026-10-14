@@ -7,10 +7,13 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/server.ts",
     "start": "node dist/server.js",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "test:integration": "tsx scripts/ai-command-integration.ts"
   },
   "dependencies": {
-    "@vbrpg/db": "workspace:*"
+    "@vbrpg/db": "workspace:*",
+    "@vbrpg/runtime": "workspace:*",
+    "@vbrpg/workflow-engine": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

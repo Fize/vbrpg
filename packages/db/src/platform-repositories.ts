@@ -371,6 +371,35 @@ export async function getProvider(
   );
 }
 
+export interface ProviderModelWithProvider {
+  provider: Selectable<ProvidersTable>;
+  model: Selectable<ProviderModelsTable>;
+}
+
+/** Resolves a binding target from the platform catalog; the caller decides whether it is usable. */
+export async function getProviderModelWithProvider(
+  db: Kysely<Database>,
+  modelId: string,
+): Promise<ProviderModelWithProvider | undefined> {
+  return withTenantContext(db, platformContext, async (transaction) => {
+    const model = await transaction
+      .selectFrom("provider_models")
+      .selectAll()
+      .where("tenant_id", "=", PLATFORM_TENANT_ID)
+      .where("id", "=", modelId)
+      .executeTakeFirst();
+    if (!model) return undefined;
+    const provider = await transaction
+      .selectFrom("providers")
+      .selectAll()
+      .where("tenant_id", "=", PLATFORM_TENANT_ID)
+      .where("id", "=", model.provider_id)
+      .executeTakeFirst();
+    if (!provider) return undefined;
+    return { provider, model };
+  });
+}
+
 export interface ProviderCredentialColumns {
   credential_ciphertext: Buffer;
   credential_nonce: Buffer;

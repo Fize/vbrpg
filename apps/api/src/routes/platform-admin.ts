@@ -11,9 +11,9 @@ import {
   updateUserRequestSchema,
   type ConnectionTestResult,
 } from "@vbrpg/contracts";
-import { AppError } from "../errors.js";
+import { AppError } from "@vbrpg/runtime";
 import { hashPassword } from "../password.js";
-import { openCredential, sealCredential, type CredentialKey } from "../secret-box.js";
+import { openCredential, sealCredential, type CredentialKey } from "@vbrpg/runtime";
 import { parseProviderEndpoint, testProviderConnection } from "../provider-endpoint.js";
 import { createConcurrencyLimiter } from "../rate-limit.js";
 import {

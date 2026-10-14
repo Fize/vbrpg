@@ -208,6 +208,18 @@ function consumeAiResult(
   return advance({ ...state, variables }, nextNodeId(node));
 }
 
+function consumeAiFailure(
+  definition: GameDefinition,
+  state: GameState,
+): GameState {
+  if (!state.waiting || state.waiting.kind !== "ai") {
+    throw new EngineError("UNEXPECTED_AI_FAILURE", "The instance is not waiting for an AI result");
+  }
+
+  const node = findNode(definition, state.waiting.nodeId);
+  return advance(state, requiredString(asConfig(node.config), "fallbackNodeId"));
+}
+
 function runAutomaticNodes(
   definition: GameDefinition,
   initialState: GameState,
@@ -272,6 +284,7 @@ function runAutomaticNodes(
         return { state, commands };
       }
       case "aiGenerate": {
+        const agentId = requiredString(config, "agentId");
         const timeoutMs = requiredPositiveInteger(config, "timeoutMs");
         const maxAttempts = requiredPositiveInteger(config, "maxAttempts");
         const fallbackNodeId = requiredString(config, "fallbackNodeId");
@@ -284,6 +297,7 @@ function runAutomaticNodes(
           commandId: `${state.instanceId}:ai:${state.sequence}:${node.id}`,
           instanceId: state.instanceId,
           type: "aiGenerate",
+          agentId,
           input: input as Record<string, unknown>,
           timeoutMs,
           maxAttempts,
@@ -341,6 +355,8 @@ export function transition(
     nextState = consumeTimer(definition, nextState, event);
   } else if (event.type === "aiResultReceived") {
     nextState = consumeAiResult(definition, nextState, event);
+  } else if (event.type === "aiFailed") {
+    nextState = consumeAiFailure(definition, nextState);
   } else {
     throw new EngineError("UNSUPPORTED_EVENT", `Native spike does not support event: ${event.type}`);
   }

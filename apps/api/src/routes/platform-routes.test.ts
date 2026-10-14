@@ -7,7 +7,7 @@ import { loadConfig } from "../config.js";
 import { hashPassword } from "../password.js";
 import { hashToken } from "../session.js";
 import { hashCsrfToken } from "../csrf.js";
-import { sealCredential } from "../secret-box.js";
+import { sealCredential } from "@vbrpg/runtime";
 import type { PlatformUserRecord } from "@vbrpg/db";
 
 const ORIGIN = "http://localhost:5173";

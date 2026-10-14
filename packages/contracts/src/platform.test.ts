@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, expect, it } from "vitest";
 import {
+  agentModelBindingRecordSchema,
   agentModelBindingSchema,
   normalizeUsername,
   parseAgentModelBinding,
+  parseAgentModelBindingRecord,
   parseCreateUserRequest,
   parseLoginRequest,
   parseUpdateProviderRequest,
@@ -48,6 +50,27 @@ describe("agent model binding", () => {
 
   it("rejects a non-uuid model reference", () => {
     expect(() => agentModelBindingSchema.parse({ providerModelId: "hy3" })).toThrow();
+  });
+
+  it("scopes a persisted binding to a game version and an agent", () => {
+    const record = parseAgentModelBindingRecord({
+      gameVersionId: "44444444-4444-4444-8444-444444444444",
+      agentId: "seer",
+      providerModelId: MODEL_ID,
+    });
+
+    assert.equal(record.agentId, "seer");
+    expect(() =>
+      agentModelBindingRecordSchema.parse({ agentId: "seer", providerModelId: MODEL_ID }),
+    ).toThrow();
+    expect(() =>
+      agentModelBindingRecordSchema.parse({
+        gameVersionId: "44444444-4444-4444-8444-444444444444",
+        agentId: "seer",
+        providerModelId: MODEL_ID,
+        fallbackProviderModelId: OTHER_MODEL_ID,
+      }),
+    ).toThrow();
   });
 
   it("resolves only enabled models of enabled providers", () => {
