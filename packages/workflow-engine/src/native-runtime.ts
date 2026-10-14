@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { evaluateExpression } from "./expressions.js";
 import type {
   ExternalCommand,
   GameDefinition,
@@ -269,15 +270,21 @@ function runAutomaticNodes(
         continue;
       case "setVariable": {
         const variables = cloneVariables(state.variables);
-        variables[requiredString(config, "key")] = config.value;
+        variables[requiredString(config, "key")] =
+          config.valueExpr === undefined
+            ? config.value
+            : (evaluateExpression(config.valueExpr, { variables: state.variables, state }) as unknown);
         state = advance({ ...state, variables }, nextNodeId(node));
         continue;
       }
       case "branch": {
-        const variable = state.variables[requiredString(config, "variable")];
-        const expected = config.equals;
-        const branch = variable === expected ? "whenTrue" : "whenFalse";
-        state = advance(state, requiredString(config, branch));
+        let condition: boolean;
+        if (config.when !== undefined) {
+          condition = evaluateExpression(config.when, { variables: state.variables, state }) === true;
+        } else {
+          condition = state.variables[requiredString(config, "variable")] === config.equals;
+        }
+        state = advance(state, requiredString(config, condition ? "whenTrue" : "whenFalse"));
         continue;
       }
       case "waitForPlayerInput":

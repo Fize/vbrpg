@@ -1,0 +1,141 @@
+{
+  "manifest": {
+    "gameId": "werewolf",
+    "slug": "werewolf",
+    "version": "0.1.0",
+    "dslVersion": "v1",
+    "engineVersion": "native-test",
+    "authorId": "platform",
+    "license": "CC-BY-4.0",
+    "attribution": "Reference package for the DSL capability slice. Roles are supplied by the instance creator: dealing is not part of the DSL yet."
+  },
+  "workflow": {
+    "entryNodeId": "start",
+    "nodes": [
+      { "id": "start", "type": "start", "config": {}, "next": ["night"] },
+      {
+        "id": "night",
+        "type": "collectInput",
+        "config": { "participantIds": ["p1", "p2"], "collectionKey": "nightVotes" },
+        "next": ["resolve-night"]
+      },
+      {
+        "id": "resolve-night",
+        "type": "setVariable",
+        "config": { "key": "victim", "valueExpr": { "op": "mode", "args": [{ "op": "var", "name": "nightVotes" }] } },
+        "next": ["apply-night"]
+      },
+      {
+        "id": "apply-night",
+        "type": "setVariable",
+        "config": {
+          "key": "wolvesAlive",
+          "valueExpr": {
+            "op": "sub",
+            "args": [
+              { "op": "var", "name": "wolvesAlive" },
+              {
+                "op": "if",
+                "cond": {
+                  "op": "eq",
+                  "args": [{ "op": "roleOf", "arg": { "op": "var", "name": "victim" } }, "werewolf"]
+                },
+                "then": { "op": "lit", "value": 1 },
+                "else": { "op": "lit", "value": 0 }
+              }
+            ]
+          }
+        },
+        "next": ["apply-night-villagers"]
+      },
+      {
+        "id": "apply-night-villagers",
+        "type": "setVariable",
+        "config": {
+          "key": "villagersAlive",
+          "valueExpr": {
+            "op": "sub",
+            "args": [
+              { "op": "var", "name": "villagersAlive" },
+              {
+                "op": "if",
+                "cond": {
+                  "op": "eq",
+                  "args": [{ "op": "roleOf", "arg": { "op": "var", "name": "victim" } }, "villager"]
+                },
+                "then": { "op": "lit", "value": 1 },
+                "else": { "op": "lit", "value": 0 }
+              }
+            ]
+          }
+        },
+        "next": ["check-wolves"]
+      },
+      {
+        "id": "check-wolves",
+        "type": "branch",
+        "config": {
+          "when": { "op": "eq", "args": [{ "op": "var", "name": "wolvesAlive" }, { "op": "lit", "value": 0 }] },
+          "whenTrue": "villagers-win",
+          "whenFalse": "check-villagers"
+        },
+        "next": []
+      },
+      {
+        "id": "check-villagers",
+        "type": "branch",
+        "config": {
+          "when": {
+            "op": "eq",
+            "args": [{ "op": "var", "name": "villagersAlive" }, { "op": "lit", "value": 0 }]
+          },
+          "whenTrue": "werewolves-win",
+          "whenFalse": "undecided"
+        },
+        "next": []
+      },
+      {
+        "id": "villagers-win",
+        "type": "setVariable",
+        "config": { "key": "winner", "value": "villagers" },
+        "next": ["end"]
+      },
+      {
+        "id": "werewolves-win",
+        "type": "setVariable",
+        "config": { "key": "winner", "value": "werewolves" },
+        "next": ["end"]
+      },
+      {
+        "id": "undecided",
+        "type": "setVariable",
+        "config": { "key": "winner", "value": "undecided" },
+        "next": ["end"]
+      },
+      { "id": "end", "type": "end", "config": {}, "next": [] }
+    ]
+  },
+  "roles": [
+    { "id": "werewolf", "name": "Werewolf" },
+    { "id": "villager", "name": "Villager" }
+  ],
+  "variables": {
+    "dayNumber": 1,
+    "wolvesAlive": 2,
+    "villagersAlive": 1,
+    "nightVotes": {},
+    "victim": null,
+    "winner": null
+  },
+  "visibility": {
+    "dayNumber": "public",
+    "winner": "public",
+    "nightVotes": { "role": "werewolf" },
+    "victim": { "role": "werewolf" },
+    "wolvesAlive": "public",
+    "villagersAlive": "public"
+  },
+  "presentation": {
+    "title": "Werewolf (one round)"
+  }
+}

@@ -1,5 +1,6 @@
 import type { GameDefinition } from "@vbrpg/contracts";
 import { parseVisibilityRule } from "./projector.js";
+import { validateExpression } from "./expressions.js";
 
 export interface ValidationIssue {
   code: string;
@@ -136,9 +137,18 @@ function validateNodeConfig(node: Node, issues: ValidationIssue[]): void {
       break;
     case "setVariable":
       stringConfig(node, "key", issues);
+      if (config.value === undefined && config.valueExpr === undefined) {
+        issues.push({
+          code: "INVALID_CONFIG",
+          nodeId: node.id,
+          message: "setVariable requires value or valueExpr",
+        });
+      }
       break;
     case "branch":
-      stringConfig(node, "variable", issues);
+      if (config.when === undefined) {
+        stringConfig(node, "variable", issues);
+      }
       break;
     case "emitEvent":
       stringConfig(node, "eventName", issues);
@@ -152,6 +162,27 @@ function validateNodeConfig(node: Node, issues: ValidationIssue[]): void {
       break;
     default:
       break;
+  }
+}
+
+/** Expressions are checked against the definition's declared variables and roles. */
+function validateNodeExpressions(definition: GameDefinition, issues: ValidationIssue[]): void {
+  const scope = {
+    variables: Object.keys(definition.variables),
+    roles: definition.roles.map((role) => role.id),
+  };
+  for (const node of definition.workflow.nodes) {
+    const config = configOf(node);
+    const candidates: Array<[string, unknown]> = [];
+    if (node.type === "branch" && config.when !== undefined) candidates.push(["when", config.when]);
+    if (node.type === "setVariable" && config.valueExpr !== undefined) {
+      candidates.push(["valueExpr", config.valueExpr]);
+    }
+    for (const [field, value] of candidates) {
+      for (const message of validateExpression(value, scope, `${node.id}.${field}`)) {
+        issues.push({ code: "INVALID_EXPRESSION", nodeId: node.id, message });
+      }
+    }
   }
 }
 
@@ -245,6 +276,7 @@ export function validateGameDefinition(definition: GameDefinition): ValidationRe
   };
   detectCycle(definition.workflow.entryNodeId);
   validateVisibility(definition, issues);
+  validateNodeExpressions(definition, issues);
 
   return { valid: issues.length === 0, issues };
 }
