@@ -10,15 +10,6 @@ const configSchema = z.object({
   PLATFORM_CREDENTIAL_KEY: z.string().min(1).optional(),
   PLATFORM_CREDENTIAL_KEY_VERSION: z.coerce.number().int().positive().default(1),
   TRUSTED_WEB_ORIGINS: z.string().optional(),
-  DEEPSEEK_API_KEY: z.string().min(1).optional(),
-  AI_API_KEY: z.string().min(1).optional(),
-  OPENAI_API_KEY: z.string().min(1).optional(),
-  AI_API_BASE_URL: z.string().url().default("https://tokenhub.tencentmaas.com/v1"),
-  AI_MODEL: z.string().min(1).default("hy3"),
-  AI_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
-  AI_CONTEXT_WINDOW_TOKENS: z.coerce.number().int().positive().default(262_144),
-  AI_MAX_INPUT_TOKENS: z.coerce.number().int().positive().default(196_608),
-  AI_RESERVE_OUTPUT_TOKENS: z.coerce.number().int().positive().default(16_384),
 });
 
 export interface ApiConfig {
@@ -30,13 +21,6 @@ export interface ApiConfig {
   credentialKey?: CredentialKey;
   trustedOrigins: string[];
   sessionCookieSecure: boolean;
-  aiApiKey?: string;
-  aiApiBaseUrl: string;
-  aiModel: string;
-  aiTimeoutMs: number;
-  aiContextWindowTokens: number;
-  aiMaxInputTokens: number;
-  aiReserveOutputTokens: number;
 }
 
 const DEVELOPMENT_ORIGINS = [
@@ -66,7 +50,6 @@ function resolveTrustedOrigins(parsed: { NODE_ENV: string; TRUSTED_WEB_ORIGINS?:
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const parsed = configSchema.parse(env);
-  const aiApiKey = parsed.DEEPSEEK_API_KEY ?? parsed.AI_API_KEY ?? parsed.OPENAI_API_KEY;
   const credentialKey = parsed.PLATFORM_CREDENTIAL_KEY
     ? parseCredentialKey(parsed.PLATFORM_CREDENTIAL_KEY, parsed.PLATFORM_CREDENTIAL_KEY_VERSION)
     : undefined;
@@ -83,12 +66,5 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     trustedOrigins: resolveTrustedOrigins(parsed),
     // Development stays usable over loopback HTTP; every other environment is https.
     sessionCookieSecure: parsed.NODE_ENV === "production",
-    ...(aiApiKey === undefined ? {} : { aiApiKey }),
-    aiApiBaseUrl: parsed.AI_API_BASE_URL,
-    aiModel: parsed.AI_MODEL,
-    aiTimeoutMs: parsed.AI_TIMEOUT_MS,
-    aiContextWindowTokens: parsed.AI_CONTEXT_WINDOW_TOKENS,
-    aiMaxInputTokens: parsed.AI_MAX_INPUT_TOKENS,
-    aiReserveOutputTokens: parsed.AI_RESERVE_OUTPUT_TOKENS,
   };
 }

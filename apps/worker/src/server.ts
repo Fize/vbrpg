@@ -1,39 +1,14 @@
 import { createDb } from "@vbrpg/db";
-import { createAiCommandHandler, createScheduledJobHandler } from "@vbrpg/runtime";
 import { createWorker } from "./worker.js";
 
-function requiredEnv(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === "") {
-    throw new Error(`${name} is required to run the worker`);
-  }
-  return value;
+const databaseUrl = process.env.DATABASE_URL;
+if (databaseUrl === undefined || databaseUrl === "") {
+  throw new Error("DATABASE_URL is required to run the worker");
 }
+const db = createDb({ databaseUrl });
 
-function optionalNumber(name: string): number | undefined {
-  const value = process.env[name];
-  if (value === undefined || value === "") return undefined;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive number`);
-  }
-  return parsed;
-}
-
-const maxTimeoutMs = optionalNumber("AI_TIMEOUT_MS");
-const maxInputTokens = optionalNumber("AI_MAX_INPUT_TOKENS");
-const contextWindowTokens = optionalNumber("AI_CONTEXT_WINDOW_TOKENS");
-
-const db = createDb({ databaseUrl: requiredEnv("DATABASE_URL") });
-const handleCommand = createAiCommandHandler(db, {
-  credentialKeyEncoded: requiredEnv("PLATFORM_CREDENTIAL_KEY"),
-  ...(maxTimeoutMs === undefined ? {} : { maxTimeoutMs }),
-  ...(maxInputTokens === undefined ? {} : { maxInputTokens }),
-  ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
-});
-
-const handleScheduledJob = createScheduledJobHandler(db);
-
+// No game handlers yet: the poll loop, leases and outbox stay, the work itself arrives
+// with the code-based game packaging.
 const worker = createWorker(
   {
     workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,
@@ -41,17 +16,7 @@ const worker = createWorker(
     leaseMs: Number(process.env.WORKER_LEASE_MS ?? 30_000),
   },
   console,
-  {
-    db,
-    handlers: {
-      handleCommand: async (command) => {
-        await handleCommand(command);
-      },
-      handleScheduledJob: async (job) => {
-        await handleScheduledJob(job);
-      },
-    },
-  },
+  { db, handlers: {} },
 );
 
 let running = true;

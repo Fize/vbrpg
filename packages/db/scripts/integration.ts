@@ -35,7 +35,6 @@ const tenantA = `integration-tenant-a-${suffix}`;
 const tenantB = `integration-tenant-b-${suffix}`;
 const userId = `integration-user-${suffix}`;
 const sessionId = `integration-session-${suffix}`;
-const gameId = `integration-game-${suffix}`;
 const versionId = `integration-version-${suffix}`;
 const instanceId = `integration-instance-${suffix}`;
 const platformUserId = randomUUID();
@@ -56,24 +55,6 @@ try {
     user_id: userId,
     expires_at: new Date(Date.now() + 60_000),
     absolute_expires_at: new Date(Date.now() + 120_000),
-  }).execute();
-  await db.insertInto("games").values({
-    id: gameId,
-    tenant_id: tenantA,
-    slug: `integration-game-${suffix}`,
-    code: `integration-${suffix.slice(0, 8)}`,
-    name: "Integration Game",
-    owner_user_id: userId,
-    visibility: "private",
-  }).execute();
-  await db.insertInto("game_versions").values({
-    id: versionId,
-    tenant_id: tenantA,
-    game_id: gameId,
-    version: "1.0.0",
-    dsl_version: "v0",
-    engine_version: "test",
-    created_by: userId,
   }).execute();
   await db.insertInto("game_instances").values({
     id: instanceId,
@@ -243,8 +224,6 @@ try {
   await db.deleteFrom("tenant_memberships").where("user_id", "=", platformUserId).execute();
   await db.deleteFrom("users").where("id", "=", platformUserId).execute();
   await db.deleteFrom("game_instances").where("id", "=", instanceId).execute();
-  await db.deleteFrom("game_versions").where("id", "=", versionId).execute();
-  await db.deleteFrom("games").where("id", "=", gameId).execute();
   await db.deleteFrom("auth_sessions").where("id", "=", sessionId).execute();
   await db.deleteFrom("tenant_memberships").where("tenant_id", "in", [tenantA, tenantB]).execute();
   await db.deleteFrom("tenants").where("id", "in", [tenantA, tenantB]).execute();

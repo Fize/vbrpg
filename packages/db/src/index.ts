@@ -42,22 +42,17 @@ export {
   completeScheduledJob,
   failLeasedTask,
   getActiveAuthSession,
-  getAgentModelBinding,
   getGameInstance,
   getLatestSnapshot,
   getTenantMembership,
-  getWorkflowDefinitionByVersion,
   listActiveTenantIds,
-  listAgentModelBindings,
   recordPlayerAction,
-  upsertAgentModelBinding,
   releaseLease,
   setInstanceStatus,
   withTenantContext,
 } from "./repositories.js";
-export type { AgentModelBinding, DbExecutor, LeaseOptions, TenantContext } from "./repositories.js";
+export type { DbExecutor, LeaseOptions, TenantContext } from "./repositories.js";
 export type {
-  AiUsageLedgerTable,
   AuthSessionsTable,
   AuditLogsTable,
   Database,
@@ -65,8 +60,6 @@ export type {
   GameInstancesTable,
   GameParticipantsTable,
   GameSnapshotsTable,
-  GameVersionsTable,
-  GamesTable,
   JsonObject,
   OutboxEventsTable,
   PendingCommandsTable,
@@ -82,5 +75,4 @@ export type {
   TenantRole,
   TenantStatus,
   UsersTable,
-  WorkflowDefinitionsTable,
 } from "./types.js";

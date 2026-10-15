@@ -1,55 +1,7 @@
-create table games (
-  id text primary key,
-  tenant_id text not null references tenants(id) on delete cascade,
-  slug text not null,
-  code text not null,
-  name text not null,
-  description text not null default '',
-  owner_user_id text not null,
-  visibility text not null default 'private' check (visibility in ('private', 'tenant', 'public')),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  archived_at timestamptz,
-  unique (tenant_id, id),
-  unique (tenant_id, slug),
-  unique (tenant_id, code),
-  foreign key (tenant_id, owner_user_id) references tenant_memberships(tenant_id, user_id)
-);
-
-create table game_versions (
-  id text primary key,
-  tenant_id text not null,
-  game_id text not null,
-  version text not null,
-  status text not null default 'draft' check (status in ('draft', 'testing', 'published', 'withdrawn')),
-  dsl_version text not null,
-  engine_version text not null,
-  content_hash text,
-  created_by text not null,
-  created_at timestamptz not null default now(),
-  published_at timestamptz,
-  unique (tenant_id, id),
-  unique (tenant_id, game_id, version),
-  foreign key (tenant_id, game_id) references games(tenant_id, id),
-  foreign key (tenant_id, created_by) references tenant_memberships(tenant_id, user_id)
-);
-
-create table workflow_definitions (
-  id text primary key,
-  tenant_id text not null,
-  game_version_id text not null,
-  schema_version text not null,
-  definition_json jsonb not null,
-  compiled_artifact_hash text,
-  created_at timestamptz not null default now(),
-  unique (tenant_id, id),
-  unique (tenant_id, game_version_id),
-  foreign key (tenant_id, game_version_id) references game_versions(tenant_id, id) on delete cascade
-);
-
 create table game_instances (
   id text primary key,
   tenant_id text not null,
+  -- The game version is a constant inside the game's own code, not a table row.
   game_version_id text not null,
   status text not null default 'created' check (status in ('created', 'running', 'waiting', 'paused', 'completed', 'cancelled')),
   current_sequence integer not null default 0 check (current_sequence >= 0),
@@ -57,8 +9,7 @@ create table game_instances (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   completed_at timestamptz,
-  unique (tenant_id, id),
-  foreign key (tenant_id, game_version_id) references game_versions(tenant_id, id)
+  unique (tenant_id, id)
 );
 
 create table game_participants (
@@ -199,23 +150,6 @@ create table tenant_secrets (
   unique (tenant_id, key_name)
 );
 
-create table ai_usage_ledger (
-  id text primary key,
-  tenant_id text not null,
-  instance_id text,
-  actor_user_id text,
-  provider text not null,
-  model text not null,
-  input_tokens integer not null default 0 check (input_tokens >= 0),
-  output_tokens integer not null default 0 check (output_tokens >= 0),
-  cost_minor_units bigint not null default 0 check (cost_minor_units >= 0),
-  metadata jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now(),
-  unique (tenant_id, id),
-  foreign key (tenant_id, instance_id) references game_instances(tenant_id, id) on delete set null,
-  foreign key (tenant_id, actor_user_id) references tenant_memberships(tenant_id, user_id)
-);
-
 create table audit_logs (
   id text primary key,
   tenant_id text not null references tenants(id) on delete cascade,
@@ -229,8 +163,6 @@ create table audit_logs (
   foreign key (tenant_id, actor_user_id) references tenant_memberships(tenant_id, user_id)
 );
 
-create index games_tenant_status_idx on games (tenant_id, archived_at);
-create index game_versions_tenant_status_idx on game_versions (tenant_id, status);
 create index game_instances_tenant_status_idx on game_instances (tenant_id, status, updated_at);
 create index game_events_instance_sequence_idx on game_events (tenant_id, instance_id, sequence);
 create index pending_commands_claim_idx on pending_commands (status, available_at, lease_until);

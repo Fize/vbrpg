@@ -11,12 +11,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --config vitest.config.ts"
   },
-  "dependencies": {
-    "@vbrpg/contracts": "workspace:*",
-    "@vbrpg/db": "workspace:*",
-    "@vbrpg/workflow-engine": "workspace:*",
-    "kysely": "^0.28.2"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0",

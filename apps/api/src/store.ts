@@ -2,16 +2,13 @@ import { randomUUID } from "node:crypto";
 import {
   countActiveAdmins,
   createAuthSession,
-  createGameInstance,
   createPlatformUser,
   createProvider,
   createProviderModel,
   findPlatformUserByUsername,
   getAuthSessionByTokenHash,
-  getGameInstance,
   getPlatformUser,
   getProvider,
-  getWorkflowDefinitionByVersion,
   listPlatformUsers,
   listProvidersWithModels,
   recordAuditLog,
@@ -37,26 +34,6 @@ import type {
   PlatformRole,
   ProviderModel,
 } from "@vbrpg/contracts";
-import { parseGameDefinition, parseGameState } from "@vbrpg/contracts";
-import {
-  compileGameDefinition,
-  createInitialState,
-  projectPlayerView,
-  type Viewer,
-} from "@vbrpg/workflow-engine";
-import {
-  cancelInstance,
-  describeInstance,
-  dispatchGameEvent,
-  forceInstanceTimeout,
-  pauseInstance,
-  resumeInstance,
-} from "@vbrpg/runtime";
-import type {
-  AdminInstanceAction,
-  AdminInstanceView,
-  ForceTimeoutResult,
-} from "@vbrpg/runtime";
 
 export interface SessionRecord {
   id: string;
@@ -80,13 +57,6 @@ export interface ProviderPatch {
   baseUrl?: string;
   enabled?: boolean;
   credential?: ProviderCredentialColumns;
-}
-
-export interface InstanceView {
-  instanceId: string;
-  status: GameState["status"];
-  currentSequence: number;
-  state: GameState;
 }
 
 export interface PlatformStore {
@@ -141,25 +111,6 @@ export interface PlatformStore {
     modelRecordId: string,
     patch: { modelId?: string; displayName?: string; enabled?: boolean },
   ): Promise<ProviderModel | undefined>;
-
-  createInstance(input: {
-    instanceId: string;
-    gameVersionId: string;
-    randomSeed: string;
-    participants: Participant[];
-    variables?: Record<string, unknown>;
-  }): Promise<GameState | undefined>;
-  getInstanceState(instanceId: string): Promise<InstanceView | undefined>;
-  appendEvent(
-    instanceId: string,
-    event: GameEvent,
-  ): Promise<{ state: GameState; commands: ExternalCommand[]; replayed: boolean } | undefined>;
-  projectInstanceView(instanceId: string, viewer: Viewer): Promise<PlayerView | undefined>;
-  pauseInstance(instanceId: string): Promise<AdminInstanceAction>;
-  resumeInstance(instanceId: string): Promise<AdminInstanceAction>;
-  cancelInstance(instanceId: string): Promise<AdminInstanceAction>;
-  forceInstanceTimeout(instanceId: string): Promise<ForceTimeoutResult>;
-  describeInstance(instanceId: string): Promise<AdminInstanceView | undefined>;
 
   recordAudit(input: {
     actorUserId: string | null;
@@ -282,64 +233,6 @@ export function createPlatformStore(db: ReturnType<typeof createDb>): PlatformSt
         }
         : undefined;
     },
-
-    createInstance: async (input) => {
-      const definition = await getWorkflowDefinitionByVersion(db, platformContext, input.gameVersionId);
-      if (definition === undefined) return undefined;
-      const compiled = compileGameDefinition(definition);
-      const state = createInitialState(compiled, {
-        instanceId: input.instanceId,
-        gameVersionId: input.gameVersionId,
-        randomSeed: input.randomSeed,
-        participants: input.participants,
-        ...(input.variables === undefined ? {} : { variables: input.variables }),
-      });
-      await createGameInstance(db, platformContext, {
-        id: input.instanceId,
-        gameVersionId: input.gameVersionId,
-        status: state.status,
-        currentSequence: state.sequence,
-        stateJson: state as unknown as JsonObject,
-      });
-      return state;
-    },
-    getInstanceState: async (instanceId) => {
-      const row = await getGameInstance(db, platformContext, instanceId);
-      if (!row) return undefined;
-      const state = { ...parseGameState(row.state_json), status: row.status };
-      return {
-        instanceId: row.id,
-        status: state.status,
-        currentSequence: row.current_sequence,
-        state,
-      };
-    },
-    appendEvent: async (instanceId, event) => {
-      const row = await getGameInstance(db, platformContext, instanceId);
-      if (!row) return undefined;
-      const definition = await getWorkflowDefinitionByVersion(db, platformContext, row.game_version_id);
-      if (definition === undefined) {
-        throw new Error("Instance references a game version without a workflow definition");
-      }
-      const compiled = compileGameDefinition(definition);
-      return dispatchGameEvent(db, platformContext, compiled, event);
-    },
-
-    projectInstanceView: async (instanceId, viewer) => {
-      const row = await getGameInstance(db, platformContext, instanceId);
-      if (!row) return undefined;
-      const definition = await getWorkflowDefinitionByVersion(db, platformContext, row.game_version_id);
-      if (definition === undefined) {
-        throw new Error("Instance references a game version without a workflow definition");
-      }
-      return projectPlayerView(parseGameDefinition(definition), parseGameState(row.state_json), viewer);
-    },
-
-    pauseInstance: (instanceId) => pauseInstance(db, platformContext, instanceId),
-    resumeInstance: (instanceId) => resumeInstance(db, platformContext, instanceId),
-    cancelInstance: (instanceId) => cancelInstance(db, platformContext, instanceId),
-    forceInstanceTimeout: (instanceId) => forceInstanceTimeout(db, platformContext, instanceId),
-    describeInstance: (instanceId) => describeInstance(db, platformContext, instanceId),
 
     recordAudit: (input) =>
       recordAuditLog(db, {

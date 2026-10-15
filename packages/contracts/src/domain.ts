@@ -18,77 +18,6 @@ export const actorRefSchema = z.object({
   participantId: idSchema.optional(),
 });
 
-export const nodeTypeSchema = z.enum([
-  "start",
-  "end",
-  "setVariable",
-  "branch",
-  "waitForPlayerInput",
-  "collectInput",
-  "timer",
-  "vote",
-  "random",
-  "loop",
-  "aiGenerate",
-  "emitEvent",
-  "subflow",
-  "parallel",
-  "join",
-]);
-
-export const workflowNodeSchema = z.object({
-  id: idSchema,
-  type: nodeTypeSchema,
-  config: z.record(jsonValueSchema).default({}),
-  next: z.array(idSchema).default([]),
-});
-
-/**
- * An agent is an author-side declaration, frozen with the game version: one agent per seat
- * (`aiGenerate.participantId`), its own session. Two seats of the same role are two agents
- * that share this declaration but not their context. The model is tenant-side (a binding).
- */
-export const agentLimitsSchema = z
-  .object({
-    timeoutMs: z.number().int().positive(),
-    maxAttempts: z.number().int().positive(),
-    /** Input plus output tokens allowed for one call before the node degrades. */
-    tokenBudget: z.number().int().positive(),
-  })
-  .strict();
-
-export const agentDefinitionSchema = z
-  .object({
-    id: idSchema,
-    roleId: idSchema,
-    systemPrompt: z.string().min(1),
-    limits: agentLimitsSchema,
-  })
-  .strict();
-
-export const gameDefinitionSchema = z.object({
-  manifest: z.object({
-    gameId: idSchema,
-    slug: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
-    version: z.string().min(1),
-    dslVersion: z.string().min(1),
-    engineVersion: z.string().min(1),
-    authorId: idSchema,
-    license: z.string().min(1),
-    attribution: z.string().optional(),
-    contentHash: z.string().min(1).optional(),
-  }),
-  workflow: z.object({
-    entryNodeId: idSchema,
-    nodes: z.array(workflowNodeSchema).min(1),
-  }),
-  roles: z.array(z.object({ id: idSchema, name: z.string().min(1) })).default([]),
-  agents: z.array(agentDefinitionSchema).default([]),
-  variables: z.record(jsonValueSchema).default({}),
-  visibility: z.record(jsonValueSchema).default({}),
-  presentation: z.record(jsonValueSchema).default({}),
-});
-
 export const participantSchema = z.object({
   participantId: idSchema,
   actorId: idSchema,
@@ -165,34 +94,6 @@ export const externalCommandSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-/** Client-facing runtime inputs. Sequences and ids are server-derived, never client-supplied. */
-export const createInstanceRequestSchema = z
-  .object({
-    gameVersionId: z.string().min(1),
-    randomSeed: z.string().min(1).optional(),
-    participants: z.array(participantSchema).default([]),
-    variables: z.record(jsonValueSchema).optional(),
-  })
-  .strict();
-
-export const submitEventRequestSchema = z
-  .object({
-    type: z.literal("playerInputReceived"),
-    payload: z.record(jsonValueSchema),
-  })
-  .strict();
-
-export type CreateInstanceRequest = z.infer<typeof createInstanceRequestSchema>;
-export type SubmitEventRequest = z.infer<typeof submitEventRequestSchema>;
-
-export function parseCreateInstanceRequest(input: unknown): CreateInstanceRequest {
-  return createInstanceRequestSchema.parse(input);
-}
-
-export function parseSubmitEventRequest(input: unknown): SubmitEventRequest {
-  return submitEventRequestSchema.parse(input);
-}
-
 export const playerViewSchema = z.object({
   instanceId: idSchema,
   gameVersionId: idSchema,
@@ -206,19 +107,12 @@ export const playerViewSchema = z.object({
   })),
 });
 
-export type AgentDefinition = z.infer<typeof agentDefinitionSchema>;
-export type AgentLimits = z.infer<typeof agentLimitsSchema>;
 export type ActorRef = z.infer<typeof actorRefSchema>;
-export type GameDefinition = z.infer<typeof gameDefinitionSchema>;
 export type GameEvent = z.infer<typeof gameEventSchema>;
 export type GameState = z.infer<typeof gameStateSchema>;
 export type Participant = z.infer<typeof participantSchema>;
 export type ExternalCommand = z.infer<typeof externalCommandSchema>;
 export type PlayerView = z.infer<typeof playerViewSchema>;
-
-export function parseGameDefinition(input: unknown): GameDefinition {
-  return gameDefinitionSchema.parse(input);
-}
 
 export function parseGameEvent(input: unknown): GameEvent {
   return gameEventSchema.parse(input);

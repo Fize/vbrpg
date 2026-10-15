@@ -1,12 +1,6 @@
-export { EngineError, transition } from "./native-runtime.js";
+export { EngineError } from "./errors.js";
+export type { TransitionResult } from "./errors.js";
 export { parseVisibilityRule, parseVisibilityRules, projectPlayerView } from "./projector.js";
-export type { Viewer, VisibilityRule } from "./projector.js";
-export type { TransitionResult } from "./native-runtime.js";
-export { compileGameDefinition, DefinitionCompileError } from "./compiler.js";
-export type { CompiledGame } from "./compiler.js";
+export type { Viewer, Visibility, VisibilityRule } from "./projector.js";
 export { replayEvents } from "./replay.js";
-export type { ReplayResult } from "./replay.js";
-export { createInitialState, dispatchEvent } from "./runtime.js";
-export type { CreateInstanceInput } from "./runtime.js";
-export { assertValidGameDefinition, validateGameDefinition } from "./validator.js";
-export type { ValidationIssue, ValidationResult } from "./validator.js";
+export type { ReplayResult, TransitionFn } from "./replay.js";

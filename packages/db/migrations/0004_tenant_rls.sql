@@ -5,10 +5,9 @@ declare
   table_name text;
 begin
   foreach table_name in array array[
-    'tenant_memberships', 'auth_sessions', 'games', 'game_versions',
-    'workflow_definitions', 'game_instances', 'game_participants',
+    'tenant_memberships', 'auth_sessions', 'game_instances', 'game_participants',
     'game_events', 'game_snapshots', 'player_actions', 'pending_commands',
-    'scheduled_jobs', 'outbox_events', 'tenant_secrets', 'ai_usage_ledger',
+    'scheduled_jobs', 'outbox_events', 'tenant_secrets',
     'audit_logs'
   ] loop
     execute format('alter table %I enable row level security', table_name);

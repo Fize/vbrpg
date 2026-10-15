@@ -1,5 +1,8 @@
-import type { GameDefinition, GameEvent, GameState, ExternalCommand } from "@vbrpg/contracts";
-import { transition } from "./native-runtime.js";
+import type { ExternalCommand, GameEvent, GameState } from "@vbrpg/contracts";
+import type { TransitionResult } from "./errors.js";
+
+/** A game supplies this: a pure function that never touches the network, the clock or the database. */
+export type TransitionFn = (state: GameState, event: GameEvent) => TransitionResult;
 
 export interface ReplayResult {
   state: GameState;
@@ -7,14 +10,14 @@ export interface ReplayResult {
 }
 
 export function replayEvents(
-  definition: GameDefinition,
+  transition: TransitionFn,
   initialState: GameState,
   events: readonly GameEvent[],
 ): ReplayResult {
   let state = initialState;
   const commands: ExternalCommand[] = [];
   for (const event of events) {
-    const result = transition(definition, state, event);
+    const result = transition(state, event);
     state = result.state;
     commands.push(...result.commands);
   }

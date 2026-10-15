@@ -29,40 +29,25 @@ export type {
 
 export {
   actorRefSchema,
-  agentDefinitionSchema,
-  agentLimitsSchema,
-  createInstanceRequestSchema,
   externalCommandSchema,
-  gameDefinitionSchema,
   gameEventSchema,
   gameStateSchema,
-  nodeTypeSchema,
-  parseCreateInstanceRequest,
   parseExternalCommand,
-  parseGameDefinition,
   parseGameEvent,
   parseGameState,
   parsePlayerView,
-  parseSubmitEventRequest,
-  playerViewSchema,
   participantSchema,
-  submitEventRequestSchema,
+  playerViewSchema,
   waitingSchema,
-  workflowNodeSchema,
 } from "./domain.js";
 
 export type {
   ActorRef,
-  AgentDefinition,
-  AgentLimits,
-  CreateInstanceRequest,
   ExternalCommand,
-  GameDefinition,
   GameEvent,
   GameState,
   Participant,
   PlayerView,
-  SubmitEventRequest,
 } from "./domain.js";
 
 export {

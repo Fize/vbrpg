@@ -1,29 +1,25 @@
 import { describe, expect, it } from "vitest";
-import type { GameDefinition, GameEvent, GameState } from "@vbrpg/contracts";
-import { replayEvents } from "./replay.js";
+import type { GameEvent, GameState } from "@vbrpg/contracts";
+import { replayEvents, type TransitionFn } from "./replay.js";
 
-const definition: GameDefinition = {
-  manifest: {
-    gameId: "game-replay",
-    slug: "replay-test",
-    version: "1.0.0",
-    dslVersion: "v1",
-    engineVersion: "native-test",
-    authorId: "user-1",
-    license: "MIT",
-  },
-  workflow: {
-    entryNodeId: "start",
-    nodes: [
-      { id: "start", type: "start", config: {}, next: ["input"] },
-      { id: "input", type: "waitForPlayerInput", config: { inputKey: "answer", participantId: "p1" }, next: ["end"] },
-      { id: "end", type: "end", config: {}, next: [] },
-    ],
-  },
-  roles: [],
-  variables: {},
-  visibility: {},
-  presentation: {},
+/** A tiny game: one input event writes a variable and finishes. */
+const transition: TransitionFn = (state, event) => {
+  if (event.type === "instanceCreated") {
+    return {
+      state: { ...state, sequence: event.sequence, status: "waiting", waiting: {
+        kind: "playerInput", nodeId: "input", participantIds: ["p1"],
+      } },
+      events: [event],
+      commands: [],
+    };
+  }
+  const value = (event.payload as { value?: unknown }).value;
+  return {
+    state: { ...state, sequence: event.sequence, status: "completed", waiting: null,
+      variables: { ...state.variables, answer: value } },
+    events: [event],
+    commands: [],
+  };
 };
 
 const initialState: GameState = {
@@ -64,8 +60,8 @@ const events: GameEvent[] = [
 
 describe("event replay", () => {
   it("replays the same event sequence deterministically", () => {
-    const first = replayEvents(definition, initialState, events);
-    const second = replayEvents(definition, initialState, events);
+    const first = replayEvents(transition, initialState, events);
+    const second = replayEvents(transition, initialState, events);
     expect(first).toEqual(second);
     expect(first.state.status).toBe("completed");
     expect(first.state.variables).toEqual({ answer: "yes" });

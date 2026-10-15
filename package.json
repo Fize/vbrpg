@@ -18,7 +18,6 @@
     "test:golden:legacy": "PYTHONPATH=backend/scripts python3 backend/scripts/verify_werewolf_golden_trace.py",
     "test:platform": "pnpm --filter @vbrpg/api... test && pnpm --filter @vbrpg/worker test && pnpm --filter @vbrpg/runtime test",
     "test:web": "pnpm --filter @vbrpg/web test",
-    "typecheck:web": "pnpm --filter @vbrpg/web typecheck",
-    "test:runtime:http": "pnpm --filter @vbrpg/api test:runtime"
+    "typecheck:web": "pnpm --filter @vbrpg/web typecheck"
   }
 }

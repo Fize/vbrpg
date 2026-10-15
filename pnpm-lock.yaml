@@ -19,9 +19,6 @@ importers:
       '@vbrpg/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
-      '@vbrpg/workflow-engine':
-        specifier: workspace:*
-        version: link:../../packages/workflow-engine
       fastify:
         specifier: ^5.6.1
         version: 5.12.1
@@ -87,9 +84,6 @@ importers:
       '@vbrpg/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@vbrpg/runtime':
-        specifier: workspace:*
-        version: link:../../packages/runtime
       '@vbrpg/workflow-engine':
         specifier: workspace:*
         version: link:../../packages/workflow-engine
@@ -146,19 +140,6 @@ importers:
         version: 5.9.3
 
   packages/runtime:
-    dependencies:
-      '@vbrpg/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      '@vbrpg/db':
-        specifier: workspace:*
-        version: link:../db
-      '@vbrpg/workflow-engine':
-        specifier: workspace:*
-        version: link:../workflow-engine
-      kysely:
-        specifier: ^0.28.2
-        version: 0.28.17
     devDependencies:
       '@types/node':
         specifier: ^24.0.0

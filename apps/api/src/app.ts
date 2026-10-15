@@ -5,15 +5,10 @@ import { AppError, type ErrorResponse } from "@vbrpg/runtime";
 import { authenticate, authenticateWithSession, type AuthSessionLookup } from "./auth.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerAuthRoutes } from "./routes/auth.js";
-import { registerRuntimeRoutes } from "./routes/runtime.js";
 import { registerPlatformAuthRoutes } from "./routes/platform-auth.js";
 import { registerPlatformAdminRoutes } from "./routes/platform-admin.js";
-import { registerGameInstanceRoutes } from "./routes/game-instances.js";
-import { registerAdminInstanceRoutes } from "./routes/admin-instances.js";
 import type { PlatformStore } from "./store.js";
 import { createPlatformRequestContext } from "./platform-auth.js";
-import { createOpenAiCompatibleClient } from "@vbrpg/runtime";
-import type { AiClient } from "@vbrpg/runtime";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -24,7 +19,6 @@ declare module "fastify" {
 export interface BuildAppOptions {
   config?: ApiConfig;
   sessionLookup?: AuthSessionLookup;
-  aiClient?: AiClient;
   platformStore?: PlatformStore;
 }
 
@@ -99,17 +93,6 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     const platformContext = createPlatformRequestContext(options.platformStore, config);
     void registerPlatformAuthRoutes(app, platformContext);
     void registerPlatformAdminRoutes(app, platformContext);
-    void registerGameInstanceRoutes(app, platformContext);
-    void registerAdminInstanceRoutes(app, platformContext);
   }
-  void registerRuntimeRoutes(app, options.aiClient ?? createOpenAiCompatibleClient({
-    ...(config.aiApiKey === undefined ? {} : { apiKey: config.aiApiKey }),
-    baseUrl: config.aiApiBaseUrl,
-    model: config.aiModel,
-    timeoutMs: config.aiTimeoutMs,
-    contextWindowTokens: config.aiContextWindowTokens,
-    maxInputTokens: config.aiMaxInputTokens,
-    reserveOutputTokens: config.aiReserveOutputTokens,
-  }));
   return app;
 }

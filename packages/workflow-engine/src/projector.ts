@@ -1,5 +1,5 @@
-import type { GameDefinition, GameState, PlayerView } from "@vbrpg/contracts";
-import { EngineError } from "./native-runtime.js";
+import type { GameState, PlayerView } from "@vbrpg/contracts";
+import { EngineError } from "./errors.js";
 
 /**
  * Visibility rules are fail-closed: a variable that the definition does not list
@@ -36,9 +36,12 @@ export function parseVisibilityRule(variable: string, raw: unknown): VisibilityR
   );
 }
 
-export function parseVisibilityRules(definition: GameDefinition): Map<string, VisibilityRule> {
+/** The visibility map a game declares: variable name to rule. Absent means nobody sees it. */
+export type Visibility = Record<string, unknown>;
+
+export function parseVisibilityRules(visibility: Visibility): Map<string, VisibilityRule> {
   const rules = new Map<string, VisibilityRule>();
-  for (const [variable, raw] of Object.entries(definition.visibility)) {
+  for (const [variable, raw] of Object.entries(visibility)) {
     rules.set(variable, parseVisibilityRule(variable, raw));
   }
   return rules;
@@ -65,11 +68,11 @@ function isVisibleTo(rule: VisibilityRule, viewer: Viewer, viewerRole: string | 
  * a private value can never appear in the public bucket.
  */
 export function projectPlayerView(
-  definition: GameDefinition,
+  visibility: Visibility,
   state: GameState,
   viewer: Viewer,
 ): PlayerView {
-  const rules = parseVisibilityRules(definition);
+  const rules = parseVisibilityRules(visibility);
   const viewerRole =
     viewer.kind === "participant" ? roleOf(state, viewer.participantId) : undefined;
 

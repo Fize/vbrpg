@@ -1,28 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config.js";
 
-describe("API configuration", () => {
-  it("uses the platform key for the Tencent TokenHub Hy3 default", () => {
+describe("api config", () => {
+  it("reads the database url and derives development origins", () => {
     const config = loadConfig({
       NODE_ENV: "test",
-      DEEPSEEK_API_KEY: "deepseek-key",
+      DATABASE_URL: "postgres://localhost:5432/vbrpg",
+      AUTH_TOKEN_SECRET: "test-secret-that-is-long-enough",
     });
 
-    expect(config.aiApiKey).toBe("deepseek-key");
-    expect(config.aiApiBaseUrl).toBe("https://tokenhub.tencentmaas.com/v1");
-    expect(config.aiModel).toBe("hy3");
-    expect(config.aiContextWindowTokens).toBe(262_144);
-    expect(config.aiMaxInputTokens).toBe(196_608);
-    expect(config.aiReserveOutputTokens).toBe(16_384);
+    expect(config.databaseUrl).toBe("postgres://localhost:5432/vbrpg");
+    expect(config.trustedOrigins.length).toBeGreaterThan(0);
+    expect(config.sessionCookieSecure).toBe(false);
   });
 
-  it("uses OPENAI_API_KEY when AI_API_KEY is not set", () => {
-    const config = loadConfig({
-      NODE_ENV: "test",
-      OPENAI_API_KEY: "openai-compatible-key",
-      AI_API_BASE_URL: "https://example.test/v1",
-    });
-
-    expect(config.aiApiKey).toBe("openai-compatible-key");
+  it("requires the master key and https origins in production", () => {
+    expect(() => loadConfig({ NODE_ENV: "production" })).toThrow(/PLATFORM_CREDENTIAL_KEY/);
+    expect(() => loadConfig({
+      NODE_ENV: "production",
+      PLATFORM_CREDENTIAL_KEY: "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=",
+    })).toThrow(/TRUSTED_WEB_ORIGINS/);
   });
 });

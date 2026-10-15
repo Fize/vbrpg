@@ -76,54 +76,6 @@ export interface ProviderModelsTable {
   updated_at: Generated<Date>;
 }
 
-export interface AgentModelBindingsTable {
-  id: string;
-  tenant_id: string;
-  game_version_id: string;
-  agent_id: string;
-  provider_model_id: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface GamesTable {
-  id: string;
-  tenant_id: string;
-  slug: string;
-  code: string;
-  name: string;
-  description: string;
-  owner_user_id: string;
-  visibility: "private" | "tenant" | "public";
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  archived_at: Date | null;
-}
-
-export interface GameVersionsTable {
-  id: string;
-  tenant_id: string;
-  game_id: string;
-  version: string;
-  status: "draft" | "testing" | "published" | "withdrawn";
-  dsl_version: string;
-  engine_version: string;
-  content_hash: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  published_at: Date | null;
-}
-
-export interface WorkflowDefinitionsTable {
-  id: string;
-  tenant_id: string;
-  game_version_id: string;
-  schema_version: string;
-  definition_json: JsonObject;
-  compiled_artifact_hash: string | null;
-  created_at: Generated<Date>;
-}
-
 export interface GameInstancesTable {
   id: string;
   tenant_id: string;
@@ -248,20 +200,6 @@ export interface TenantSecretsTable {
   updated_at: Generated<Date>;
 }
 
-export interface AiUsageLedgerTable {
-  id: string;
-  tenant_id: string;
-  instance_id: string | null;
-  actor_user_id: string | null;
-  provider: string;
-  model: string;
-  input_tokens: number;
-  output_tokens: number;
-  cost_minor_units: string;
-  metadata: JsonObject;
-  created_at: Generated<Date>;
-}
-
 export interface AuditLogsTable {
   id: string;
   tenant_id: string;
@@ -280,10 +218,6 @@ export interface Database {
   auth_sessions: AuthSessionsTable;
   providers: ProvidersTable;
   provider_models: ProviderModelsTable;
-  agent_model_bindings: AgentModelBindingsTable;
-  games: GamesTable;
-  game_versions: GameVersionsTable;
-  workflow_definitions: WorkflowDefinitionsTable;
   game_instances: GameInstancesTable;
   game_participants: GameParticipantsTable;
   game_events: GameEventsTable;
@@ -293,6 +227,5 @@ export interface Database {
   scheduled_jobs: ScheduledJobsTable;
   outbox_events: OutboxEventsTable;
   tenant_secrets: TenantSecretsTable;
-  ai_usage_ledger: AiUsageLedgerTable;
   audit_logs: AuditLogsTable;
 }
