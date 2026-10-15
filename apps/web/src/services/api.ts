@@ -1,91 +1,36 @@
 const API_BASE = "/v1";
 
-export type Role = "admin" | "user";
+// Shared with the API, the worker and the database layer: the frontend must not carry a second
+// copy of these shapes. Web-side aliases keep the call sites readable.
+import type {
+  ConnectionTestResult,
+  CreateProviderModelRequest as CreateProviderModelInput,
+  CreateUserRequest as CreateUserInput,
+  LoginResult,
+  PlatformUser as User,
+  Provider,
+  ProviderInput as CreateProviderInput,
+  ProviderModel,
+  UpdateProviderModelRequest as UpdateProviderModelInput,
+  UpdateProviderRequest as UpdateProviderInput,
+  UpdateUserRequest as UpdateUserInput,
+} from "@vbrpg/contracts";
 
-export interface User {
-  id: string;
-  username: string;
-  role: Role;
-  active: boolean;
-  mustChangePassword: boolean;
-  createdAt: string;
-}
-
-export interface LoginResult {
-  user: User;
-  csrfToken: string;
-  expiresAt: string;
-}
-
-export interface ProviderModel {
-  id: string;
-  providerId: string;
-  modelId: string;
-  displayName: string;
-  enabled: boolean;
-}
-
-export interface Provider {
-  id: string;
-  name: string;
-  baseUrl: string;
-  enabled: boolean;
-  secretConfigured: boolean;
-  models: ProviderModel[];
-}
-
-export type ProviderErrorCode =
-  | "timeout"
-  | "dns_rejected"
-  | "tls_error"
-  | "unauthorized"
-  | "rate_limited"
-  | "provider_error"
-  | "invalid_response";
-
-export interface ConnectionTestResult {
-  ok: boolean;
-  latencyMs: number;
-  checkedAt: string;
-  errorCode: ProviderErrorCode | null;
-}
-
-export interface CreateUserInput {
-  username: string;
-  temporaryPassword: string;
-  role: Role;
-}
-
-export interface UpdateUserInput {
-  role?: Role;
-  active?: boolean;
-  resetPassword?: string;
-}
-
-export interface CreateProviderInput {
-  name: string;
-  baseUrl: string;
-  apiKey: string;
-}
-
-export interface UpdateProviderInput {
-  name?: string;
-  baseUrl?: string;
-  enabled?: boolean;
-  apiKey?: string;
-}
-
-export interface CreateProviderModelInput {
-  modelId: string;
-  displayName: string;
-  enabled?: boolean;
-}
-
-export interface UpdateProviderModelInput {
-  modelId?: string;
-  displayName?: string;
-  enabled?: boolean;
-}
+export type {
+  ConnectionTestResult,
+  LoginResult,
+  PlatformRole as Role,
+  PlatformUser as User,
+  Provider,
+  ProviderErrorCode,
+  ProviderModel,
+  CreateProviderModelRequest as CreateProviderModelInput,
+  CreateUserRequest as CreateUserInput,
+  ProviderInput as CreateProviderInput,
+  UpdateProviderModelRequest as UpdateProviderModelInput,
+  UpdateProviderRequest as UpdateProviderInput,
+  UpdateUserRequest as UpdateUserInput,
+} from "@vbrpg/contracts";
 
 /** Typed failure carrying the platform error envelope. */
 export class ApiError extends Error {

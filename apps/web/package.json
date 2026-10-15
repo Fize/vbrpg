@@ -10,6 +10,7 @@
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
+    "@vbrpg/contracts": "workspace:*",
     "@element-plus/icons-vue": "^2.3.2",
     "element-plus": "^2.14.7",
     "vue": "3.5.43",

@@ -126,24 +126,6 @@ export const connectionTestResultSchema = z
 
 export const providerListSchema = z.object({ providers: z.array(providerSchema) }).strict();
 
-/**
- * An agent binds exactly one model. Multi-model selection is intentionally not
- * representable: there is no list/array form of this contract.
- */
-export const agentModelBindingSchema = z.object({ providerModelId: uuidSchema }).strict();
-
-/**
- * A persisted binding: one agent inside one game version resolves to exactly one
- * model. `agentId` follows the game definition id space, so it is not a UUID.
- */
-export const agentModelBindingRecordSchema = z
-  .object({
-    gameVersionId: uuidSchema,
-    agentId: z.string().min(1),
-    providerModelId: uuidSchema,
-  })
-  .strict();
-
 export type ProviderModel = z.infer<typeof providerModelSchema>;
 export type Provider = z.infer<typeof providerSchema>;
 export type ProviderInput = z.infer<typeof providerInputSchema>;
@@ -151,8 +133,6 @@ export type UpdateProviderRequest = z.infer<typeof updateProviderRequestSchema>;
 export type CreateProviderModelRequest = z.infer<typeof createProviderModelRequestSchema>;
 export type UpdateProviderModelRequest = z.infer<typeof updateProviderModelRequestSchema>;
 export type ConnectionTestResult = z.infer<typeof connectionTestResultSchema>;
-export type AgentModelBinding = z.infer<typeof agentModelBindingSchema>;
-export type AgentModelBindingRecord = z.infer<typeof agentModelBindingRecordSchema>;
 
 export function parseProviderInput(input: unknown): ProviderInput {
   return providerInputSchema.parse(input);
@@ -168,29 +148,4 @@ export function parseCreateProviderModelRequest(input: unknown): CreateProviderM
 
 export function parseUpdateProviderModelRequest(input: unknown): UpdateProviderModelRequest {
   return updateProviderModelRequestSchema.parse(input);
-}
-
-export function parseAgentModelBinding(input: unknown): AgentModelBinding {
-  return agentModelBindingSchema.parse(input);
-}
-
-export function parseAgentModelBindingRecord(input: unknown): AgentModelBindingRecord {
-  return agentModelBindingRecordSchema.parse(input);
-}
-
-/**
- * Resolves a binding against a provider catalog. Returns `undefined` when the
- * model is unknown, or when the model or its provider is disabled — a binding
- * to a disabled model must never resolve.
- */
-export function resolveAgentModelBinding(
-  binding: AgentModelBinding,
-  providers: readonly Provider[],
-): ProviderModel | undefined {
-  for (const provider of providers) {
-    if (!provider.enabled) continue;
-    const model = provider.models.find((candidate) => candidate.id === binding.providerModelId);
-    if (model) return model.enabled ? model : undefined;
-  }
-  return undefined;
 }

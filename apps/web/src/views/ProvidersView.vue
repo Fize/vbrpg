@@ -183,7 +183,7 @@ async function addModel(draft: ProviderDraft): Promise<void> {
   }
   draft.busy = true;
   try {
-    await api.createProviderModel(providerId, { modelId, displayName });
+    await api.createProviderModel(providerId, { modelId, displayName, enabled: true });
     await load();
     setMessage(providerId, `已添加模型「${modelId}」。`);
   } catch (error) {
