@@ -16,6 +16,12 @@ const MESSAGES: Record<string, string> = {
   INSUFFICIENT_ROLE: "当前账号没有该操作权限",
   RATE_LIMITED: "尝试次数过多，请稍后再试",
   ACCOUNT_MISSING: "账号状态异常，请联系管理员",
+  CANNOT_DELETE_SELF: "不能删除当前登录的账号",
+  USER_HAS_HISTORY: "该账号出现在对局记录里，请改为停用",
+  PROVIDER_HAS_MODELS: "请先删除该供应商下的模型",
+  USER_NOT_FOUND: "账号不存在",
+  PROVIDER_NOT_FOUND: "供应商不存在",
+  MODEL_NOT_FOUND: "模型不存在",
 };
 
 export function uiErrorMessage(error: unknown): string {

@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import { Plus, Refresh } from "@element-plus/icons-vue";
 import { api, apiRequestId, type Role, type User } from "../services/api";
 import { uiErrorMessage } from "../services/messages";
+import { sessionState } from "../stores/session";
 
 const users = ref<User[]>([]);
 const loading = ref(false);
@@ -20,6 +21,11 @@ const createdNotice = ref<string | null>(null);
 const rowBusyId = ref<string | null>(null);
 const rowError = ref<string | null>(null);
 const rowRequestId = ref<string | null>(null);
+
+const deleteTarget = ref<User | null>(null);
+const deleteError = ref<string | null>(null);
+const deleteRequestId = ref<string | null>(null);
+const deleting = ref(false);
 
 const resetTarget = ref<User | null>(null);
 const resetValue = ref("");
@@ -103,6 +109,28 @@ async function toggleActive(user: User): Promise<void> {
 
 async function changeRole(user: User, role: Role): Promise<void> {
   await runRowAction(user.id, () => api.updateUser(user.id, { role }));
+}
+
+function openDelete(user: User): void {
+  deleteTarget.value = user;
+  deleteError.value = null;
+  deleteRequestId.value = null;
+}
+
+async function confirmDelete(): Promise<void> {
+  const target = deleteTarget.value;
+  if (!target) return;
+  deleting.value = true;
+  try {
+    await api.deleteUser(target.id);
+    deleteTarget.value = null;
+    await load();
+  } catch (error) {
+    deleteError.value = uiErrorMessage(error);
+    deleteRequestId.value = apiRequestId(error);
+  } finally {
+    deleting.value = false;
+  }
 }
 
 function openReset(user: User): void {
@@ -274,11 +302,38 @@ async function confirmReset(): Promise<void> {
               <el-button :disabled="rowBusyId === row.id" @click="openReset(row)">
                 重置密码
               </el-button>
+              <el-button
+                v-if="row.id !== sessionState.user?.id"
+                type="danger"
+                plain
+                :disabled="rowBusyId === row.id"
+                @click="openDelete(row)"
+              >
+                删除
+              </el-button>
             </div>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-dialog
+      :model-value="deleteTarget !== null"
+      title="删除账号"
+      width="420px"
+      @update:model-value="deleteTarget = null"
+    >
+      <p class="dialog-note">
+        永久删除「{{ deleteTarget?.username }}」及其会话。该账号如果出现在对局记录里，删除会被拒绝，此时请改用停用。
+      </p>
+      <p v-if="deleteError" class="field-error">
+        {{ deleteError }}<span v-if="deleteRequestId"> （{{ deleteRequestId }}）</span>
+      </p>
+      <template #footer>
+        <el-button @click="deleteTarget = null">取消</el-button>
+        <el-button type="danger" :loading="deleting" @click="confirmDelete">确认删除</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       :model-value="resetTarget !== null"

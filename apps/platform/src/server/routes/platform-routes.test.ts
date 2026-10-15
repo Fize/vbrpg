@@ -29,7 +29,7 @@ function pgError(code: string): Error & { code: string } {
 function createFakeStore(options: {
   passwordHash: string;
   users: PlatformUserRecord[];
-  /** Accounts the fake database refuses to delete because a match or audit row references them. */
+  /** Accounts the fake database refuses to delete because a match row references them. */
   historyUserIds?: string[];
 }): FakeState {
   const users = new Map(options.users.map((user) => [user.id, user]));
@@ -791,7 +791,7 @@ describe("deletion", () => {
     assert.ok((await state.store.getUser(admin.id)) !== undefined);
   });
 
-  it("refuses to delete an account that a match or audit row references", async () => {
+  it("refuses to delete an account that a match row references", async () => {
     const passwordHash = await hashPassword(PASSWORD);
     const victim = makeUser({ passwordHash, username: "bob" });
     const { app, headers } = await adminApp({ users: [victim], historyUserIds: [victim.id] });

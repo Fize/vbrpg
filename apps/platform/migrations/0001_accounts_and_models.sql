@@ -73,7 +73,9 @@ create index provider_models_enabled_idx on provider_models (enabled);
 
 create table audit_logs (
   id text primary key,
-  actor_user_id text references users (id),
+  -- Audit rows outlive the account they name: deleting an account nulls the link instead of
+  -- blocking the delete. Match history (game_participants, game_events) still blocks it.
+  actor_user_id text references users (id) on delete set null,
   action text not null,
   resource_type text not null,
   resource_id text,

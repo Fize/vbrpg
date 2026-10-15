@@ -162,8 +162,9 @@ Private and on-premises endpoints are intentionally unsupported.
 
 Providers, models and accounts can also be deleted: `DELETE /v1/admin/providers/{id}`,
 `DELETE /v1/admin/models/{id}` and `DELETE /v1/admin/users/{id}`. All three are admin-only and
-CSRF-checked. A provider that still owns models, an account that a match or audit row references, and
-the caller's own account are refused (409). Deletions are audited.
+CSRF-checked. A provider that still owns models, an account that appears in match records, and the caller's own
+account are refused (409). Deleting an account cascades to its sessions and nulls the actor link on its
+audit rows, so the log survives; deletions are audited.
 
 Health is `GET /health` only; there is no readiness endpoint, and probes must not be pointed at
 arbitrary paths because unknown non-`/v1` paths return the console's `index.html`.

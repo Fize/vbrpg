@@ -56,6 +56,15 @@ test.describe.serial("Phase 1 browser acceptance", () => {
     await expect(page.getByText(/unauthorized|provider_error|rate_limited/i)).toBeVisible();
     await expect(page.getByText(providerApiKey)).toHaveCount(0);
 
+    // Deleting follows the same rule as the API: the model goes first.
+    await page.getByRole("button", { name: "删除", exact: true }).first().click();
+    await page.getByRole("button", { name: "确认删除" }).click();
+    await expect(page.getByRole("cell", { name: "Test Model" })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "删除供应商" }).click();
+    await page.getByRole("button", { name: "确认删除" }).click();
+    await expect(page.getByRole("button", { name: "删除供应商" })).toHaveCount(0);
+
     const secretLeaks = await page.evaluate(() =>
       document.body.innerText.includes("sk-e2e-never-return-this"),
     );
@@ -76,6 +85,24 @@ test.describe.serial("Phase 1 browser acceptance", () => {
 
     await page.getByRole("banner").getByRole("button", { name: "退出登录" }).click();
     await expect(page).toHaveURL(/\/login$/);
+  });
+
+  test("admin deletes an account; the deleted row disappears", async ({ page }) => {
+    await login(page, "e2e-root", newPassword);
+    await expect(page).toHaveURL(/\/lobby$/);
+
+    await page.goto("/admin/users");
+    await expect(page.getByRole("cell", { name: "e2e-player" })).toBeVisible();
+
+    await page
+      .getByRole("row", { name: /e2e-player/ })
+      .getByRole("button", { name: "删除", exact: true })
+      .click();
+    await page.getByRole("button", { name: "确认删除" }).click();
+    await expect(page.getByRole("cell", { name: "e2e-player" })).toHaveCount(0);
+
+    // The administrator cannot delete the account it is signed in with.
+    await expect(page.getByRole("button", { name: "删除", exact: true })).toHaveCount(0);
   });
 
   test("login form validates required inputs and displays generic auth errors", async ({ page }) => {

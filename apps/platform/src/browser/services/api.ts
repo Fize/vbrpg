@@ -229,6 +229,30 @@ export const api = {
     });
   },
 
+  async deleteUser(userId: string): Promise<void> {
+    await execute<void>({
+      method: "DELETE",
+      path: `/admin/users/${encodeURIComponent(userId)}`,
+      csrf: true,
+    });
+  },
+
+  async deleteProvider(providerId: string): Promise<void> {
+    await execute<void>({
+      method: "DELETE",
+      path: `/admin/providers/${encodeURIComponent(providerId)}`,
+      csrf: true,
+    });
+  },
+
+  async deleteProviderModel(modelRecordId: string): Promise<void> {
+    await execute<void>({
+      method: "DELETE",
+      path: `/admin/models/${encodeURIComponent(modelRecordId)}`,
+      csrf: true,
+    });
+  },
+
   async listEnabledProviders(): Promise<Provider[]> {
     const result = await execute<{ providers: Provider[] }>({ method: "GET", path: "/providers" });
     return result.providers;

@@ -119,15 +119,15 @@ export async function registerPlatformAdminRoutes(
       throw new AppError(409, "CANNOT_DELETE_SELF", "An administrator cannot delete their own account");
     }
     try {
-      // Sessions cascade with the account. Anything that references it as history — a seat, a
-      // record row, an audit entry — blocks the delete instead of silently losing the past.
+      // Sessions cascade with the account, and audit rows keep their history with the actor link
+      // nulled. Seats and record rows still block the delete: a match cannot lose its players.
       await context.store.deleteUser(userId);
     } catch (error) {
       if (isForeignKeyViolation(error)) {
         throw new AppError(
           409,
           "USER_HAS_HISTORY",
-          "This account is referenced by matches or audit records; disable it instead",
+          "This account appears in match records; disable it instead",
         );
       }
       throw error;

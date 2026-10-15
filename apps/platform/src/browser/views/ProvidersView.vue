@@ -46,6 +46,60 @@ const createError = ref<string | null>(null);
 const createRequestId = ref<string | null>(null);
 const createNotice = ref<string | null>(null);
 
+/** One confirmation dialog serves both provider and model deletion. */
+interface DeleteTarget {
+  kind: "provider" | "model";
+  id: string;
+  label: string;
+  busy: boolean;
+  error: string | null;
+  requestId: string | null;
+}
+
+const deleteTarget = ref<DeleteTarget | null>(null);
+
+function askDeleteProvider(draft: ProviderDraft): void {
+  deleteTarget.value = {
+    kind: "provider",
+    id: draft.id,
+    label: draft.name,
+    busy: false,
+    error: null,
+    requestId: null,
+  };
+}
+
+function askDeleteModel(draft: ProviderDraft, model: ModelDraft): void {
+  deleteTarget.value = {
+    kind: "model",
+    id: model.id,
+    label: `${draft.name} / ${model.displayName || model.modelId}`,
+    busy: false,
+    error: null,
+    requestId: null,
+  };
+}
+
+async function confirmDelete(): Promise<void> {
+  const target = deleteTarget.value;
+  if (!target) return;
+  target.busy = true;
+  target.error = null;
+  try {
+    if (target.kind === "provider") {
+      await api.deleteProvider(target.id);
+    } else {
+      await api.deleteProviderModel(target.id);
+    }
+    deleteTarget.value = null;
+    await load();
+  } catch (error) {
+    target.busy = false;
+    target.error = uiErrorMessage(error);
+    target.requestId = apiRequestId(error);
+  }
+}
+
 async function load(): Promise<void> {
   loading.value = true;
   loadError.value = null;
@@ -350,6 +404,9 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
       <div class="provider-actions">
         <el-button :loading="draft.busy" @click="saveProvider(draft)">保存</el-button>
         <el-button :loading="draft.busy" @click="testConnection(draft)">测试连接</el-button>
+        <el-button type="danger" plain :disabled="draft.busy" @click="askDeleteProvider(draft)">
+          删除供应商
+        </el-button>
       </div>
 
       <p v-if="draft.testResult" class="test-result" data-testid="test-result">
@@ -398,7 +455,7 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="170">
+        <el-table-column label="操作" width="240">
           <template #default="{ row }">
             <div class="row-actions">
               <el-button :disabled="draft.busy" @click="saveModel(draft, row)">
@@ -406,6 +463,14 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
               </el-button>
               <el-button :disabled="draft.busy" @click="toggleModel(draft, row)">
                 {{ row.enabled ? "停用" : "启用" }}
+              </el-button>
+              <el-button
+                type="danger"
+                plain
+                :disabled="draft.busy"
+                @click="askDeleteModel(draft, row)"
+              >
+                删除
               </el-button>
             </div>
           </template>
@@ -424,6 +489,32 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
         <el-button :disabled="draft.busy" @click="addModel(draft)">添加模型</el-button>
       </div>
     </el-card>
+
+    <el-dialog
+      :model-value="deleteTarget !== null"
+      :title="deleteTarget?.kind === 'provider' ? '删除供应商' : '删除模型'"
+      width="420px"
+      @update:model-value="deleteTarget = null"
+    >
+      <p class="dialog-note">
+        <template v-if="deleteTarget?.kind === 'provider'">
+          永久删除「{{ deleteTarget?.label }}」及其密钥。供应商下还有模型时删除会被拒绝，请先删除模型。
+        </template>
+        <template v-else>
+          永久删除模型「{{ deleteTarget?.label }}」。
+        </template>
+      </p>
+      <p v-if="deleteTarget?.error" class="field-error">
+        {{ deleteTarget.error
+        }}<span v-if="deleteTarget?.requestId"> （{{ deleteTarget.requestId }}）</span>
+      </p>
+      <template #footer>
+        <el-button @click="deleteTarget = null">取消</el-button>
+        <el-button type="danger" :loading="deleteTarget?.busy" @click="confirmDelete">
+          确认删除
+        </el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
@@ -547,6 +638,18 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
 .row-actions {
   display: flex;
   gap: var(--space-2xs);
+}
+
+.dialog-note {
+  margin-bottom: var(--space-sm);
+  font-size: var(--text-base);
+  color: var(--fg-2);
+}
+
+.field-error {
+  margin-top: var(--space-2xs);
+  font-size: var(--text-sm);
+  color: var(--danger);
 }
 
 .add-model {
