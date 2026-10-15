@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, api, setCsrfToken, type User } from "./api";
+import { ApiError, api, setCsrfToken, setUnauthorizedHandler, type User } from "./api";
 
 const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
 vi.stubGlobal("fetch", fetchMock);
@@ -133,5 +133,27 @@ describe("api client", () => {
 
     await expect(api.listUsers()).rejects.toBeInstanceOf(ApiError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("expired sessions", () => {
+  const invalid = { error: "no", code: "SESSION_INVALID", details: {}, requestId: "req-1" };
+
+  it("hands control back when a request fails with 401", async () => {
+    const handled: string[] = [];
+    setUnauthorizedHandler(() => handled.push("login"));
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, invalid));
+
+    await expect(api.loadCurrentUser()).rejects.toBeInstanceOf(ApiError);
+    expect(handled).toEqual(["login"]);
+  });
+
+  it("does not treat a rejected login as an expired session", async () => {
+    const handled: string[] = [];
+    setUnauthorizedHandler(() => handled.push("login"));
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, invalid));
+
+    await expect(api.login("alice", "wrong-password-1")).rejects.toBeInstanceOf(ApiError);
+    expect(handled).toEqual([]);
   });
 });

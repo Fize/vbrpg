@@ -160,6 +160,14 @@ Private and on-premises endpoints are intentionally unsupported.
 
 ## 6. Model credentials
 
+Providers, models and accounts can also be deleted: `DELETE /v1/admin/providers/{id}`,
+`DELETE /v1/admin/models/{id}` and `DELETE /v1/admin/users/{id}`. All three are admin-only and
+CSRF-checked. A provider that still owns models, an account that a match or audit row references, and
+the caller's own account are refused (409). Deletions are audited.
+
+Health is `GET /health` only; there is no readiness endpoint, and probes must not be pointed at
+arbitrary paths because unknown non-`/v1` paths return the console's `index.html`.
+
 Model providers and their models are managed through the admin endpoints in section 5. Their API keys
 are sealed with `PLATFORM_CREDENTIAL_KEY` (AES-GCM, bound to the provider id) in `src/server/runtime`
 and are never returned by any endpoint.

@@ -20,6 +20,9 @@ import {
   updateProvider,
   updateProviderModel,
   createDb,
+  deletePlatformUser,
+  deleteProvider,
+  deleteProviderModel,
   type JsonObject,
   type PlatformUserRecord,
   type ProviderCredentialColumns,
@@ -72,6 +75,7 @@ export interface PlatformStore {
     patch: { role?: PlatformRole; active?: boolean; passwordHash?: string; mustChangePassword?: boolean },
   ): Promise<PlatformUserRecord | undefined>;
   countActiveAdmins(): Promise<number>;
+  deleteUser(userId: string): Promise<boolean>;
 
   createSession(input: {
     userId: string;
@@ -109,6 +113,8 @@ export interface PlatformStore {
     modelRecordId: string,
     patch: { modelId?: string; displayName?: string; enabled?: boolean },
   ): Promise<ProviderModel | undefined>;
+  deleteProvider(providerId: string): Promise<boolean>;
+  deleteProviderModel(modelRecordId: string): Promise<boolean>;
 
   recordAudit(input: {
     actorUserId: string | null;
@@ -135,6 +141,7 @@ export function createPlatformStore(db: ReturnType<typeof createDb>): PlatformSt
       }),
     updateUser: (userId, patch) => updatePlatformUser(db, userId, patch),
     countActiveAdmins: () => countActiveAdmins(db),
+    deleteUser: (userId) => deletePlatformUser(db, userId),
 
     createSession: async (input) => {
       const sessionId = randomUUID();
@@ -219,6 +226,8 @@ export function createPlatformStore(db: ReturnType<typeof createDb>): PlatformSt
         }
         : undefined;
     },
+    deleteProvider: (providerId) => deleteProvider(db, providerId),
+    deleteProviderModel: (modelRecordId) => deleteProviderModel(db, modelRecordId),
     updateProviderModel: async (modelRecordId, patch) => {
       const row = await updateProviderModel(db, modelRecordId, patch);
       return row

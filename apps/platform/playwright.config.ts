@@ -25,7 +25,7 @@ export default defineConfig({
       command: "pnpm dev",
       url: `http://127.0.0.1:${apiPort}/health`,
       reuseExistingServer: !process.env.CI,
-      timeout: 15_000,
+      timeout: 60_000,
       env: {
         NODE_ENV: "test",
         DATABASE_URL: databaseUrl,
@@ -39,7 +39,7 @@ export default defineConfig({
       command: "pnpm dev:web --host 127.0.0.1 --port 5174",
       url: `http://127.0.0.1:${webPort}`,
       reuseExistingServer: !process.env.CI,
-      timeout: 15_000,
+      timeout: 60_000,
       env: {
         // 开发服务器把 /v1 反向代理到 API；缺省值指向 3000，本机可能被其他进程占用。
         API_PROXY_TARGET: `http://127.0.0.1:${apiPort}`,

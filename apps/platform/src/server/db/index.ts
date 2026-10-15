@@ -8,11 +8,13 @@ export {
   createPlatformUser,
   createProvider,
   createProviderModel,
+  deletePlatformUser,
+  deleteProvider,
+  deleteProviderModel,
   findPlatformUserByUsername,
   getAuthSessionByTokenHash,
   getPlatformUser,
   getProvider,
-  getProviderModelWithProvider,
   listPlatformUsers,
   listProvidersWithModels,
   recordAuditLog,
@@ -27,7 +29,6 @@ export {
 export type {
   PlatformUserRecord,
   ProviderCredentialColumns,
-  ProviderModelWithProvider,
   ProviderWithModels,
 } from "./platform-repositories.js";
 export { createGameInstance, getGameInstance, setInstanceStatus } from "./repositories.js";

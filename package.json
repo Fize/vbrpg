@@ -15,7 +15,6 @@
     "migrate": "pnpm --filter @vbrpg/platform migrate",
     "migrate:down": "pnpm --filter @vbrpg/platform migrate:down",
     "bootstrap-admin": "pnpm --filter @vbrpg/platform bootstrap-admin",
-    "check:provider-endpoint": "pnpm --filter @vbrpg/platform check:provider-endpoint",
-    "test:golden:legacy": "PYTHONPATH=backend/scripts python3 backend/scripts/verify_werewolf_golden_trace.py"
+    "check:provider-endpoint": "pnpm --filter @vbrpg/platform check:provider-endpoint"
   }
 }

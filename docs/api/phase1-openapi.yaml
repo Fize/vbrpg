@@ -276,6 +276,37 @@ paths:
               schema: { $ref: '#/components/schemas/ProviderModel' }
         '403': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+  /admin/users/{userId}:
+    delete:
+      operationId: deleteUser
+      description: Deletes an account. Refuses to delete the caller's own account, and refuses when a match or audit row references it.
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      parameters:
+        - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted. }
+        '404': { description: No such account. }
+        '409': { description: CANNOT_DELETE_SELF or USER_HAS_HISTORY. }
+  /admin/providers/{providerId}:
+    delete:
+      operationId: deleteProvider
+      description: Deletes a provider. Refuses while it still owns models.
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      parameters:
+        - { name: providerId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted. }
+        '404': { description: No such provider. }
+        '409': { description: PROVIDER_HAS_MODELS. }
+  /admin/models/{modelId}:
+    delete:
+      operationId: deleteProviderModel
+      security: [{ sessionCookie: [] }, { csrfHeader: [] }]
+      parameters:
+        - { name: modelId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted. }
+        '404': { description: No such model. }
   /admin/models/{modelId}:
     patch:
       operationId: updateProviderModel

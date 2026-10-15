@@ -110,6 +110,39 @@ export async function registerPlatformAdminRoutes(
     return toUserView(updated);
   });
 
+  app.delete("/v1/admin/users/:userId", { preHandler: requireAdmin }, async (request, reply) => {
+    const principal = request.platformPrincipal!;
+    const { userId } = userIdParamSchema.parse(request.params);
+    const target = await context.store.getUser(userId);
+    if (!target) throw new AppError(404, "USER_NOT_FOUND", "No such account");
+    if (target.id === principal.userId) {
+      throw new AppError(409, "CANNOT_DELETE_SELF", "An administrator cannot delete their own account");
+    }
+    try {
+      // Sessions cascade with the account. Anything that references it as history — a seat, a
+      // record row, an audit entry — blocks the delete instead of silently losing the past.
+      await context.store.deleteUser(userId);
+    } catch (error) {
+      if (isForeignKeyViolation(error)) {
+        throw new AppError(
+          409,
+          "USER_HAS_HISTORY",
+          "This account is referenced by matches or audit records; disable it instead",
+        );
+      }
+      throw error;
+    }
+    await context.store.recordAudit({
+      actorUserId: principal.userId,
+      action: "admin.user.delete",
+      resourceType: "user",
+      resourceId: userId,
+      metadata: { username: target.username, role: target.role },
+      succeeded: true,
+    });
+    return reply.code(204).send();
+  });
+
   app.get("/v1/providers", { preHandler: requireAuthenticated }, async (request) => {
     requirePasswordChanged(request.platformPrincipal!);
     return { providers: await context.store.listProviders({ includeDisabled: false }) };
@@ -219,6 +252,47 @@ export async function registerPlatformAdminRoutes(
       }
       throw error;
     }
+  });
+
+  app.delete("/v1/admin/providers/:providerId", { preHandler: requireAdmin }, async (request, reply) => {
+    const principal = request.platformPrincipal!;
+    const { providerId } = providerIdParamSchema.parse(request.params);
+    try {
+      const deleted = await context.store.deleteProvider(providerId);
+      if (!deleted) throw new AppError(404, "PROVIDER_NOT_FOUND", "No such provider");
+    } catch (error) {
+      if (isForeignKeyViolation(error)) {
+        throw new AppError(
+          409,
+          "PROVIDER_HAS_MODELS",
+          "Delete this provider's models first",
+        );
+      }
+      throw error;
+    }
+    await context.store.recordAudit({
+      actorUserId: principal.userId,
+      action: "admin.provider.delete",
+      resourceType: "provider",
+      resourceId: providerId,
+      succeeded: true,
+    });
+    return reply.code(204).send();
+  });
+
+  app.delete("/v1/admin/models/:modelId", { preHandler: requireAdmin }, async (request, reply) => {
+    const principal = request.platformPrincipal!;
+    const { modelId } = modelIdParamSchema.parse(request.params);
+    const deleted = await context.store.deleteProviderModel(modelId);
+    if (!deleted) throw new AppError(404, "MODEL_NOT_FOUND", "No such model");
+    await context.store.recordAudit({
+      actorUserId: principal.userId,
+      action: "admin.provider.model.delete",
+      resourceType: "provider_model",
+      resourceId: modelId,
+      succeeded: true,
+    });
+    return reply.code(204).send();
   });
 
   app.patch("/v1/admin/models/:modelId", { preHandler: requireAdmin }, async (request) => {

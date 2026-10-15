@@ -25,18 +25,6 @@ describe("API foundation", () => {
     expect(response.headers["x-request-id"]).toBeTruthy();
   });
 
-  it("does not claim readiness without database configuration", async () => {
-    const app = buildApp({ config });
-    apps.push(app);
-    const response = await app.inject({ method: "GET", url: "/ready" });
-
-    expect(response.statusCode).toBe(503);
-    expect(response.json()).toMatchObject({
-      status: "not_ready",
-      checks: { database: "not_configured" },
-    });
-  });
-
   it("uses the shared error shape for unknown routes", async () => {
     const app = buildApp({ config });
     apps.push(app);

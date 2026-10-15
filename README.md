@@ -53,8 +53,11 @@ pnpm build        # tsc + vite build
 pnpm typecheck    # shared / server / browser 三个 project
 pnpm test         # 单元与契约测试
 pnpm test:db      # 真实 PostgreSQL 集成测试（需要 DATABASE_URL）
-pnpm test:e2e     # Playwright
+pnpm test:e2e     # Playwright（需要 E2E_DATABASE_URL 与 E2E_CREDENTIAL_KEY，且该库已迁移并 bootstrap-admin）
 ```
+
+CI 里这些都跑：构建、类型检查、单测、真实 PostgreSQL 集成、迁移与回滚、Playwright。健康检查只有 `GET /health`。
+
 
 ## 文档
 

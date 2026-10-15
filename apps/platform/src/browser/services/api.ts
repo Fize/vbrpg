@@ -55,6 +55,20 @@ export class ApiError extends Error {
   }
 }
 
+let onUnauthorized: (() => void) | null = null;
+
+/** Registered once by the router so an expired session anywhere returns to the login page. */
+export function setUnauthorizedHandler(handler: () => void): void {
+  onUnauthorized = handler;
+}
+
+function handleUnauthorized(response: Response, config: RequestConfig): void {
+  // A rejected login is not an expired session: the user is already on the login page.
+  if (response.status !== 401 || config.skipAuthRedirect === true) return;
+  setCsrfToken(null);
+  onUnauthorized?.();
+}
+
 export function apiErrorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : "Unexpected error. Please try again.";
 }
@@ -77,6 +91,8 @@ interface RequestConfig {
   path: string;
   body?: unknown;
   csrf?: boolean;
+  /** Set on the login call: its 401 means wrong credentials, not an expired session. */
+  skipAuthRedirect?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -120,10 +136,13 @@ async function send(config: RequestConfig): Promise<Response> {
   return fetch(`${API_BASE}${config.path}`, init);
 }
 
-async function unwrap<T>(response: Response): Promise<T> {
+async function unwrap<T>(response: Response, config: RequestConfig): Promise<T> {
   if (response.status === 204) return undefined as unknown as T;
   const body = await readJson(response);
-  if (!response.ok) throw toApiError(response.status, body);
+  if (!response.ok) {
+    handleUnauthorized(response, config);
+    throw toApiError(response.status, body);
+  }
   return body as T;
 }
 
@@ -139,7 +158,7 @@ async function execute<T>(config: RequestConfig): Promise<T> {
       throw toApiError(response.status, body);
     }
   }
-  return unwrap<T>(response);
+  return unwrap<T>(response, config);
 }
 
 export async function refreshCsrfToken(): Promise<string> {
@@ -163,6 +182,7 @@ export const api = {
       method: "POST",
       path: "/auth/login",
       body: { username, password },
+      skipAuthRedirect: true,
     });
     csrfToken = result.csrfToken;
     return result;

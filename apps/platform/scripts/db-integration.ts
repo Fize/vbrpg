@@ -10,6 +10,8 @@ import {
   createPlatformUser,
   createProvider,
   createProviderModel,
+  deleteProvider,
+  deleteProviderModel,
   findPlatformUserByUsername,
   getAuthSessionByTokenHash,
   getGameInstance,
@@ -273,7 +275,7 @@ try {
   // A provider with models cannot be deleted out from under them.
   let restrictEnforced = false;
   try {
-    await db.deleteFrom("providers").where("id", "=", providerId).execute();
+    await deleteProvider(db, providerId);
   } catch (error) {
     restrictEnforced = (error as { code?: string }).code === "23503";
   }
@@ -287,6 +289,19 @@ try {
     .executeTakeFirstOrThrow();
   assert.equal(stored.credential_ciphertext.length, 32);
   assert.equal(stored.credential_tag.length, 16);
+
+  // Deleting the models first makes the provider deletable.
+  const catalogRows = await db
+    .selectFrom("provider_models")
+    .select("id")
+    .where("provider_id", "=", providerId)
+    .execute();
+  for (const row of catalogRows) {
+    assert.equal(await deleteProviderModel(db, row.id), true);
+  }
+  assert.equal(await deleteProvider(db, providerId), true);
+  assert.equal(await deleteProvider(db, providerId), false, "a second delete must report nothing");
+
 
   console.log("Database integration test passed");
 } finally {

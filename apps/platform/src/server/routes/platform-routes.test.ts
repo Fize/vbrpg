@@ -20,9 +20,17 @@ interface FakeState {
   sessions: Map<string, SessionRecord & { tokenHash: string }>;
 }
 
+function pgError(code: string): Error & { code: string } {
+  const error = new Error("postgres error") as Error & { code: string };
+  error.code = code;
+  return error;
+}
+
 function createFakeStore(options: {
   passwordHash: string;
   users: PlatformUserRecord[];
+  /** Accounts the fake database refuses to delete because a match or audit row references them. */
+  historyUserIds?: string[];
 }): FakeState {
   const users = new Map(options.users.map((user) => [user.id, user]));
   const sessions = new Map<string, SessionRecord & { tokenHash: string }>();
@@ -68,6 +76,13 @@ function createFakeStore(options: {
     },
     countActiveAdmins: async () =>
       [...users.values()].filter((user) => user.role === "admin" && user.active).length,
+    deleteUser: async (userId) => {
+      // Mirrors the database: rows that reference the account block the delete.
+      if (options.historyUserIds?.includes(userId)) {
+        throw pgError("23503");
+      }
+      return users.delete(userId);
+    },
 
     createSession: async (input) => {
       const id = randomUUID();
@@ -161,6 +176,24 @@ function createFakeStore(options: {
         }
       }
       return undefined;
+    },
+    deleteProvider: async (providerId) => {
+      const provider = providers.get(providerId);
+      // Mirrors the on-delete-restrict foreign key from provider_models.
+      if (provider && provider.models.length > 0) throw pgError("23503");
+      const deleted = providers.delete(providerId);
+      secrets.delete(providerId);
+      return deleted;
+    },
+    deleteProviderModel: async (modelRecordId) => {
+      for (const provider of providers.values()) {
+        const index = provider.models.findIndex((candidate) => candidate.id === modelRecordId);
+        if (index >= 0) {
+          provider.models.splice(index, 1);
+          return true;
+        }
+      }
+      return false;
     },
 
     recordAudit: async (input) => {
@@ -457,6 +490,9 @@ describe("authorization", () => {
         headers,
         payload: { active: false },
       }),
+      app.inject({ method: "DELETE", url: `/v1/admin/users/${randomUUID()}`, headers }),
+      app.inject({ method: "DELETE", url: `/v1/admin/providers/${randomUUID()}`, headers }),
+      app.inject({ method: "DELETE", url: `/v1/admin/models/${randomUUID()}`, headers }),
     ]);
     for (const response of responses) {
       assert.equal(response.statusCode, 403, response.body);
@@ -702,5 +738,120 @@ describe("audit trail", () => {
 
   it("hashes CSRF tokens before comparison", () => {
     assert.equal(hashCsrfToken("abc").length, 32);
+  });
+});
+
+describe("deletion", () => {
+  async function adminApp(extra: Partial<Parameters<typeof createFakeStore>[0]> = {}) {
+    const passwordHash = await hashPassword(PASSWORD);
+    const admin = makeUser({ passwordHash, role: "admin", username: "root" });
+    const state = createFakeStore({
+      passwordHash,
+      users: [admin, ...(extra.users ?? [])],
+      ...(extra.historyUserIds === undefined ? {} : { historyUserIds: extra.historyUserIds }),
+    });
+    const app = await createApp(state);
+    const { cookie, body } = await login(app, "root");
+    return {
+      state,
+      admin,
+      headers: { cookie, origin: ORIGIN, "x-csrf-token": body.csrfToken as string },
+      app,
+    };
+  }
+
+  it("deletes an account and records who did it", async () => {
+    const passwordHash = await hashPassword(PASSWORD);
+    const victim = makeUser({ passwordHash, username: "bob" });
+    const { app, headers, state } = await adminApp({ users: [victim] });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/v1/admin/users/${victim.id}`,
+      headers,
+    });
+    assert.equal(response.statusCode, 204, response.body);
+    assert.equal(await state.store.getUser(victim.id), undefined);
+    assert.ok(
+      state.audits.some(
+        (audit) => audit.action === "admin.user.delete" && audit.resourceId === victim.id,
+      ),
+    );
+  });
+
+  it("refuses to delete its own account", async () => {
+    const { app, headers, admin, state } = await adminApp();
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/v1/admin/users/${admin.id}`,
+      headers,
+    });
+    assert.equal(response.statusCode, 409);
+    assert.equal(response.json().code, "CANNOT_DELETE_SELF");
+    assert.ok((await state.store.getUser(admin.id)) !== undefined);
+  });
+
+  it("refuses to delete an account that a match or audit row references", async () => {
+    const passwordHash = await hashPassword(PASSWORD);
+    const victim = makeUser({ passwordHash, username: "bob" });
+    const { app, headers } = await adminApp({ users: [victim], historyUserIds: [victim.id] });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/v1/admin/users/${victim.id}`,
+      headers,
+    });
+    assert.equal(response.statusCode, 409);
+    assert.equal(response.json().code, "USER_HAS_HISTORY");
+  });
+
+  it("deletes a model before its provider, and answers 404 for unknown ids", async () => {
+    const { app, headers } = await adminApp();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/admin/providers",
+      headers,
+      payload: { name: "primary", baseUrl: "https://api.example.com/v1", apiKey: "sk-x" },
+    });
+    const providerId = (created.json() as { id: string }).id;
+    const model = await app.inject({
+      method: "POST",
+      url: `/v1/admin/providers/${providerId}/models`,
+      headers,
+      payload: { modelId: "gpt-test", displayName: "Test Model" },
+    });
+    const modelId = (model.json() as { id: string }).id;
+
+    // The provider owns a model, so the foreign key keeps it alive.
+    const blocked = await app.inject({
+      method: "DELETE",
+      url: `/v1/admin/providers/${providerId}`,
+      headers,
+    });
+    assert.equal(blocked.statusCode, 409);
+    assert.equal(blocked.json().code, "PROVIDER_HAS_MODELS");
+
+    const removedModel = await app.inject({
+      method: "DELETE",
+      url: `/v1/admin/models/${modelId}`,
+      headers,
+    });
+    assert.equal(removedModel.statusCode, 204, removedModel.body);
+
+    const removedProvider = await app.inject({
+      method: "DELETE",
+      url: `/v1/admin/providers/${providerId}`,
+      headers,
+    });
+    assert.equal(removedProvider.statusCode, 204, removedProvider.body);
+
+    const missing = await Promise.all([
+      app.inject({ method: "DELETE", url: `/v1/admin/providers/${randomUUID()}`, headers }),
+      app.inject({ method: "DELETE", url: `/v1/admin/models/${randomUUID()}`, headers }),
+      app.inject({ method: "DELETE", url: `/v1/admin/users/${randomUUID()}`, headers }),
+    ]);
+    for (const response of missing) {
+      assert.equal(response.statusCode, 404, response.body);
+    }
   });
 });

@@ -6,6 +6,7 @@ import LoginView from "../views/LoginView.vue";
 import ProvidersView from "../views/ProvidersView.vue";
 import UsersView from "../views/UsersView.vue";
 import { loadCurrentUser, sessionState } from "../stores/session";
+import { setUnauthorizedHandler } from "../services/api";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -36,6 +37,13 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+});
+
+// An expired session must not leave the console showing stale data: any 401 sends the user back
+// to the login page, not just the ones a navigation happens to trigger.
+setUnauthorizedHandler(() => {
+  sessionState.user = null;
+  void router.push({ name: "login" });
 });
 
 router.beforeEach(async (to) => {

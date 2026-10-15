@@ -4,14 +4,12 @@ on:
   push:
     paths:
       - "apps/**"
-      - "packages/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
   pull_request:
     paths:
       - "apps/**"
-      - "packages/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -63,3 +61,14 @@ jobs:
       # findings in production dependency chains. Review before release.
       - run: pnpm audit --prod --audit-level=high
         continue-on-error: true
+      - run: pnpm --filter @vbrpg/platform exec playwright install --with-deps chromium
+      # The browser suite drives the console against a real server, and its first case is the
+      # forced password change, so it needs exactly one freshly bootstrapped administrator.
+      - run: pnpm bootstrap-admin -- --username e2e-root --password 'initial-password-1'
+        env:
+          DATABASE_URL: postgres://vbrpg:vbrpgpassword@localhost:5432/vbrpg_platform
+      - run: pnpm test:e2e
+        env:
+          E2E_DATABASE_URL: postgres://vbrpg:vbrpgpassword@localhost:5432/vbrpg_platform
+          # Test-only master key (32 zero bytes); CI never touches a real credential.
+          E2E_CREDENTIAL_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=

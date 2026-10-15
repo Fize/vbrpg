@@ -259,6 +259,24 @@ export async function revokeUserSessions(
     .execute();
 }
 
+export async function deletePlatformUser(db: DbExecutor, userId: string): Promise<boolean> {
+  const result = await db.deleteFrom("users").where("id", "=", userId).executeTakeFirst();
+  return Number(result.numDeletedRows ?? 0) > 0;
+}
+
+export async function deleteProvider(db: DbExecutor, providerId: string): Promise<boolean> {
+  const result = await db.deleteFrom("providers").where("id", "=", providerId).executeTakeFirst();
+  return Number(result.numDeletedRows ?? 0) > 0;
+}
+
+export async function deleteProviderModel(db: DbExecutor, modelRecordId: string): Promise<boolean> {
+  const result = await db
+    .deleteFrom("provider_models")
+    .where("id", "=", modelRecordId)
+    .executeTakeFirst();
+  return Number(result.numDeletedRows ?? 0) > 0;
+}
+
 export interface ProviderWithModels {
   provider: Selectable<ProvidersTable>;
   models: Selectable<ProviderModelsTable>[];
@@ -300,31 +318,6 @@ export async function getProvider(
   providerId: string,
 ): Promise<Selectable<ProvidersTable> | undefined> {
   return db.selectFrom("providers").selectAll().where("id", "=", providerId).executeTakeFirst();
-}
-
-export interface ProviderModelWithProvider {
-  provider: Selectable<ProvidersTable>;
-  model: Selectable<ProviderModelsTable>;
-}
-
-/** Resolves a binding target from the platform catalog; the caller decides whether it is usable. */
-export async function getProviderModelWithProvider(
-  db: DbExecutor,
-  modelId: string,
-): Promise<ProviderModelWithProvider | undefined> {
-  const model = await db
-    .selectFrom("provider_models")
-    .selectAll()
-    .where("id", "=", modelId)
-    .executeTakeFirst();
-  if (!model) return undefined;
-  const provider = await db
-    .selectFrom("providers")
-    .selectAll()
-    .where("id", "=", model.provider_id)
-    .executeTakeFirst();
-  if (!provider) return undefined;
-  return { provider, model };
 }
 
 export interface ProviderCredentialColumns {
