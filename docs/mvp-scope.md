@@ -9,7 +9,7 @@
 - 模型配置：Provider / Model 的增删改与连接测试，API key 用 `PLATFORM_CREDENTIAL_KEY` 加密存放。
 - 对局底座：`game_instances` / `game_participants` / `game_events`。没有队列表，没有快照表：
   worker 按实例行锁 + 扫描待办推进对局（ADR-009）。
-- 中立内核：玩家视图投影（fail-closed）、事件重放、转换与错误类型。
+- 中立内核：玩家视图投影（fail-closed）、转换与错误类型。
 
 ## 已撤除（2026-10-15）
 

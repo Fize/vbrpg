@@ -13,7 +13,7 @@ export interface CreateInstanceInput {
 
 /**
  * The platform owns this envelope; a game only fills the variables it needs. Everything the
- * platform guarantees — ordering, storage, projection, replay, side-effect delivery — reads it.
+ * platform guarantees — ordering, storage, projection and history — reads it.
  */
 export function createBaseState(
   input: CreateInstanceInput,

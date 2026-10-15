@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { GameEvent } from "../../shared/index.js";
-import { replayEvents } from "./replay.js";
 import { createBaseState, createGameRegistry, type GameModule } from "./module.js";
 
 /** A two-event game: one seat answers, and the answer ends it. */
@@ -20,9 +19,9 @@ const greeting: GameModule = {
           stepId: "ask",
           waiting: { kind: "playerInput", stepId: "ask", participantIds: ["p1"] },
         },
-        events: [event],
-        };
-    }
+      events: [event],
+    };
+  }
     return {
       state: {
         ...state,
@@ -82,9 +81,11 @@ describe("game module registry", () => {
     expect(started.state).toMatchObject({ status: "waiting", stepId: "ask" });
     expect(started.state.waiting?.participantIds).toEqual(["p1"]);
 
-    const events = [event(1, "instanceCreated"), event(2, "playerInputReceived", { participantId: "p1", value: "hi" })];
-    const replayed = replayEvents(game.transition, state, events);
-    expect(replayed.state).toMatchObject({ status: "completed", stepId: "done", sequence: 2 });
-    expect(replayed.state.variables).toEqual({ answer: "hi" });
+    const finished = game.transition(
+      started.state,
+      event(2, "playerInputReceived", { participantId: "p1", value: "hi" }),
+    );
+    expect(finished.state).toMatchObject({ status: "completed", stepId: "done", sequence: 2 });
+    expect(finished.state.variables).toEqual({ answer: "hi" });
   });
 });

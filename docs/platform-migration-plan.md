@@ -33,7 +33,7 @@
 - 一个对局可以同时包含真人和 AI 席位。
 - 玩家只能看到自己有权看到的信息，且这一点由平台强制（投影 fail-closed），不依赖游戏代码自觉。
 - 对局数据一律经过投影读取，隐藏信息不因接口扩张而泄漏。
-- 每次状态变化可审计、可重放、可幂等处理。
+- 每次状态变化可审计、可查询、可幂等处理。
 
 ### 2.2 Beta 非目标
 
@@ -65,7 +65,7 @@ flowchart LR
     Browser[Vue 3 + TypeScript] -->|REST| API[Fastify API]
     API --> Auth[身份与授权]
     API --> Games[游戏模块 apps/platform/src/server/games/*]
-    Games --> Engine[中立内核：投影 / 重放 / 转换类型]
+    Games --> Engine[中立内核：投影 / 转换类型]
     API --> DB[(PostgreSQL)]
     Worker[TypeScript Worker] --> DB
     DB --> Outbox[Outbox / Scheduled Jobs]
@@ -79,7 +79,7 @@ flowchart LR
 apps/platform/
   src/shared/          # 契约：Zod schema + 类型（浏览器安全，不许 import node 内建）
   src/server/          # 进程侧：Fastify 路由、鉴权、存储、worker 轮询、游戏内核
-    game/              # 中立内核：GameModule 接口、注册表、投影、重放
+    game/              # 中立内核：GameModule 接口、注册表、投影
     db/                # Kysely 类型、仓储、迁移读取
     runtime/           # 凭据加密、错误形状
   src/browser/         # Vue 3 控制台（构建成静态资源，由同一进程提供）
@@ -137,7 +137,7 @@ class GameRegistry { get(id); require(id); list(); }   // 启动时注册，重�
 
 `transition` 内不能访问数据库、网络、系统时间或直接调用 LLM。随机数、当前时间和 AI 结果都必须作为显式输入；产生副作用时只输出命令，由 worker 在事务提交后执行。
 
-已落地的内核：`GameModule` 接口 + `GameRegistry` + `createBaseState`（对局外壳）+ `projectPlayerView`（三档投影，fail-closed）+ `replayEvents`（事件重放）+ `EngineError`/`TransitionResult`。
+已落地的内核：`GameModule` 接口 + `GameRegistry` + `createBaseState`（对局外壳）+ `projectPlayerView`（三档投影，fail-closed）+ `EngineError`/`TransitionResult`。（`replayEvents` 已于 2026-10-15 第十轮删除：记录是给人读的历史，不是重建状态的输入，见 ADR-010。）
 
 ### 4.3 单次动作的事务协议
 
@@ -307,7 +307,7 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 
 - [x] ~~`P3-01` DSL schema 与版本迁移机制~~ — 撤销：随 DSL 撤除，游戏版本回到代码常量。
 - [x] ~~`P3-02` 发布期静态校验（图结构/引用/循环/可见性/表达式/AI 降级）~~ — 撤销：不再有可发布定义；可见性校验改为运行时投影的 fail-closed 行为。
-- [/] `P3-03`：确定性 `transition`、显式随机种子、事件回放。 — 已实现：`TransitionFn` 类型 + `replayEvents`；确定性由"游戏模块的 transition 是纯函数"这条约束保证，不再有虚拟时钟需求（超时由游戏自己用 `timerExpired` 事件表达）。
+- [/] `P3-03`：确定性 `transition`、显式随机种子。 — 确定性由"游戏模块的 `transition` 是纯函数"这条约束保证（随机与时间都作为输入进来，不再有虚拟时钟需求）；`replayEvents` 已删除。
 - [x] ~~`P3-04` DSL 节点集（start/end、变量、分支、等待、收集、计时、投票、随机、事件、循环）~~ — 撤销（2.8k 行解释器已删除）。
 - [x] ~~`P3-05` subflow、parallel/join~~ — 撤销：并行与分支合并留给游戏代码自己表达。
 - [/] `P3-06`：快照策略、并发控制、动作幂等与实例级顺序号。 — 幂等键与顺序号约束（`(instance_id, event_id)`、`(instance_id, command_id)`）保留；快照写入策略与并发竞争测试仍待做（`game_snapshots` 表与 `getLatestSnapshot` 已在）。
@@ -316,7 +316,7 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 - [x] ~~`P3-09` AI command 链（超时/重试/预算/用量/降级）~~ — 撤销：随 DSL 的 AI 节点一并删除；AI 能力回到游戏代码内部调用模型，模型目录仍由 `providers`/`provider_models` 与凭据加密（`packages/runtime` 的 secret-box）支撑。
 - [x] ~~`P3-10` 管理员暂停/取消/强制超时/脱敏状态~~ — 撤销：实例 HTTP 路由已删；恢复对局的运维能力随代码化游戏的运行时一起回归。
 
-交付物：中立内核（投影、重放、转换类型）、对局底座（实例、参与者、事件、快照、命令队列、定时任务）、审计。
+交付物：中立内核（投影、转换类型）、对局底座（实例、席位、事件记录）、审计。
 
 出口条件：同一初始状态与事件序列总能得到字节级一致的最终状态；进程崩溃不丢失已提交事件；隐藏信息自动化测试无泄漏。
 
@@ -350,7 +350,7 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 
 - [ ] `P5-01`：实现游戏模块清单（内置游戏列表、可用版本）与对局创建入口。 — 未实现。
 - [x] ~~`P5-02` 结构化编辑器、JSON schema 补全、只读流程图~~ — 撤销：游戏是代码，用 IDE 与类型系统即可。
-- [ ] `P5-03`：实现测试控制台：注入事件、查看不同玩家投影、重放事件序列。 — 未实现（内核已有 `replayEvents` 与 `projectPlayerView`，缺 HTTP/UI 入口）。
+- [ ] `P5-03`：实现测试控制台：注入事件、查看不同玩家投影、按序查看完整记录。 — 未实现（内核已有 `projectPlayerView`，缺 HTTP/UI 入口）。
 - [ ] `P5-04`：实现游戏模块的回归夹具：标准对局脚本 + 期望事件序列。 — 未实现。
 - [ ] `P5-05`：游戏自带静态资源（角色卡、文案）的打包与版本校验。 — 未实现。
 - [ ] `P5-06`：实现内部发布流程：代码评审、版本号、变更记录与对局可见性控制。 — 未实现。
@@ -423,7 +423,7 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 - 所有有效旧行为黄金轨迹通过；规则差异有版本化说明。
 - 重复动作、重复 WebSocket 包和 worker 重试不会重复结算。
 - 任意服务进程重启后，已提交动作不丢失，等待和计时器可恢复。
-- 从事件重放得到的状态与最新快照一致。
+- 任何时刻都能按 `sequence` 读到该对局的完整记录。
 - AI 超时、结构化输出错误和供应商不可用不会让实例永久卡住。
 
 ### 安全
@@ -452,7 +452,7 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 
 | 层级 | 运行数据库 | 重点 |
 | --- | --- | --- |
-| 内核单测 | 无数据库或 SQLite | 投影、重放、确定性、属性测试 |
+| 内核单测 | 无数据库 | 投影、转换、确定性 |
 | 游戏模块单测 | 无数据库 | 角色、阶段、动作合法性、胜负、隐藏信息 |
 | Repository 合约测试 | PostgreSQL | 约束、事务、锁、队列 claim/lease、迁移与回滚 |
 | Runtime 集成测试 | PostgreSQL | 幂等、并发、事件/快照、Outbox、定时任务 |
@@ -645,12 +645,12 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 `idempotency_key`、`occurred_at`、`payload`，加模型调用行的 `provider_id`/`model_id`/三个 token 计数。
 不设 `kind` 判别列（没有重放要保护），不设受众列（能看对局就能看全部）。
 
-**其它确认**：一次模型调用一行、回合结果另写一行；用量由 `num_nonnulls(...) in (0,5)` 保证要么全空要么全填；
+**其它确认**：`replayEvents` 与 `TransitionFn` 删除（`transition` 的签名留在 `GameModule` 接口上）；一次模型调用一行、回合结果另写一行；用量由 `num_nonnulls(...) in (0,5)` 保证要么全空要么全填；
 `participant_id` 用复合外键绑到同一对局的席位；`game_participants` 因此补 `unique (instance_id, id)`；
 按序读由唯一键承担，不再另建索引。
 
-**`replayEvents` 的处置**：保留，但降级为测试对账工具（用记录重建状态并与 `state_json` 比对，抓 `transition` 不纯），
-不再是运行时代码路径。
+**`replayEvents` 的处置**：**删除**。它唯一的用途是用记录重建状态并与 `state_json` 对账；既然记录不是重建状态的输入，
+这条路径就不该存在——留着它会让"日志可以重算出状态"变成一种无人维护的承诺。
 
 ## 17. 参考资料
 

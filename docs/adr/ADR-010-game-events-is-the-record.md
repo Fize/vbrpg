@@ -47,8 +47,9 @@ provider_id, model_id, prompt_tokens, completion_tokens, total_tokens
 ## 后果
 
 - 没有 `kind`、没有受众列、没有快照表、没有队列表。读历史就是一条带 `order by sequence` 的查询。
-- **`replayEvents` 不再有读路径的消费者**。它保留下来只做一件事：测试对账——用记录重建状态并与 `state_json` 比对，
-  能抓到 `transition` 不纯或日志漏写。它不是运行时代码路径。
+- **`replayEvents` 与 `TransitionFn` 已删除**。它唯一的用途是用记录重建状态、与 `state_json` 对账；既然记录不是重建状态的
+  输入，这条路径就不该存在——留着它会让"日志可以重算出状态"变成一种无人维护的承诺。`transition` 的签名留在
+  `GameModule` 接口上，确定性由"它是纯函数"这条约束保证。
 - 隐藏信息的保护只剩一处机制：`projectPlayerView`（状态变量的三档投影，失败关闭）。历史记录本身是全可见的，
   这一点是明确接受的取舍：**进行中的对局里，参赛者若被允许查看历史，就能读到对手的思考**。若某个游戏不能接受，
   它必须在游戏规则层面表达（例如把秘密放状态变量、由投影保护），而不是指望日志过滤。
