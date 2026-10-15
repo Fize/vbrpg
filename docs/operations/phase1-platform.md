@@ -1,4 +1,4 @@
-# Phase 1 Operations — Platform Accounts and Provider Configuration
+# Platform Operations — Accounts, Sessions and Provider Configuration
 
 Covers administrator bootstrap, account provisioning, session behaviour, provider credential
 handling and rollback for the TypeScript platform (`apps/platform`: `src/server`, `src/browser`, `src/shared`). Security
@@ -156,7 +156,7 @@ Endpoint rules (enforced on create, update and every connection test):
 - Only `{ok, latencyMs, checkedAt, errorCode}` is returned; upstream status text, headers and
   bodies never reach the client.
 
-Private and on-premises endpoints are intentionally unsupported in Phase 1.
+Private and on-premises endpoints are intentionally unsupported.
 
 ## 6. Model credentials
 

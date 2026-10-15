@@ -11,7 +11,7 @@
 - **中立内核**：`GameModule` 接口 + `GameRegistry` + `createBaseState` + `projectPlayerView`（三档投影，fail-closed）+ `EngineError`/`TransitionResult`。
 - **数据底座**：8 张表——账号 2、模型目录 2、对局 3（`game_instances`/`game_participants`/`game_events`）、审计 1。
 
-未实现：对局 HTTP 入口、worker 的实例扫描、第一个游戏模块、AI 席位、任何对局界面。缺口的完整清单见 `docs/platform-migration-plan.md` §16。
+未实现：对局 HTTP 入口、worker 的实例扫描、第一个游戏模块、AI 席位、任何对局界面。缺口清单与后续计划见 `docs/platform-migration-plan.md` §8。
 
 ## 结构
 
@@ -60,7 +60,7 @@ pnpm test:e2e     # Playwright
 
 | 文档 | 内容 |
 | --- | --- |
-| `docs/platform-migration-plan.md` | 计划、当前进度、决策日志（§16 按轮次记录） |
+| `docs/platform-migration-plan.md` | 现状与工作计划（§8，M1–M5）、发布门槛（§10）、决策日志（§16，按轮次） |
 | `docs/adr/` | 架构决策记录（001 起，008/009/010 是最近的收敛） |
 | `docs/mvp-scope.md` | MVP 范围与下一步 |
 | `docs/operations/phase1-platform.md` | 运维手册：环境变量、迁移、回滚、排障 |
