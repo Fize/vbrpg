@@ -28,7 +28,7 @@ Scope: administrator-provisioned accounts, username/password login, browser sess
 
 - [ ] Browser to Fastify API: all request bodies, headers, cookies and identifiers are untrusted.
 - [ ] Authenticated regular user to administrator-only routes: role checks must be enforced server-side for every operation.
-- [ ] API process to PostgreSQL: DB values are sensitive; queries must remain parameterized and tenant/RLS context must be explicit where used.
+- [ ] API process to PostgreSQL: DB values are sensitive; queries must remain parameterized and authorization must be enforced in application code (no RLS layer since ADR-008).
 - [ ] API process to configured LLM provider: provider endpoint and response are external/untrusted; credentials must be scoped to that provider and never returned to browser.
 - [ ] Deployment environment/secret manager to API process: bootstrap secret and encryption key require restricted access and rotation procedures.
 - [ ] Logs/traces/error reporting: must not receive passwords, cookies, session identifiers, provider keys or raw provider response bodies.

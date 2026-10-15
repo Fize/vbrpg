@@ -6,11 +6,13 @@
 
 ## 背景
 
-平台需要显式 SQL、可审计迁移、租户 scoped repository、事务、行锁和 `SKIP LOCKED`。首版不需要通过 ORM 隐藏 PostgreSQL 的并发语义。
+平台需要显式 SQL、可审计迁移、事务、行锁和 `SKIP LOCKED`。首版不需要通过 ORM 隐藏 PostgreSQL 的并发语义。
 
 ## 决策
 
-新 TypeScript 数据访问层使用 Kysely，并以纯 SQL 迁移文件作为数据库结构的审核来源。repository 接口必须接收已认证的租户上下文；涉及租户资源的查询不能暴露无上下文的通用方法。复杂锁语句和 RLS 配置可在迁移 SQL 中直接表达。
+新 TypeScript 数据访问层使用 Kysely，并以纯 SQL 迁移文件作为数据库结构的审核来源。repository 接口只暴露业务需要的操作，不提供无约束的通用查询。复杂锁语句（`FOR UPDATE SKIP LOCKED`）直接在迁移与查询里表达。
+
+2026-10-15 更新（ADR-008）：租户上下文参数已从仓储接口移除。
 
 ## 后果
 

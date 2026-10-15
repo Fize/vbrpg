@@ -1,5 +1,8 @@
 # Phase 1 Auth + Provider Configuration — Secure Design
 
+> 2026-10-15 更新（ADR-008）：本文中关于租户与行级隔离的描述已作废——租户层、租户角色与
+> PostgreSQL RLS 均已删除，认证只有平台会话一条路径。其余结论（账号、会话、凭据加密、CSRF）仍然有效。
+
 This design implements the confirmed threat model in `docs/security/phase1-auth-provider-threat-model.md`. Scope is administrator-provisioned accounts, login/session, provider/model administration and OpenAI-compatible connection tests. It does not implement game creation, agent execution, rooms or multiplayer.
 
 ## Decisions

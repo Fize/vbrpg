@@ -9,5 +9,8 @@
 | [ADR-004](./ADR-004-data-access-kysely.md) | 使用 Kysely 作为 PostgreSQL 查询构建器 | Accepted |
 | [ADR-005](./ADR-005-resource-storage.md) | Beta 首版小型二进制资源使用 PostgreSQL `bytea` | Accepted |
 | [ADR-007](./ADR-007-single-package-one-image.md) | 单包、单镜像、两种角色 | Accepted |
+| [ADR-008](./ADR-008-single-user-pool.md) | 单用户池：删除租户层与 RLS | Accepted |
 
 已撤除：ADR-002（执行器边界）与 ADR-006（agent 会话）随 2026-10-15 的 DSL 撤除一并下线——平台不再内置游戏 DSL 或编排运行时，游戏逻辑是代码化模块（见主计划 §4/§5 与 §16 第六轮）。
+
+被推翻：ADR-008 推翻了主计划早期关于多租户与租户角色的设定，`tenants`/`tenant_memberships`/`tenant_secrets` 与 RLS 已删除，平台是单一用户池。

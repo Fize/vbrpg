@@ -15,7 +15,6 @@ boundaries are defined in `docs/security/phase1-auth-provider-threat-model.md` a
 | `PLATFORM_CREDENTIAL_KEY_VERSION` | no (default `1`) | Key version recorded with each sealed credential |
 | `TRUSTED_WEB_ORIGINS` | yes in production | Comma-separated exact origins allowed for cookie-authenticated writes |
 | `PORT`, `LOG_LEVEL`, `NODE_ENV` | no | Server basics |
-| `AUTH_TOKEN_SECRET` | legacy | Only used by the legacy `/v1/tenant/*` bearer path |
 
 Startup fails when production configuration is weak:
 
@@ -173,9 +172,8 @@ code-based game runtime.
 ## 7. Game instances
 
 The match foundation is still migrated and enforced: `game_instances`, `game_participants`,
-`game_events`, `game_snapshots`, `player_actions`, `pending_commands`, `scheduled_jobs` and
-`outbox_events`, with tenant RLS over all of them. The worker role still claims leases from its queues and
-publishes outbox rows.
+`game_events`, `game_snapshots`, `pending_commands` and `scheduled_jobs`. The worker role claims leases
+from the two queues; there is no outbox table (see ADR-008) and no tenant layer.
 
 What is gone: the HTTP surface (`POST /instances`, `GET /instances/:id`, the per-seat projection, the
 admin pause/resume/cancel/timeout controls) and the state transition that drove them. They return with
@@ -199,9 +197,8 @@ pnpm run db:migrate:platform          # apply all `.sql` migrations
 pnpm run migrate:down:platform        # roll back the last migration (use --steps=N for more)
 ```
 
-`0005_phase1_auth_providers.down.sql` refuses to run while provider rows exist, so export and
-delete provider data first. The `platform` tenant row seeded by `0005` is intentionally left in
-place on rollback. `.down.sql` files are never applied as forward migrations.
+`0001_accounts_and_models.down.sql` drops the account, session, catalog and audit tables, so export
+the data you care about first. `.down.sql` files are never applied as forward migrations.
 
 ## 10. Troubleshooting
 

@@ -3,9 +3,9 @@ info:
   title: VBRPG Phase 1 API
   version: 1.0.0
   description: |
-    Phase 1 control plane: authentication, tenant users, providers and models.
-    Runtime endpoints are session-authenticated, tenant-scoped to the platform
-    tenant, and reject client-supplied sequences: the server derives them.
+    Phase 1 control plane: authentication, users, providers and models.
+    Every endpoint is session-authenticated; the server derives sequences and
+    identifiers instead of trusting client-supplied ones.
 servers:
   - url: /v1
 paths:

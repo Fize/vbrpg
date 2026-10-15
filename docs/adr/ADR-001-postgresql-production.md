@@ -6,13 +6,15 @@
 
 ## 背景
 
-现有服务使用 SQLAlchemy，并且本地 Compose 仍以 MySQL 为主。迁移计划要求事件、快照、任务、Outbox、租户隔离和 RLS 进入同一个权威数据库。首版若同时支持 MySQL、PostgreSQL 和 SQLite，会把 JSON、锁、事务隔离和行级安全的差异带入每个业务路径。
+现有服务使用 SQLAlchemy，并且本地 Compose 仍以 MySQL 为主。迁移计划要求事件、快照与任务进入同一个权威数据库。首版若同时支持 MySQL、PostgreSQL 和 SQLite，会把 JSON、锁、事务隔离和行级安全的差异带入每个业务路径。
 
 ## 决策
 
 迁移后的生产部署和所有持久化集成测试只支持 PostgreSQL。SQLite 仅允许用于无数据库的纯引擎单元测试或轻量演示；旧 Python 服务继续按现有方式运行，直到切流完成。
 
-新数据库设计使用 PostgreSQL 原生能力，包括 `jsonb`、事务行锁、`FOR UPDATE SKIP LOCKED` 和 Row-Level Security。应用层租户授权仍是第一道边界，RLS 作为纵深防御。
+新数据库设计使用 PostgreSQL 原生能力，包括 `jsonb`、事务行锁和 `FOR UPDATE SKIP LOCKED`。
+
+2026-10-15 更新（ADR-008）：租户层与 Row-Level Security 已删除。本决策（生产只用 PostgreSQL）不受影响。
 
 ## 后果
 
