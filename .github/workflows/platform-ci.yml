@@ -43,24 +43,20 @@ jobs:
           node-version-file: ".nvmrc"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run build:platform
-      - run: pnpm run typecheck:web
-      - run: pnpm run build:web
-      - run: pnpm run test:web
-      - run: pnpm run test:contracts
-      - run: pnpm --filter @vbrpg/db test
-      - run: pnpm run test:platform
-      - run: pnpm run db:migrate:platform
+      - run: pnpm run build
+      - run: pnpm run typecheck
+      - run: pnpm run test
+      - run: pnpm run migrate
         env:
           DATABASE_URL: postgres://vbrpg:vbrpgpassword@localhost:5432/vbrpg_platform
-      - run: pnpm --filter @vbrpg/db test:integration
+      - run: pnpm run test:db
         env:
           DATABASE_URL: postgres://vbrpg:vbrpgpassword@localhost:5432/vbrpg_platform
       # Down migrations must be runnable, not just documented.
-      - run: pnpm --filter @vbrpg/db migrate:down -- --steps=1
+      - run: pnpm run migrate:down -- --steps=1
         env:
           DATABASE_URL: postgres://vbrpg:vbrpgpassword@localhost:5432/vbrpg_platform
-      - run: pnpm run db:migrate:platform
+      - run: pnpm run migrate
         env:
           DATABASE_URL: postgres://vbrpg:vbrpgpassword@localhost:5432/vbrpg_platform
       # Advisory report only: the repository already carries open high-severity

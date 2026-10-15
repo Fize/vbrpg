@@ -4,20 +4,18 @@
   "private": true,
   "packageManager": "pnpm@11.22.0",
   "scripts": {
-    "bootstrap:platform-admin": "pnpm --filter @vbrpg/api exec tsx scripts/bootstrap-admin.ts",
-    "build:contracts": "pnpm --filter @vbrpg/contracts build",
-    "build:engine": "pnpm --filter @vbrpg/workflow-engine... build",
-    "build:platform": "pnpm --filter @vbrpg/api... build && pnpm --filter @vbrpg/worker... build && pnpm --filter @vbrpg/db build",
-    "build:web": "pnpm --filter @vbrpg/web build",
-    "check:provider-endpoint": "pnpm --filter @vbrpg/api check:provider-endpoint",
-    "db:migrate:platform": "pnpm --filter @vbrpg/db migrate",
-    "migrate:down:platform": "pnpm --filter @vbrpg/db migrate:down",
-    "test:contracts": "pnpm --filter @vbrpg/contracts test",
-    "test:db": "pnpm --filter @vbrpg/db test",
-    "test:engine": "pnpm --filter @vbrpg/workflow-engine... test",
-    "test:golden:legacy": "PYTHONPATH=backend/scripts python3 backend/scripts/verify_werewolf_golden_trace.py",
-    "test:platform": "pnpm --filter @vbrpg/api... test && pnpm --filter @vbrpg/worker test && pnpm --filter @vbrpg/runtime test",
-    "test:web": "pnpm --filter @vbrpg/web test",
-    "typecheck:web": "pnpm --filter @vbrpg/web typecheck"
+    "build": "pnpm --filter @vbrpg/platform build",
+    "typecheck": "pnpm --filter @vbrpg/platform typecheck",
+    "test": "pnpm --filter @vbrpg/platform test",
+    "test:db": "pnpm --filter @vbrpg/platform test:db",
+    "test:e2e": "pnpm --filter @vbrpg/platform test:e2e",
+    "dev": "pnpm --filter @vbrpg/platform dev",
+    "dev:web": "pnpm --filter @vbrpg/platform dev:web",
+    "dev:worker": "pnpm --filter @vbrpg/platform dev:worker",
+    "migrate": "pnpm --filter @vbrpg/platform migrate",
+    "migrate:down": "pnpm --filter @vbrpg/platform migrate:down",
+    "bootstrap-admin": "pnpm --filter @vbrpg/platform bootstrap-admin",
+    "check:provider-endpoint": "pnpm --filter @vbrpg/platform check:provider-endpoint",
+    "test:golden:legacy": "PYTHONPATH=backend/scripts python3 backend/scripts/verify_werewolf_golden_trace.py"
   }
 }

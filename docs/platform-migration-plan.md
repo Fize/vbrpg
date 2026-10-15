@@ -14,7 +14,7 @@
 本计划采用以下结论：
 
 1. 后端迁移到 TypeScript 是合理的，但应按领域边界重构，不能逐行翻译现有 Python 服务。
-2. **游戏逻辑是代码，不是平台解释的 JSON**：一个游戏一个 TypeScript 模块（`packages/games/<slug>`），平台只提供对局底座与中立内核。原先的声明式 DSL 路线已于 2026-10-15 撤除，见 §16 第六轮。
+2. **游戏逻辑是代码，不是平台解释的 JSON**：一个游戏一个 TypeScript 模块（`apps/platform/src/server/games/<slug>.ts`），平台只提供对局底座与中立内核。原先的声明式 DSL 路线已于 2026-10-15 撤除，见 §16 第六轮。
 3. 编排库（LangGraph JS 等）是游戏代码的内部选择，平台不依赖、也不暴露它们（见 §7）。
 4. 生产环境只支持 PostgreSQL，避免第一版同时承担 MySQL、PostgreSQL、SQLite 三套语义差异。SQLite 只运行纯内核单元测试和轻量本地演示；所有集成测试与 CI 必须运行真实 PostgreSQL。
 5. 对局在创建时固定它使用的代码版本；升级游戏代码不影响进行中的对局。
@@ -28,7 +28,7 @@
 ### 2.1 Beta 目标
 
 - 一个用户可以创建或加入租户，并拥有明确的租户角色。
-- 平台内置的游戏可以被创建为对局、开始、并跑到结束（游戏代码在 `packages/games/*` 维护）。
+- 平台内置的游戏可以被创建为对局、开始、并跑到结束（游戏代码在 `apps/platform/src/server/games/*` 维护）。
 - 玩家可以加入对局，在断线、服务重启后继续。
 - 一个对局可以同时包含真人和 AI 席位。
 - 玩家只能看到自己有权看到的信息，且这一点由平台强制（投影 fail-closed），不依赖游戏代码自觉。
@@ -64,7 +64,7 @@
 flowchart LR
     Browser[Vue 3 + TypeScript] -->|REST| API[Fastify API]
     API --> Auth[身份与租户授权]
-    API --> Games[游戏模块 packages/games/*]
+    API --> Games[游戏模块 apps/platform/src/server/games/*]
     Games --> Engine[中立内核：投影 / 重放 / 转换类型]
     API --> DB[(PostgreSQL)]
     Worker[TypeScript Worker] --> DB
@@ -73,21 +73,24 @@ flowchart LR
     Worker -->|按玩家投影广播| Browser
 ```
 
-建议迁移后的仓库结构：
+实际结构（2026-10-15 起）：**一个包、一个镜像、两种角色**。
 
 ```text
-apps/
-  web/                 # Vue 3 + TypeScript
-  api/                 # Fastify REST
-  worker/              # 定时器、Outbox 消费者
-packages/
-  contracts/           # 运行时契约（状态、事件、参与者、等待点、命令、玩家视图）
-  workflow-engine/     # 无数据库、无网络的中立内核：投影、重放、转换类型
-  games/               # 游戏模块，一个游戏一个包（代码，不是 JSON 定义）
-  db/                  # PostgreSQL schema、迁移和仓储实现
+apps/platform/
+  src/shared/          # 契约：Zod schema + 类型（浏览器安全，不许 import node 内建）
+  src/server/          # 进程侧：Fastify 路由、鉴权、存储、worker 轮询、游戏内核
+    game/              # 中立内核：GameModule 接口、注册表、投影、重放
+    db/                # Kysely 类型、仓储、迁移读取
+    runtime/           # 凭据加密、错误形状
+  src/browser/         # Vue 3 控制台（构建成静态资源，由同一进程提供）
+  migrations/          # SQL 迁移
+  scripts/             # migrate / bootstrap-admin / db-integration / provider check
 legacy/
   python-backend/      # 切换期保留；也可暂时保持当前 backend/ 位置
 ```
+
+三种角色、同一个镜像：`--role=api`（HTTP + 静态资源）、`--role=worker`（队列消费者）、`--role=both`（本地开发）。
+浏览器产物由 api 角色同源提供，因此不再需要 nginx、跨域配置或第二个服务。
 
 推荐技术组合：
 
@@ -102,7 +105,7 @@ legacy/
 
 ### 4.1 游戏包：代码化封装
 
-游戏是普通 TypeScript 模块，放在 `packages/games/<slug>`，一个游戏一个包。平台不解释、也不发布作者上传的定义：
+游戏是普通 TypeScript 模块，放在 `apps/platform/src/server/games/<slug>.ts`，一个游戏一个包。平台不解释、也不发布作者上传的定义：
 
 | 关注点 | 由谁负责 |
 | --- | --- |
@@ -117,25 +120,24 @@ legacy/
 
 ### 4.2 中立内核契约
 
-内核只认接口，不认识任何节点、配置或表达式：
+内核只认接口，不认识任何节点、配置或表达式（实现见 `apps/platform/src/server/game/module.ts`）：
 
 ```ts
 interface GameModule {
   readonly id: string;
   readonly version: string;
-  initialState(input: CreateInstanceInput): GameState;
-  transition(state: GameState, event: GameEvent): {
-    state: GameState;
-    events: GameEvent[];
-    commands: ExternalCommand[];
-  };
-  visibility?: Record<string, unknown>;
+  readonly engineVersion: string;
+  readonly visibility?: Record<string, unknown>;   // 哪个变量谁能看；未声明=没人能看
+  initialState(input: CreateInstanceInput): GameState;   // 角色、发牌、初始变量由游戏决定
+  transition(state: GameState, event: GameEvent): TransitionResult;
 }
+
+class GameRegistry { get(id); require(id); list(); }   // 启动时注册，重复 id 直接拒绝
 ```
 
 `transition` 内不能访问数据库、网络、系统时间或直接调用 LLM。随机数、当前时间和 AI 结果都必须作为显式输入；产生副作用时只输出命令，由 worker 在事务提交后执行。
 
-当前仓库已落地的内核：`projectPlayerView`（公共/角色/个人三档投影，fail-closed）、`replayEvents`（事件重放）、`EngineError` 与 `TransitionResult` 类型。`GameModule` 接口与游戏注册表是下一步工作。
+已落地的内核：`GameModule` 接口 + `GameRegistry` + `createBaseState`（对局外壳）+ `projectPlayerView`（三档投影，fail-closed）+ `replayEvents`（事件重放）+ `EngineError`/`TransitionResult`。
 
 ### 4.3 单次动作的事务协议
 
@@ -265,7 +267,7 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 - [x] `P1-04`：建立 PostgreSQL Compose、迁移命令、测试数据库隔离和种子数据。 — 核验 2026-10-14：`docker-compose.platform.yml` Compose + 迁移 up/down + 独立集成库 `vbrpg_db_integration_clean` + `bootstrap-admin` 种子脚本
 - [/] `P1-05`：配置格式化、lint、单元测试、集成测试、构建和依赖审计 CI。 — 核验 2026-10-14：`platform-ci.yml` 已含 build/typecheck/unit/契约/真实 PG 集成/迁移回滚/`pnpm audit`；缺 lint、格式检查与 E2E
 - [x] `P1-06`：统一 Node 开发版、CI 版和容器版，消除 Vite 与 Node 版本冲突。 — 核验 2026-10-14：`.nvmrc` 24、CI `node-version-file`、pnpm 11.22.0、Docker `node:24-alpine` 已一致
-- [x] `P1-07`：从共享 schema 生成或推导前后端类型，禁止手写重复 DTO。 — 核验 2026-10-14：契约由 Zod 定义并导出 `z.infer` 类型，前后端共用 `@vbrpg/contracts`
+- [x] `P1-07`：从共享 schema 生成或推导前后端类型，禁止手写重复 DTO。 — 核验 2026-10-14：契约由 Zod 定义并导出 `z.infer` 类型，前后端共用 `src/shared`
 
 交付物：可独立部署的新 API/worker 空壳、共享契约、PostgreSQL 开发环境和绿色 CI。
 
@@ -319,12 +321,12 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 
 ### Phase 4：第一个代码化游戏（狼人杀）（3～4 人周）
 
-目标：用真实复杂游戏证明平台抽象足够——游戏逻辑写在 `packages/games/werewolf`，**平台代码里没有一行狼人杀规则**。
+目标：用真实复杂游戏证明平台抽象足够——游戏逻辑写在 `apps/platform/src/server/games/werewolf.ts`，**平台代码里没有一行狼人杀规则**。
 
 任务（2026-10-15 撤除 DSL 后的现状）：
 
 - [/] `P4-01`：从现有 Python 逻辑提取角色、阶段、动作、胜负、超时和可见性规格。 — 角色/阶段/动作/胜负说明已提取；超时与可见性规格未提取。
-- [ ] `P4-02`：把狼人杀写成代码化游戏模块，而不是在平台里增加狼人杀专用分支。 — 未开始：DSL 版本（多回合夹具）已随 DSL 撤除一并删除；新的验收目标是 `packages/games/werewolf` 模块 + 对局端到端跑通。
+- [ ] `P4-02`：把狼人杀写成代码化游戏模块，而不是在平台里增加狼人杀专用分支。 — 未开始：DSL 版本（多回合夹具）已随 DSL 撤除一并删除；新的验收目标是 `apps/platform/src/server/games/werewolf.ts` 模块 + 对局端到端跑通。
 - [x] ~~`P4-03` 让 prompt、模型参数与输出 schema 随游戏版本保存~~ — 撤销：AI 行为现由游戏代码自己组织，平台只提供模型目录与凭据。
 - [ ] `P4-04`：用 Phase 0 黄金轨迹比较旧系统和新游戏模块；差异必须归类为缺陷修复或经批准的规则变更。 — 未实现（旧 Python 引擎已在 `79cf54e` 删除，黄金轨迹 fixture 降级为历史快照）。
 - [ ] `P4-05`：实现旧用户、历史对局和默认 `legacy` 租户的数据回填脚本，并提供 dry-run 报告。 — 未实现。
@@ -555,7 +557,7 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 
 ### 第六轮（2026-10-15）：撤除 DSL，改为代码化游戏封装
 
-**决策**：放弃"作者用 JSON 描述游戏、平台校验并解释执行"的路线。游戏逻辑改为 TypeScript 模块（`packages/games/<slug>`），平台只保留对局底座与中立内核。理由：DSL 的维护面（schema、校验器、表达式、解释器、发布流程）远大于它带来的收益，而代码化游戏直接获得类型检查、单元测试与调试器。
+**决策**：放弃"作者用 JSON 描述游戏、平台校验并解释执行"的路线。游戏逻辑改为 TypeScript 模块（`apps/platform/src/server/games/<slug>.ts`），平台只保留对局底座与中立内核。理由：DSL 的维护面（schema、校验器、表达式、解释器、发布流程）远大于它带来的收益，而代码化游戏直接获得类型检查、单元测试与调试器。
 
 **删除**（提交 `refactor: drop the declarative game DSL, keep the neutral kernel`，60 个文件、-6881 行）：
 
@@ -571,13 +573,25 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 
 **代价（明确记录）**：不再有发布期静态校验；不再"作者零代码"；游戏代码必须自己遵守"`transition` 是纯函数"这条约束；隐藏信息只能通过内核投影保证，游戏代码不得绕过。
 
+### 第七轮（2026-10-15）：收敛为单包单镜像（ADR-007）
+
+**决策**：`packages/{contracts,db,runtime,workflow-engine}` + `apps/{api,worker,web}` 合并为一个 `apps/platform`：
+
+- `src/shared`（契约）、`src/server`（进程侧 + 游戏内核）、`src/browser`（控制台）三个 tsconfig project；
+- 一个镜像两种角色：`--role=api|worker|both`，api 角色同源提供浏览器产物（不再需要 nginx、第二个镜像与跨域配置）；
+- 内核从包变成 `src/server/game/`，`workflow-engine` 这个名字与它的 DSL 词汇一起消失（`currentNodeId`/`waiting.nodeId` 改为 `stepId`）；
+- 契约的 `aiGenerate` 外部命令一并删除（平台当下只能执行 `schedule` 与 `emit`，AI 命令随 AI 工作回归）。
+
+**新增能力**：`GameModule` 接口 + `GameRegistry` + `createBaseState`（§4.2），内核首次有明确的消费者契约。
+
+**代价**：失去包边界强制的无环依赖图，改由 tsconfig project 与评审保证；真要拆包时是机械操作（ADR-007 记录了升级路径）。
+
 **下一步建议顺序**：
 
-1. **游戏模块接口与注册表**：把 §4.2 的 `GameModule` 落成代码（接口 + 加载/校验 + 版本常量），并加一个最小示例模块与内核测试。
-2. **对局 HTTP 入口**：创建对局、提交事件、读取自己的投影，复用已保留的对局底座与幂等约束。
-3. **第一个代码化游戏（狼人杀）**：`packages/games/werewolf` + 回归夹具（标准对局脚本 + 期望事件序列 + 隐藏信息断言）。
-4. **AI 席位**：游戏代码内部调用模型，平台提供模型目录与凭据解析；用量与成本指标随后续阶段补齐。
-5. **工程门禁**：CI 增加 lint 与格式检查（`P1-05` 未收口）；密钥轮换流程（`P2-06`）；处置 `pnpm audit` 的 15 high。
+1. **对局 HTTP 入口**：创建对局、提交事件、读取自己的投影，复用已保留的对局底座与幂等约束（`GameRegistry` 已就位）。
+2. **第一个代码化游戏（狼人杀）**：`apps/platform/src/server/games/werewolf.ts` + 回归夹具（标准对局脚本 + 期望事件序列 + 隐藏信息断言）。
+3. **AI 席位与 mailbox**：游戏代码内部调用模型，平台提供模型目录与凭据解析；消息/会话设计见 §16 第六轮的 mailbox 讨论记录。
+4. **工程门禁**：CI 增加 lint 与格式检查（`P1-05` 未收口，边界现在依赖 lint）；密钥轮换流程（`P2-06`）；处置 `pnpm audit` 的 15 high。
 
 ## 17. 参考资料
 

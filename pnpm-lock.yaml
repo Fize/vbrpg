@@ -8,58 +8,42 @@ importers:
 
   .: {}
 
-  apps/api:
-    dependencies:
-      '@vbrpg/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@vbrpg/db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      '@vbrpg/runtime':
-        specifier: workspace:*
-        version: link:../../packages/runtime
-      fastify:
-        specifier: ^5.6.1
-        version: 5.12.1
-      zod:
-        specifier: ^3.25.76
-        version: 3.25.76
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.3
-      tsx:
-        specifier: ^4.20.6
-        version: 4.23.12
-      typescript:
-        specifier: ^5.9.0
-        version: 5.9.3
-      vitest:
-        specifier: 4.1.10
-        version: 4.1.10(@types/node@24.13.3)(happy-dom@21.0.1)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12))
-
-  apps/web:
+  apps/platform:
     dependencies:
       '@element-plus/icons-vue':
         specifier: ^2.3.2
         version: 2.3.2(vue@3.5.43(typescript@5.9.3))
-      '@vbrpg/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
       element-plus:
         specifier: ^2.14.7
         version: 2.14.7(vue@3.5.43(typescript@5.9.3))
+      fastify:
+        specifier: ^5.6.1
+        version: 5.12.1
+      kysely:
+        specifier: ^0.28.2
+        version: 0.28.17
+      pg:
+        specifier: ^8.16.3
+        version: 8.23.0
       vue:
         specifier: 3.5.43
         version: 3.5.43(typescript@5.9.3)
       vue-router:
         specifier: ^4.6.4
         version: 4.6.4(vue@3.5.43(typescript@5.9.3))
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
       '@playwright/test':
         specifier: ^1.64.0
         version: 1.64.0
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      '@types/pg':
+        specifier: ^8.15.5
+        version: 8.23.1
       '@vitejs/plugin-vue':
         specifier: ^6.0.10
         version: 6.0.10(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12))(vue@3.5.43(typescript@5.9.3))
@@ -69,6 +53,9 @@ importers:
       happy-dom:
         specifier: ^21.0.1
         version: 21.0.1
+      tsx:
+        specifier: ^4.20.6
+        version: 4.23.12
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -81,94 +68,6 @@ importers:
       vue-tsc:
         specifier: ^3.3.13
         version: 3.3.13(typescript@5.9.3)
-
-  apps/worker:
-    dependencies:
-      '@vbrpg/db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      '@vbrpg/workflow-engine':
-        specifier: workspace:*
-        version: link:../../packages/workflow-engine
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.3
-      tsx:
-        specifier: ^4.20.6
-        version: 4.23.12
-      typescript:
-        specifier: ^5.9.0
-        version: 5.9.3
-      vitest:
-        specifier: 4.1.10
-        version: 4.1.10(@types/node@24.13.3)(happy-dom@21.0.1)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12))
-
-  packages/contracts:
-    dependencies:
-      zod:
-        specifier: ^3.25.76
-        version: 3.25.76
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.3
-      typescript:
-        specifier: ^5.9.0
-        version: 5.9.3
-      vitest:
-        specifier: 4.1.10
-        version: 4.1.10(@types/node@24.13.3)(happy-dom@21.0.1)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12))
-
-  packages/db:
-    dependencies:
-      kysely:
-        specifier: ^0.28.2
-        version: 0.28.17
-      pg:
-        specifier: ^8.16.3
-        version: 8.23.0
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.3
-      '@types/pg':
-        specifier: ^8.15.5
-        version: 8.23.1
-      tsx:
-        specifier: ^4.20.6
-        version: 4.23.12
-      typescript:
-        specifier: ^5.9.0
-        version: 5.9.3
-
-  packages/runtime:
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.3
-      typescript:
-        specifier: ^5.9.0
-        version: 5.9.3
-      vitest:
-        specifier: 4.1.10
-        version: 4.1.10(@types/node@24.13.3)(happy-dom@21.0.1)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12))
-
-  packages/workflow-engine:
-    dependencies:
-      '@vbrpg/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.3
-      typescript:
-        specifier: ^5.9.0
-        version: 5.9.3
-      vitest:
-        specifier: 4.1.10
-        version: 4.1.10(@types/node@24.13.3)(happy-dom@21.0.1)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.12))
 
 packages:
 
@@ -1115,10 +1014,6 @@ packages:
   sonic-boom@4.2.1:
     resolution: {integrity: sha512-w6AxtubXa2wTXAUsZMMWERrsIRAdrK0Sc+FUytWvYAhBJLyuI4llrMIC1DtlNSdI99EI86KZum2MMq3EAZlF9Q==}
 
-  source-map-js@1.2.1:
-    resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
-    engines: {node: '>=0.10.0'}
-
   source-map-js@1.2.2:
     resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
     engines: {node: '>=0.10.0'}
@@ -1619,7 +1514,7 @@ snapshots:
       estree-walker: 2.0.2
       magic-string: 0.30.21
       postcss: 8.5.29
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   '@vue/compiler-ssr@3.5.43':
     dependencies:
@@ -2148,8 +2043,6 @@ snapshots:
   sonic-boom@4.2.1:
     dependencies:
       atomic-sleep: 1.0.0
-
-  source-map-js@1.2.1: {}
 
   source-map-js@1.2.2: {}
 

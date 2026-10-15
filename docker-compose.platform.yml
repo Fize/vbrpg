@@ -1,3 +1,4 @@
+# One image, two roles: the api role also serves the browser bundle, so everything is same-origin.
 services:
   platform-postgres:
     image: postgres:16-alpine
@@ -18,9 +19,9 @@ services:
   platform-migrate:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
-    image: vbrpg-platform-runtime:local
-    command: ["pnpm", "--filter", "@vbrpg/db", "migrate"]
+      dockerfile: apps/platform/Dockerfile
+    image: vbrpg-platform:local
+    command: ["pnpm", "--filter", "@vbrpg/platform", "migrate"]
     environment:
       DATABASE_URL: postgres://vbrpg:${PLATFORM_POSTGRES_PASSWORD:-vbrpgpassword}@platform-postgres:5432/vbrpg_platform
     depends_on:
@@ -28,11 +29,13 @@ services:
         condition: service_healthy
     restart: "no"
 
-  platform-api:
+  platform:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
-    image: vbrpg-platform-runtime:local
+      dockerfile: apps/platform/Dockerfile
+    image: vbrpg-platform:local
+    ports:
+      - "8080:3000"
     environment:
       # Local HTTP testing: production requires https origins and Secure cookies.
       NODE_ENV: development
@@ -40,6 +43,7 @@ services:
       LOG_LEVEL: ${PLATFORM_LOG_LEVEL:-info}
       DATABASE_URL: postgres://vbrpg:${PLATFORM_POSTGRES_PASSWORD:-vbrpgpassword}@platform-postgres:5432/vbrpg_platform
       PLATFORM_CREDENTIAL_KEY: ${PLATFORM_CREDENTIAL_KEY:-}
+      # Same origin now: the console is served by this process.
       TRUSTED_WEB_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
     depends_on:
       platform-migrate:
@@ -47,21 +51,20 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - >-
+        - >
           node -e "fetch('http://127.0.0.1:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
       interval: 5s
       timeout: 5s
       retries: 12
 
-  platform-web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-    ports:
-      - "8080:80"
+  platform-worker:
+    image: vbrpg-platform:local
+    command: ["node", "apps/platform/dist/server/main.js", "--role=worker"]
+    environment:
+      DATABASE_URL: postgres://vbrpg:${PLATFORM_POSTGRES_PASSWORD:-vbrpgpassword}@platform-postgres:5432/vbrpg_platform
     depends_on:
-      platform-api:
-        condition: service_healthy
+      platform-migrate:
+        condition: service_completed_successfully
 
 volumes:
   platform_postgres_data:

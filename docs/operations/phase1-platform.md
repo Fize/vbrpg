@@ -1,7 +1,7 @@
 # Phase 1 Operations — Platform Accounts and Provider Configuration
 
 Covers administrator bootstrap, account provisioning, session behaviour, provider credential
-handling and rollback for the TypeScript platform (`apps/api`, `packages/db`). Security
+handling and rollback for the TypeScript platform (`apps/platform`: `src/server`, `src/browser`, `src/shared`). Security
 boundaries are defined in `docs/security/phase1-auth-provider-threat-model.md` and
 `docs/design/phase1-auth-provider-secure-design.md`; the HTTP contract is frozen in
 `docs/api/phase1-openapi.yaml`.
@@ -16,7 +16,6 @@ boundaries are defined in `docs/security/phase1-auth-provider-threat-model.md` a
 | `TRUSTED_WEB_ORIGINS` | yes in production | Comma-separated exact origins allowed for cookie-authenticated writes |
 | `PORT`, `LOG_LEVEL`, `NODE_ENV` | no | Server basics |
 | `AUTH_TOKEN_SECRET` | legacy | Only used by the legacy `/v1/tenant/*` bearer path |
-| `AI_TIMEOUT_MS`, `AI_MAX_INPUT_TOKENS`, `AI_CONTEXT_WINDOW_TOKENS` | no | AI command caps for `apps/worker` (and the MVP demo client) |
 
 Startup fails when production configuration is weak:
 
@@ -41,17 +40,19 @@ export DATABASE_URL=postgres://vbrpg:vbrpgpassword@localhost:5433/vbrpg_platform
 export PLATFORM_CREDENTIAL_KEY=$(node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))")
 
 pnpm install --frozen-lockfile
-pnpm run build:platform
-pnpm run db:migrate:platform
-pnpm --filter @vbrpg/api dev
-pnpm --filter @vbrpg/worker dev
+pnpm run build
+pnpm run migrate
+pnpm dev          # api role + static console
+pnpm dev:worker   # worker role
+pnpm dev:web      # vite dev server for the console
 ```
 
 ### 2.1 Docker stack (browser testing)
 
-`docker-compose.platform.yml` can also run the whole stack — PostgreSQL, migrations, API and nginx.
-Only the web port is published; the API is reachable solely through nginx inside the compose
-network, so a host process on port 3000 does not conflict.
+`docker-compose.platform.yml` can also run the whole stack — PostgreSQL, migrations, one `platform`
+service (api role, which also serves the built console) and a `platform-worker` service that reuses the
+same image with `--role=worker`. Only the platform port is published, so a host process on port 3000
+does not conflict.
 
 ```bash
 # One-time: the local master key that seals provider credentials (see section 1).
@@ -59,11 +60,11 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 # Store it as PLATFORM_CREDENTIAL_KEY in .env (git-ignored), optionally with PLATFORM_POSTGRES_PASSWORD.
 
 docker compose -f docker-compose.platform.yml up -d --build
-docker compose -f docker-compose.platform.yml ps     # platform-api healthy, platform-migrate exited 0
+docker compose -f docker-compose.platform.yml ps     # platform healthy, platform-migrate exited 0
 
 # Create the first administrator; the password is passed through and never written to disk.
-docker compose -f docker-compose.platform.yml exec platform-api \
-  pnpm --filter @vbrpg/api exec tsx scripts/bootstrap-admin.ts --username admin --password '<12+ chars>'
+docker compose -f docker-compose.platform.yml exec platform \
+  pnpm bootstrap-admin --username admin --password '<12+ chars>'
 ```
 
 Then open `http://localhost:8080`. The stack deliberately runs `NODE_ENV=development`: session
@@ -161,7 +162,7 @@ Private and on-premises endpoints are intentionally unsupported in Phase 1.
 ## 6. Model credentials
 
 Model providers and their models are managed through the admin endpoints in section 5. Their API keys
-are sealed with `PLATFORM_CREDENTIAL_KEY` (AES-GCM, bound to the provider id) inside `packages/runtime`
+are sealed with `PLATFORM_CREDENTIAL_KEY` (AES-GCM, bound to the provider id) in `src/server/runtime`
 and are never returned by any endpoint.
 
 There is no platform-side AI call chain right now: the AI command queue, its retries, fallbacks and the
@@ -173,7 +174,7 @@ code-based game runtime.
 
 The match foundation is still migrated and enforced: `game_instances`, `game_participants`,
 `game_events`, `game_snapshots`, `player_actions`, `pending_commands`, `scheduled_jobs` and
-`outbox_events`, with tenant RLS over all of them. `apps/worker` still claims leases from its queues and
+`outbox_events`, with tenant RLS over all of them. The worker role still claims leases from its queues and
 publishes outbox rows.
 
 What is gone: the HTTP surface (`POST /instances`, `GET /instances/:id`, the per-seat projection, the
@@ -220,7 +221,7 @@ place on rollback. `.down.sql` files are never applied as forward migrations.
 - [ ] `pnpm run build:platform` and `pnpm run test:platform` pass.
 - [ ] `pnpm run test:contracts` and `pnpm run test:db` pass.
 - [ ] Migrations apply and roll back on a fresh database, then re-apply.
-- [ ] `packages/db/scripts/integration.ts` passes against PostgreSQL.
+- [ ] `pnpm run test:db` passes against PostgreSQL.
 - [ ] Browser walkthrough: bootstrap → forced password change → login → logout, plus
       administrator provider/model configuration and a connection test.
 - [ ] A regular user receives 403 on every `/v1/admin/*` route.

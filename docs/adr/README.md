@@ -8,5 +8,6 @@
 | [ADR-003](./ADR-003-contract-validation-zod.md) | 使用 Zod 作为共享契约的运行时校验工具 | Accepted |
 | [ADR-004](./ADR-004-data-access-kysely.md) | 使用 Kysely 作为 PostgreSQL 查询构建器 | Accepted |
 | [ADR-005](./ADR-005-resource-storage.md) | Beta 首版小型二进制资源使用 PostgreSQL `bytea` | Accepted |
+| [ADR-007](./ADR-007-single-package-one-image.md) | 单包、单镜像、两种角色 | Accepted |
 
 已撤除：ADR-002（执行器边界）与 ADR-006（agent 会话）随 2026-10-15 的 DSL 撤除一并下线——平台不再内置游戏 DSL 或编排运行时，游戏逻辑是代码化模块（见主计划 §4/§5 与 §16 第六轮）。
