@@ -19,7 +19,8 @@
     "bootstrap-admin": "tsx scripts/bootstrap-admin.ts",
     "check:provider-endpoint": "tsx scripts/provider-connection-check.ts",
     "test:db": "tsx scripts/db-integration.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "check:model-call": "tsx scripts/model-call-check.ts"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

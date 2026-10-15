@@ -15,6 +15,7 @@
     "migrate": "pnpm --filter @vbrpg/platform migrate",
     "migrate:down": "pnpm --filter @vbrpg/platform migrate:down",
     "bootstrap-admin": "pnpm --filter @vbrpg/platform bootstrap-admin",
-    "check:provider-endpoint": "pnpm --filter @vbrpg/platform check:provider-endpoint"
+    "check:provider-endpoint": "pnpm --filter @vbrpg/platform check:provider-endpoint",
+    "check:model-call": "pnpm --filter @vbrpg/platform check:model-call"
   }
 }
