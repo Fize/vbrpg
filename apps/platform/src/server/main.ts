@@ -5,13 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
-import {
-  closeDb,
-  createDb,
-  getActiveAuthSession,
-  getTenantMembership,
-  withTenantContext,
-} from "./db/index.js";
+import { closeDb, createDb } from "./db/index.js";
 import { createPlatformStore } from "./store.js";
 import { createWorker } from "./worker.js";
 
@@ -74,25 +68,7 @@ async function startHttp(databaseUrl: string | undefined): Promise<void> {
   const db = databaseUrl === undefined ? undefined : createDb({ databaseUrl });
   const app = buildApp({
     config,
-    ...(db
-      ? {
-        platformStore: createPlatformStore(db),
-        sessionLookup: async (sessionId, tenantId) =>
-          withTenantContext(db, { tenantId }, async (transaction) => {
-            const session = await getActiveAuthSession(transaction, { tenantId }, sessionId);
-            if (!session) return undefined;
-            const membership = await getTenantMembership(transaction, { tenantId }, session.user_id);
-            if (!membership) return undefined;
-            return {
-              userId: session.user_id,
-              tenantId: session.tenant_id,
-              role: membership.role,
-              expiresAt: session.expires_at,
-              revokedAt: session.revoked_at,
-            };
-          }),
-      }
-      : {}),
+    ...(db ? { platformStore: createPlatformStore(db) } : {}),
   });
 
   const webRoot = fileURLToPath(new URL("../browser", import.meta.url));
@@ -112,7 +88,7 @@ async function startWorker(databaseUrl: string | undefined): Promise<void> {
     throw new Error("DATABASE_URL is required for the worker role");
   }
   const db = createDb({ databaseUrl });
-  // Handlers arrive with the game runtime; the claim/lease/outbox loop is already in place.
+  // Handlers arrive with the game runtime; the claim/lease loop is already in place.
   const worker = createWorker(
     {
       workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,

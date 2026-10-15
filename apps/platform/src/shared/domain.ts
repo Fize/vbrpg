@@ -14,7 +14,6 @@ const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
 
 export const actorRefSchema = z.object({
   userId: idSchema,
-  tenantId: idSchema,
   participantId: idSchema.optional(),
 });
 

@@ -1,7 +1,6 @@
 export { closeDb, createDb } from "./client.js";
 export type { DbOptions } from "./client.js";
 export { downMigrationFileName, selectUpMigrationFiles } from "./migrations.js";
-export { PLATFORM_TENANT_ID } from "./types.js";
 export {
   bootstrapPlatformAdmin,
   countActiveAdmins,
@@ -16,7 +15,6 @@ export {
   getProviderModelWithProvider,
   listPlatformUsers,
   listProvidersWithModels,
-  platformContext,
   recordAuditLog,
   revokeAuthSession,
   revokeUserSessions,
@@ -33,25 +31,18 @@ export type {
   ProviderWithModels,
 } from "./platform-repositories.js";
 export {
-  claimOutboxEvents,
   claimPendingCommands,
   claimScheduledJobs,
-  completeOutboxEvent,
-  createGameInstance,
   completePendingCommand,
   completeScheduledJob,
+  createGameInstance,
   failLeasedTask,
-  getActiveAuthSession,
   getGameInstance,
   getLatestSnapshot,
-  getTenantMembership,
-  listActiveTenantIds,
-  recordPlayerAction,
   releaseLease,
   setInstanceStatus,
-  withTenantContext,
 } from "./repositories.js";
-export type { DbExecutor, LeaseOptions, TenantContext } from "./repositories.js";
+export type { DbExecutor, LeaseOptions } from "./repositories.js";
 export type {
   AuthSessionsTable,
   AuditLogsTable,
@@ -61,18 +52,11 @@ export type {
   GameParticipantsTable,
   GameSnapshotsTable,
   JsonObject,
-  OutboxEventsTable,
   PendingCommandsTable,
   PlatformRole,
-  PlayerActionsTable,
   ProviderModelsTable,
   ProviderType,
   ProvidersTable,
   ScheduledJobsTable,
-  TenantSecretsTable,
-  TenantMembershipsTable,
-  TenantsTable,
-  TenantRole,
-  TenantStatus,
   UsersTable,
 } from "./types.js";

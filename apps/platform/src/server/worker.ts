@@ -1,12 +1,9 @@
 import {
-  claimOutboxEvents,
   claimPendingCommands,
   claimScheduledJobs,
-  completeOutboxEvent,
   completePendingCommand,
   completeScheduledJob,
   failLeasedTask,
-  listActiveTenantIds,
   type DbExecutor,
 } from "./db/index.js";
 
@@ -27,17 +24,14 @@ export interface WorkerRunResult {
 
 type PendingCommand = Awaited<ReturnType<typeof claimPendingCommands>>[number];
 type ScheduledJob = Awaited<ReturnType<typeof claimScheduledJobs>>[number];
-type OutboxEvent = Awaited<ReturnType<typeof claimOutboxEvents>>[number];
 
 export interface WorkerHandlers {
   handleCommand?: (command: PendingCommand) => Promise<void>;
   handleScheduledJob?: (job: ScheduledJob) => Promise<void>;
-  publishOutbox?: (event: OutboxEvent) => Promise<void>;
 }
 
 export interface WorkerDependencies {
   db: DbExecutor;
-  listTenantIds?: () => Promise<string[]>;
   handlers: WorkerHandlers;
 }
 
@@ -55,85 +49,52 @@ export function createWorker(
         return result;
       }
 
-      const tenantIds = dependencies.listTenantIds
-        ? await dependencies.listTenantIds()
-        : await listActiveTenantIds(dependencies.db);
-      for (const tenantId of tenantIds) {
-        if (dependencies.handlers.handleCommand) {
-          const commands = await claimPendingCommands(dependencies.db, {
-            tenantId,
-            workerId: config.workerId,
-            leaseMs: config.leaseMs,
-          });
-          result.claimed += commands.length;
-          for (const command of commands) {
-            try {
-              await dependencies.handlers.handleCommand(command);
-              await completePendingCommand(dependencies.db, { tenantId }, command.id, config.workerId);
-              result.processed += 1;
-            } catch (error) {
-              await failLeasedTask(
-                dependencies.db,
-                { tenantId },
-                "pending_commands",
-                command.id,
-                config.workerId,
-                error instanceof Error ? error.message : String(error),
-              );
-            }
-          }
-        }
-
-        if (dependencies.handlers.handleScheduledJob) {
-          const jobs = await claimScheduledJobs(dependencies.db, {
-            tenantId,
-            workerId: config.workerId,
-            leaseMs: config.leaseMs,
-          });
-          result.claimed += jobs.length;
-          for (const job of jobs) {
-            try {
-              await dependencies.handlers.handleScheduledJob(job);
-              await completeScheduledJob(dependencies.db, { tenantId }, job.id, config.workerId);
-              result.processed += 1;
-            } catch (error) {
-              await failLeasedTask(
-                dependencies.db,
-                { tenantId },
-                "scheduled_jobs",
-                job.id,
-                config.workerId,
-                error instanceof Error ? error.message : String(error),
-              );
-            }
-          }
-        }
-
-        if (dependencies.handlers.publishOutbox) {
-          const events = await claimOutboxEvents(dependencies.db, {
-            tenantId,
-            workerId: config.workerId,
-            leaseMs: config.leaseMs,
-          });
-          result.claimed += events.length;
-          for (const event of events) {
-            try {
-              await dependencies.handlers.publishOutbox(event);
-              await completeOutboxEvent(dependencies.db, { tenantId }, event.id, config.workerId);
-              result.processed += 1;
-            } catch (error) {
-              await failLeasedTask(
-                dependencies.db,
-                { tenantId },
-                "outbox_events",
-                event.id,
-                config.workerId,
-                error instanceof Error ? error.message : String(error),
-              );
-            }
+      if (dependencies.handlers.handleCommand) {
+        const commands = await claimPendingCommands(dependencies.db, {
+          workerId: config.workerId,
+          leaseMs: config.leaseMs,
+        });
+        result.claimed += commands.length;
+        for (const command of commands) {
+          try {
+            await dependencies.handlers.handleCommand(command);
+            await completePendingCommand(dependencies.db, command.id, config.workerId);
+            result.processed += 1;
+          } catch (error) {
+            await failLeasedTask(
+              dependencies.db,
+              "pending_commands",
+              command.id,
+              config.workerId,
+              error instanceof Error ? error.message : String(error),
+            );
           }
         }
       }
+
+      if (dependencies.handlers.handleScheduledJob) {
+        const jobs = await claimScheduledJobs(dependencies.db, {
+          workerId: config.workerId,
+          leaseMs: config.leaseMs,
+        });
+        result.claimed += jobs.length;
+        for (const job of jobs) {
+          try {
+            await dependencies.handlers.handleScheduledJob(job);
+            await completeScheduledJob(dependencies.db, job.id, config.workerId);
+            result.processed += 1;
+          } catch (error) {
+            await failLeasedTask(
+              dependencies.db,
+              "scheduled_jobs",
+              job.id,
+              config.workerId,
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+      }
+
       logger.info({ workerId: config.workerId, ...result }, "worker poll completed");
       return result;
     },

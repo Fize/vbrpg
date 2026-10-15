@@ -6,7 +6,6 @@ const configSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   DATABASE_URL: z.string().min(1).optional(),
-  AUTH_TOKEN_SECRET: z.string().min(16).optional(),
   PLATFORM_CREDENTIAL_KEY: z.string().min(1).optional(),
   PLATFORM_CREDENTIAL_KEY_VERSION: z.coerce.number().int().positive().default(1),
   TRUSTED_WEB_ORIGINS: z.string().optional(),
@@ -17,7 +16,6 @@ export interface ApiConfig {
   port: number;
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
   databaseUrl?: string;
-  authTokenSecret?: string;
   credentialKey?: CredentialKey;
   trustedOrigins: string[];
   sessionCookieSecure: boolean;
@@ -61,7 +59,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     port: parsed.PORT,
     logLevel: parsed.LOG_LEVEL,
     ...(parsed.DATABASE_URL === undefined ? {} : { databaseUrl: parsed.DATABASE_URL }),
-    ...(parsed.AUTH_TOKEN_SECRET === undefined ? {} : { authTokenSecret: parsed.AUTH_TOKEN_SECRET }),
     ...(credentialKey === undefined ? {} : { credentialKey }),
     trustedOrigins: resolveTrustedOrigins(parsed),
     // Development stays usable over loopback HTTP; every other environment is https.

@@ -3,16 +3,12 @@ import { sql, type Kysely, type Selectable } from "kysely";
 import type {
   AuthSessionsTable,
   Database,
-  JsonObject,
   PlatformRole,
   ProviderModelsTable,
   ProvidersTable,
   UsersTable,
 } from "./types.js";
-import { PLATFORM_TENANT_ID } from "./types.js";
-import { withTenantContext, type DbExecutor, type TenantContext } from "./repositories.js";
-
-export const platformContext: TenantContext = { tenantId: PLATFORM_TENANT_ID };
+import type { DbExecutor } from "./repositories.js";
 
 export interface PlatformUserRecord {
   id: string;
@@ -63,9 +59,8 @@ export async function listPlatformUsers(db: DbExecutor): Promise<PlatformUserRec
   return rows.map(toPlatformUser);
 }
 
-/** Creates the account and its platform membership together; membership backs the session FK. */
 export async function createPlatformUser(
-  db: Kysely<Database>,
+  db: DbExecutor,
   input: {
     id: string;
     username: string;
@@ -74,34 +69,23 @@ export async function createPlatformUser(
     mustChangePassword?: boolean;
   },
 ): Promise<PlatformUserRecord> {
-  return db.transaction().execute(async (transaction) => {
-    await sql`select set_config('app.tenant_id', ${PLATFORM_TENANT_ID}, true)`.execute(transaction);
-    const row = await transaction
-      .insertInto("users")
-      .values({
-        id: input.id,
-        username: input.username,
-        password_hash: input.passwordHash,
-        platform_role: input.role,
-        is_active: true,
-        must_change_password: input.mustChangePassword ?? true,
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow();
-    await transaction
-      .insertInto("tenant_memberships")
-      .values({
-        tenant_id: PLATFORM_TENANT_ID,
-        user_id: input.id,
-        role: input.role === "admin" ? "admin" : "player",
-      })
-      .execute();
-    return toPlatformUser(row);
-  });
+  const row = await db
+    .insertInto("users")
+    .values({
+      id: input.id,
+      username: input.username,
+      password_hash: input.passwordHash,
+      platform_role: input.role,
+      is_active: true,
+      must_change_password: input.mustChangePassword ?? true,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  return toPlatformUser(row);
 }
 
 export async function updatePlatformUser(
-  db: Kysely<Database>,
+  db: DbExecutor,
   userId: string,
   patch: {
     role?: PlatformRole;
@@ -110,32 +94,21 @@ export async function updatePlatformUser(
     mustChangePassword?: boolean;
   },
 ): Promise<PlatformUserRecord | undefined> {
-  return db.transaction().execute(async (transaction) => {
-    await sql`select set_config('app.tenant_id', ${PLATFORM_TENANT_ID}, true)`.execute(transaction);
-    const row = await transaction
-      .updateTable("users")
-      .set({
-        ...(patch.role === undefined ? {} : { platform_role: patch.role }),
-        ...(patch.active === undefined ? {} : { is_active: patch.active }),
-        ...(patch.passwordHash === undefined ? {} : { password_hash: patch.passwordHash }),
-        ...(patch.mustChangePassword === undefined
-          ? {}
-          : { must_change_password: patch.mustChangePassword }),
-        updated_at: new Date(),
-      })
-      .where("id", "=", userId)
-      .returningAll()
-      .executeTakeFirst();
-    if (row && patch.role !== undefined) {
-      await transaction
-        .updateTable("tenant_memberships")
-        .set({ role: patch.role === "admin" ? "admin" : "player" })
-        .where("tenant_id", "=", PLATFORM_TENANT_ID)
-        .where("user_id", "=", userId)
-        .execute();
-    }
-    return row ? toPlatformUser(row) : undefined;
-  });
+  const row = await db
+    .updateTable("users")
+    .set({
+      ...(patch.role === undefined ? {} : { platform_role: patch.role }),
+      ...(patch.active === undefined ? {} : { is_active: patch.active }),
+      ...(patch.passwordHash === undefined ? {} : { password_hash: patch.passwordHash }),
+      ...(patch.mustChangePassword === undefined
+        ? {}
+        : { must_change_password: patch.mustChangePassword }),
+      updated_at: new Date(),
+    })
+    .where("id", "=", userId)
+    .returningAll()
+    .executeTakeFirst();
+  return row ? toPlatformUser(row) : undefined;
 }
 
 export async function countActiveAdmins(db: DbExecutor): Promise<number> {
@@ -159,16 +132,6 @@ export async function bootstrapPlatformAdmin(
 ): Promise<{ created: boolean }> {
   return db.transaction().execute(async (transaction) => {
     await sql`select pg_advisory_xact_lock(hashtext('vbrpg_admin_bootstrap'))`.execute(transaction);
-    await sql`select set_config('app.tenant_id', ${PLATFORM_TENANT_ID}, true)`.execute(transaction);
-
-    const tenant = await transaction
-      .selectFrom("tenants")
-      .select("id")
-      .where("id", "=", PLATFORM_TENANT_ID)
-      .executeTakeFirst();
-    if (!tenant) {
-      throw new Error("The platform tenant is missing; run the database migrations first");
-    }
 
     const activeAdmins = await transaction
       .selectFrom("users")
@@ -191,14 +154,9 @@ export async function bootstrapPlatformAdmin(
       })
       .execute();
     await transaction
-      .insertInto("tenant_memberships")
-      .values({ tenant_id: PLATFORM_TENANT_ID, user_id: userId, role: "admin" })
-      .execute();
-    await transaction
       .insertInto("audit_logs")
       .values({
         id: randomUUID(),
-        tenant_id: PLATFORM_TENANT_ID,
         actor_user_id: userId,
         action: "admin.bootstrap",
         resource_type: "user",
@@ -211,7 +169,7 @@ export async function bootstrapPlatformAdmin(
 }
 
 export async function createAuthSession(
-  db: Kysely<Database>,
+  db: DbExecutor,
   input: {
     id: string;
     userId: string;
@@ -221,97 +179,84 @@ export async function createAuthSession(
     absoluteExpiresAt: Date;
   },
 ): Promise<void> {
-  await withTenantContext(db, platformContext, async (transaction) => {
-    await transaction
-      .insertInto("auth_sessions")
-      .values({
-        id: input.id,
-        tenant_id: PLATFORM_TENANT_ID,
-        user_id: input.userId,
-        token_hash: input.tokenHash,
-        csrf_token_hash: input.csrfTokenHash,
-        expires_at: input.idleExpiresAt,
-        absolute_expires_at: input.absoluteExpiresAt,
-      })
-      .execute();
-  });
+  await db
+    .insertInto("auth_sessions")
+    .values({
+      id: input.id,
+      user_id: input.userId,
+      token_hash: input.tokenHash,
+      csrf_token_hash: input.csrfTokenHash,
+      expires_at: input.idleExpiresAt,
+      absolute_expires_at: input.absoluteExpiresAt,
+    })
+    .execute();
 }
 
 export async function getAuthSessionByTokenHash(
-  db: Kysely<Database>,
+  db: DbExecutor,
   tokenHash: Buffer,
   now = new Date(),
 ): Promise<Selectable<AuthSessionsTable> | undefined> {
-  return withTenantContext(db, platformContext, (transaction) =>
-    transaction
-      .selectFrom("auth_sessions")
-      .selectAll()
-      .where("token_hash", "=", tokenHash)
-      .where("revoked_at", "is", null)
-      .where("expires_at", ">", now)
-      .where("absolute_expires_at", ">", now)
-      .executeTakeFirst(),
-  );
+  return db
+    .selectFrom("auth_sessions")
+    .selectAll()
+    .where("token_hash", "=", tokenHash)
+    .where("revoked_at", "is", null)
+    .where("expires_at", ">", now)
+    .where("absolute_expires_at", ">", now)
+    .executeTakeFirst();
 }
 
 export async function touchAuthSession(
-  db: Kysely<Database>,
+  db: DbExecutor,
   sessionId: string,
   idleExpiresAt: Date,
   now = new Date(),
 ): Promise<void> {
-  await withTenantContext(db, platformContext, async (transaction) => {
-    await transaction
-      .updateTable("auth_sessions")
-      .set({ last_seen_at: now, expires_at: idleExpiresAt })
-      .where("id", "=", sessionId)
-      .where("revoked_at", "is", null)
-      .execute();
-  });
+  await db
+    .updateTable("auth_sessions")
+    .set({ last_seen_at: now, expires_at: idleExpiresAt })
+    .where("id", "=", sessionId)
+    .where("revoked_at", "is", null)
+    .execute();
 }
 
 export async function setAuthSessionCsrfHash(
-  db: Kysely<Database>,
+  db: DbExecutor,
   sessionId: string,
   csrfTokenHash: Buffer,
 ): Promise<void> {
-  await withTenantContext(db, platformContext, async (transaction) => {
-    await transaction
-      .updateTable("auth_sessions")
-      .set({ csrf_token_hash: csrfTokenHash })
-      .where("id", "=", sessionId)
-      .execute();
-  });
+  await db
+    .updateTable("auth_sessions")
+    .set({ csrf_token_hash: csrfTokenHash })
+    .where("id", "=", sessionId)
+    .execute();
 }
 
 export async function revokeAuthSession(
-  db: Kysely<Database>,
+  db: DbExecutor,
   sessionId: string,
   now = new Date(),
 ): Promise<void> {
-  await withTenantContext(db, platformContext, async (transaction) => {
-    await transaction
-      .updateTable("auth_sessions")
-      .set({ revoked_at: now })
-      .where("id", "=", sessionId)
-      .where("revoked_at", "is", null)
-      .execute();
-  });
+  await db
+    .updateTable("auth_sessions")
+    .set({ revoked_at: now })
+    .where("id", "=", sessionId)
+    .where("revoked_at", "is", null)
+    .execute();
 }
 
 export async function revokeUserSessions(
-  db: Kysely<Database>,
+  db: DbExecutor,
   userId: string,
   now = new Date(),
 ): Promise<void> {
-  await withTenantContext(db, platformContext, async (transaction) => {
-    await transaction
-      .updateTable("auth_sessions")
-      .set({ revoked_at: now })
-      .where("user_id", "=", userId)
-      .where("revoked_at", "is", null)
-      .execute();
-  });
+  await db
+    .updateTable("auth_sessions")
+    .set({ revoked_at: now })
+    .where("user_id", "=", userId)
+    .where("revoked_at", "is", null)
+    .execute();
 }
 
 export interface ProviderWithModels {
@@ -320,55 +265,41 @@ export interface ProviderWithModels {
 }
 
 export async function listProvidersWithModels(
-  db: Kysely<Database>,
+  db: DbExecutor,
   options: { includeDisabled?: boolean } = {},
 ): Promise<ProviderWithModels[]> {
-  return withTenantContext(db, platformContext, async (transaction) => {
-    let query = transaction
-      .selectFrom("providers")
-      .selectAll()
-      .where("tenant_id", "=", PLATFORM_TENANT_ID)
-      .orderBy("created_at", "asc");
-    if (!options.includeDisabled) {
-      query = query.where("enabled", "=", true);
-    }
-    const providers = await query.execute();
-    if (providers.length === 0) return [];
+  let query = db.selectFrom("providers").selectAll().orderBy("created_at", "asc");
+  if (!options.includeDisabled) {
+    query = query.where("enabled", "=", true);
+  }
+  const providers = await query.execute();
+  if (providers.length === 0) return [];
 
-    let modelQuery = transaction
-      .selectFrom("provider_models")
-      .selectAll()
-      .where("tenant_id", "=", PLATFORM_TENANT_ID)
-      .where(
-        "provider_id",
-        "in",
-        providers.map((provider) => provider.id),
-      )
-      .orderBy("created_at", "asc");
-    if (!options.includeDisabled) {
-      modelQuery = modelQuery.where("enabled", "=", true);
-    }
-    const models = await modelQuery.execute();
+  let modelQuery = db
+    .selectFrom("provider_models")
+    .selectAll()
+    .where(
+      "provider_id",
+      "in",
+      providers.map((provider) => provider.id),
+    )
+    .orderBy("created_at", "asc");
+  if (!options.includeDisabled) {
+    modelQuery = modelQuery.where("enabled", "=", true);
+  }
+  const models = await modelQuery.execute();
 
-    return providers.map((provider) => ({
-      provider,
-      models: models.filter((model) => model.provider_id === provider.id),
-    }));
-  });
+  return providers.map((provider) => ({
+    provider,
+    models: models.filter((model) => model.provider_id === provider.id),
+  }));
 }
 
 export async function getProvider(
-  db: Kysely<Database>,
+  db: DbExecutor,
   providerId: string,
 ): Promise<Selectable<ProvidersTable> | undefined> {
-  return withTenantContext(db, platformContext, (transaction) =>
-    transaction
-      .selectFrom("providers")
-      .selectAll()
-      .where("tenant_id", "=", PLATFORM_TENANT_ID)
-      .where("id", "=", providerId)
-      .executeTakeFirst(),
-  );
+  return db.selectFrom("providers").selectAll().where("id", "=", providerId).executeTakeFirst();
 }
 
 export interface ProviderModelWithProvider {
@@ -378,26 +309,22 @@ export interface ProviderModelWithProvider {
 
 /** Resolves a binding target from the platform catalog; the caller decides whether it is usable. */
 export async function getProviderModelWithProvider(
-  db: Kysely<Database>,
+  db: DbExecutor,
   modelId: string,
 ): Promise<ProviderModelWithProvider | undefined> {
-  return withTenantContext(db, platformContext, async (transaction) => {
-    const model = await transaction
-      .selectFrom("provider_models")
-      .selectAll()
-      .where("tenant_id", "=", PLATFORM_TENANT_ID)
-      .where("id", "=", modelId)
-      .executeTakeFirst();
-    if (!model) return undefined;
-    const provider = await transaction
-      .selectFrom("providers")
-      .selectAll()
-      .where("tenant_id", "=", PLATFORM_TENANT_ID)
-      .where("id", "=", model.provider_id)
-      .executeTakeFirst();
-    if (!provider) return undefined;
-    return { provider, model };
-  });
+  const model = await db
+    .selectFrom("provider_models")
+    .selectAll()
+    .where("id", "=", modelId)
+    .executeTakeFirst();
+  if (!model) return undefined;
+  const provider = await db
+    .selectFrom("providers")
+    .selectAll()
+    .where("id", "=", model.provider_id)
+    .executeTakeFirst();
+  if (!provider) return undefined;
+  return { provider, model };
 }
 
 export interface ProviderCredentialColumns {
@@ -408,7 +335,7 @@ export interface ProviderCredentialColumns {
 }
 
 export async function createProvider(
-  db: Kysely<Database>,
+  db: DbExecutor,
   input: {
     id: string;
     name: string;
@@ -417,25 +344,22 @@ export async function createProvider(
     credential: ProviderCredentialColumns;
   },
 ): Promise<Selectable<ProvidersTable>> {
-  return withTenantContext(db, platformContext, (transaction) =>
-    transaction
-      .insertInto("providers")
-      .values({
-        id: input.id,
-        tenant_id: PLATFORM_TENANT_ID,
-        name: input.name,
-        provider_type: "openai_compatible",
-        base_url: input.baseUrl,
-        enabled: input.enabled,
-        ...input.credential,
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow(),
-  );
+  return db
+    .insertInto("providers")
+    .values({
+      id: input.id,
+      name: input.name,
+      provider_type: "openai_compatible",
+      base_url: input.baseUrl,
+      enabled: input.enabled,
+      ...input.credential,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
 }
 
 export async function updateProvider(
-  db: Kysely<Database>,
+  db: DbExecutor,
   providerId: string,
   patch: {
     name?: string;
@@ -444,25 +368,22 @@ export async function updateProvider(
     credential?: ProviderCredentialColumns;
   },
 ): Promise<Selectable<ProvidersTable> | undefined> {
-  return withTenantContext(db, platformContext, (transaction) =>
-    transaction
-      .updateTable("providers")
-      .set({
-        ...(patch.name === undefined ? {} : { name: patch.name }),
-        ...(patch.baseUrl === undefined ? {} : { base_url: patch.baseUrl }),
-        ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
-        ...(patch.credential ?? {}),
-        updated_at: new Date(),
-      })
-      .where("tenant_id", "=", PLATFORM_TENANT_ID)
-      .where("id", "=", providerId)
-      .returningAll()
-      .executeTakeFirst(),
-  );
+  return db
+    .updateTable("providers")
+    .set({
+      ...(patch.name === undefined ? {} : { name: patch.name }),
+      ...(patch.baseUrl === undefined ? {} : { base_url: patch.baseUrl }),
+      ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
+      ...(patch.credential ?? {}),
+      updated_at: new Date(),
+    })
+    .where("id", "=", providerId)
+    .returningAll()
+    .executeTakeFirst();
 }
 
 export async function createProviderModel(
-  db: Kysely<Database>,
+  db: DbExecutor,
   input: {
     id: string;
     providerId: string;
@@ -471,68 +392,59 @@ export async function createProviderModel(
     enabled: boolean;
   },
 ): Promise<Selectable<ProviderModelsTable>> {
-  return withTenantContext(db, platformContext, (transaction) =>
-    transaction
-      .insertInto("provider_models")
-      .values({
-        id: input.id,
-        tenant_id: PLATFORM_TENANT_ID,
-        provider_id: input.providerId,
-        model_id: input.modelId,
-        display_name: input.displayName,
-        enabled: input.enabled,
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow(),
-  );
+  return db
+    .insertInto("provider_models")
+    .values({
+      id: input.id,
+      provider_id: input.providerId,
+      model_id: input.modelId,
+      display_name: input.displayName,
+      enabled: input.enabled,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
 }
 
 export async function updateProviderModel(
-  db: Kysely<Database>,
+  db: DbExecutor,
   modelRecordId: string,
   patch: { modelId?: string; displayName?: string; enabled?: boolean },
 ): Promise<Selectable<ProviderModelsTable> | undefined> {
-  return withTenantContext(db, platformContext, (transaction) =>
-    transaction
-      .updateTable("provider_models")
-      .set({
-        ...(patch.modelId === undefined ? {} : { model_id: patch.modelId }),
-        ...(patch.displayName === undefined ? {} : { display_name: patch.displayName }),
-        ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
-        updated_at: new Date(),
-      })
-      .where("tenant_id", "=", PLATFORM_TENANT_ID)
-      .where("id", "=", modelRecordId)
-      .returningAll()
-      .executeTakeFirst(),
-  );
+  return db
+    .updateTable("provider_models")
+    .set({
+      ...(patch.modelId === undefined ? {} : { model_id: patch.modelId }),
+      ...(patch.displayName === undefined ? {} : { display_name: patch.displayName }),
+      ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
+      updated_at: new Date(),
+    })
+    .where("id", "=", modelRecordId)
+    .returningAll()
+    .executeTakeFirst();
 }
 
 /** Audit rows carry identifiers and outcome only: never requests, secrets or cookies. */
 export async function recordAuditLog(
-  db: Kysely<Database>,
+  db: DbExecutor,
   input: {
     id: string;
     actorUserId: string | null;
     action: string;
     resourceType: string;
     resourceId?: string | null;
-    metadata?: JsonObject;
+    metadata?: Record<string, unknown>;
     succeeded: boolean;
   },
 ): Promise<void> {
-  await withTenantContext(db, platformContext, async (transaction) => {
-    await transaction
-      .insertInto("audit_logs")
-      .values({
-        id: input.id,
-        tenant_id: PLATFORM_TENANT_ID,
-        actor_user_id: input.actorUserId,
-        action: input.action,
-        resource_type: input.resourceType,
-        resource_id: input.resourceId ?? null,
-        metadata: { ...(input.metadata ?? {}), succeeded: input.succeeded },
-      })
-      .execute();
-  });
+  await db
+    .insertInto("audit_logs")
+    .values({
+      id: input.id,
+      actor_user_id: input.actorUserId,
+      action: input.action,
+      resource_type: input.resourceType,
+      resource_id: input.resourceId ?? null,
+      metadata: { ...(input.metadata ?? {}), succeeded: input.succeeded },
+    })
+    .execute();
 }

@@ -1,22 +1,8 @@
 import type { Generated } from "kysely";
 
 export type JsonObject = Record<string, unknown>;
-export type TenantRole = "owner" | "admin" | "developer" | "player";
-export type TenantStatus = "active" | "suspended" | "archived";
 export type PlatformRole = "admin" | "user";
 export type ProviderType = "openai_compatible";
-
-/** Single-platform tenant that owns Phase 1 sessions and provider records. */
-export const PLATFORM_TENANT_ID = "platform";
-
-export interface TenantsTable {
-  id: string;
-  slug: string;
-  name: string;
-  status: TenantStatus;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
 
 export interface UsersTable {
   id: string;
@@ -29,18 +15,9 @@ export interface UsersTable {
   updated_at: Generated<Date>;
 }
 
-export interface TenantMembershipsTable {
-  tenant_id: string;
-  user_id: string;
-  role: TenantRole;
-  created_at: Generated<Date>;
-}
-
 export interface AuthSessionsTable {
   id: string;
-  tenant_id: string;
   user_id: string;
-  refresh_token_hash: Buffer | null;
   token_hash: Buffer | null;
   csrf_token_hash: Buffer | null;
   created_at: Generated<Date>;
@@ -52,7 +29,6 @@ export interface AuthSessionsTable {
 
 export interface ProvidersTable {
   id: string;
-  tenant_id: string;
   name: string;
   provider_type: Generated<ProviderType>;
   base_url: string;
@@ -67,7 +43,6 @@ export interface ProvidersTable {
 
 export interface ProviderModelsTable {
   id: string;
-  tenant_id: string;
   provider_id: string;
   model_id: string;
   display_name: string;
@@ -78,7 +53,6 @@ export interface ProviderModelsTable {
 
 export interface GameInstancesTable {
   id: string;
-  tenant_id: string;
   game_version_id: string;
   status: "created" | "running" | "waiting" | "paused" | "completed" | "cancelled";
   current_sequence: number;
@@ -90,7 +64,6 @@ export interface GameInstancesTable {
 
 export interface GameParticipantsTable {
   id: string;
-  tenant_id: string;
   instance_id: string;
   actor_user_id: string | null;
   participant_key: string;
@@ -103,7 +76,6 @@ export interface GameParticipantsTable {
 
 export interface GameEventsTable {
   id: string;
-  tenant_id: string;
   instance_id: string;
   sequence: number;
   type: string;
@@ -115,30 +87,14 @@ export interface GameEventsTable {
 
 export interface GameSnapshotsTable {
   id: string;
-  tenant_id: string;
   instance_id: string;
   sequence: number;
   state_json: JsonObject;
   created_at: Generated<Date>;
 }
 
-export interface PlayerActionsTable {
-  id: string;
-  tenant_id: string;
-  instance_id: string;
-  actor_user_id: string;
-  idempotency_key: string;
-  status: "received" | "accepted" | "rejected" | "failed";
-  payload: JsonObject;
-  result_json: JsonObject | null;
-  error_code: string | null;
-  created_at: Generated<Date>;
-  processed_at: Date | null;
-}
-
 export interface PendingCommandsTable {
   id: string;
-  tenant_id: string;
   instance_id: string;
   command_id: string;
   command_type: string;
@@ -156,7 +112,6 @@ export interface PendingCommandsTable {
 
 export interface ScheduledJobsTable {
   id: string;
-  tenant_id: string;
   instance_id: string | null;
   job_key: string;
   job_type: string;
@@ -172,37 +127,8 @@ export interface ScheduledJobsTable {
   completed_at: Date | null;
 }
 
-export interface OutboxEventsTable {
-  id: string;
-  tenant_id: string;
-  aggregate_type: string;
-  aggregate_id: string;
-  event_type: string;
-  status: Generated<"pending" | "leased" | "published" | "failed" | "dead">;
-  payload: JsonObject;
-  available_at: Generated<Date>;
-  published_at: Date | null;
-  attempts: Generated<number>;
-  max_attempts: Generated<number>;
-  lease_until: Date | null;
-  leased_by: string | null;
-  last_error: string | null;
-  created_at: Generated<Date>;
-}
-
-export interface TenantSecretsTable {
-  id: string;
-  tenant_id: string;
-  key_name: string;
-  encrypted_value: Buffer;
-  key_version: number;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
 export interface AuditLogsTable {
   id: string;
-  tenant_id: string;
   actor_user_id: string | null;
   action: string;
   resource_type: string;
@@ -212,9 +138,7 @@ export interface AuditLogsTable {
 }
 
 export interface Database {
-  tenants: TenantsTable;
   users: UsersTable;
-  tenant_memberships: TenantMembershipsTable;
   auth_sessions: AuthSessionsTable;
   providers: ProvidersTable;
   provider_models: ProviderModelsTable;
@@ -222,10 +146,7 @@ export interface Database {
   game_participants: GameParticipantsTable;
   game_events: GameEventsTable;
   game_snapshots: GameSnapshotsTable;
-  player_actions: PlayerActionsTable;
   pending_commands: PendingCommandsTable;
   scheduled_jobs: ScheduledJobsTable;
-  outbox_events: OutboxEventsTable;
-  tenant_secrets: TenantSecretsTable;
   audit_logs: AuditLogsTable;
 }

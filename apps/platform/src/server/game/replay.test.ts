@@ -51,7 +51,7 @@ const events: GameEvent[] = [
     instanceId: "instance-replay",
     sequence: 2,
     type: "playerInputReceived",
-    actor: { userId: "user-1", tenantId: "tenant-1", participantId: "p1" },
+    actor: { userId: "user-1", participantId: "p1" },
     occurredAtMs: 2,
     idempotencyKey: "answer",
     payload: { participantId: "p1", value: "yes" },

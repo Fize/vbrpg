@@ -20,7 +20,6 @@ import {
   updateProvider,
   updateProviderModel,
   createDb,
-  platformContext,
   type JsonObject,
   type PlatformUserRecord,
   type ProviderCredentialColumns,

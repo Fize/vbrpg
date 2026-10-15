@@ -2,28 +2,22 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { ZodError } from "zod";
 import { loadConfig, type ApiConfig } from "./config.js";
 import { AppError, type ErrorResponse } from "./runtime/index.js";
-import { authenticate, authenticateWithSession, type AuthSessionLookup } from "./auth.js";
 import { registerHealthRoutes } from "./routes/health.js";
-import { registerAuthRoutes } from "./routes/auth.js";
 import { registerPlatformAuthRoutes } from "./routes/platform-auth.js";
 import { registerPlatformAdminRoutes } from "./routes/platform-admin.js";
 import type { PlatformStore } from "./store.js";
 import { createPlatformRequestContext } from "./platform-auth.js";
 
-declare module "fastify" {
-  interface FastifyRequest {
-    authPrincipal?: import("./auth.js").AuthPrincipal;
-  }
-}
-
 export interface BuildAppOptions {
   config?: ApiConfig;
-  sessionLookup?: AuthSessionLookup;
   platformStore?: PlatformStore;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const config = options.config ?? loadConfig();
+  if (config.environment === "production" && !options.platformStore) {
+    throw new Error("Production requires a database-backed platform store");
+  }
   const app = Fastify({
     logger: { level: config.logLevel },
     requestIdHeader: "x-request-id",
@@ -72,23 +66,6 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
 
   void registerHealthRoutes(app, config);
-  void registerAuthRoutes(app, config, async (request) => {
-    const tenantHeader = typeof request.headers["x-tenant-id"] === "string"
-      ? request.headers["x-tenant-id"]
-      : undefined;
-    const principal = options.sessionLookup
-      ? await authenticateWithSession(
-        request.headers.authorization,
-        tenantHeader,
-        config.authTokenSecret,
-        options.sessionLookup,
-      )
-      : authenticate(request.headers.authorization, tenantHeader, config.authTokenSecret);
-    if (config.environment === "production" && !options.sessionLookup) {
-      throw new AppError(503, "AUTH_SESSION_STORE_NOT_CONFIGURED", "Production authentication requires a session store");
-    }
-    request.authPrincipal = principal;
-  });
   if (options.platformStore) {
     const platformContext = createPlatformRequestContext(options.platformStore, config);
     void registerPlatformAuthRoutes(app, platformContext);
