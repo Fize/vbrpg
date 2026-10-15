@@ -77,8 +77,49 @@ export interface MatchRecordRow {
   } | null;
 }
 
+/** One model turn as the executor sees it: the call that came back, and the action it asked for. */
+export interface RecordTurnInput {
+  instanceId: string;
+  participantId: string;
+  /** Deterministic per turn, so a retry or a racing worker replays instead of duplicating. */
+  turnKey: string;
+  callIndex: number;
+  call: {
+    payload: Record<string, unknown>;
+    usage: {
+      providerId: string;
+      modelId: string;
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+    } | null;
+  };
+  action?: { type: string; payload: Record<string, unknown> };
+}
+
+/** A model turn that ended without an action; the row explains why, the game decides what follows. */
+export interface RecordFailureInput {
+  instanceId: string;
+  participantId: string;
+  turnKey: string;
+  code: string;
+  message: string;
+}
+
+export type RecordTurnResult =
+  | { accepted: true; summary: MatchSummary }
+  | { accepted: false; code: string; message: string; summary: MatchSummary };
+
 export interface MatchService {
   create(input: { actor: MatchActor; request: CreateMatchRequest }): Promise<MatchSummary>;
+  /**
+   * Records one model turn atomically: the `aiCall` row always lands, and the action it requested
+   * lands with it unless the rules refuse it. A refusal keeps the call and returns the reason, so
+   * the executor can tell the model without losing the evidence.
+   */
+  recordTurn(input: RecordTurnInput): Promise<RecordTurnResult>;
+  /** Records a turn that produced no action: one `aiFailed` row for the game to react to. */
+  recordFailure(input: RecordFailureInput): Promise<MatchSummary>;
   submit(input: {
     actor: MatchActor;
     instanceId: string;
@@ -310,6 +351,132 @@ export function createMatchService(options: {
         const stored = await getGameInstance(transaction, instanceId);
         if (!stored) throw new AppError(500, "INSTANCE_MISSING", "The match vanished during creation");
         return summarize(stored);
+      });
+    },
+
+    async recordTurn(input) {
+      return db.transaction().execute(async (transaction) => {
+        const instance = await lockGameInstance(transaction, input.instanceId);
+        if (!instance) throw new AppError(404, "MATCH_NOT_FOUND", "No such match");
+        const game = requireGame(instance.game_id);
+        const seats = await listGameParticipants(transaction, input.instanceId);
+        const seat = seats.find((candidate) => candidate.id === input.participantId);
+        if (!seat) throw new AppError(404, "SEAT_NOT_FOUND", "That seat is not in this match");
+
+        let state = stateOf(instance);
+        const callKey = `${input.turnKey}:call:${input.callIndex}`;
+        const already = await findEventByIdempotencyKey(transaction, input.instanceId, callKey);
+        if (!already) {
+          const callRow: GameEvent = {
+            eventId: randomUUID(),
+            instanceId: input.instanceId,
+            sequence: instance.current_sequence + 1,
+            type: platformEventTypes.aiCall,
+            participantId: seat.id,
+            actorUserId: null,
+            stepId: state.stepId,
+            occurredAtMs: Date.now(),
+            idempotencyKey: callKey,
+            payload: input.call.payload,
+            usage: input.call.usage,
+          };
+          const applied = await applyEvent(transaction, {
+            game,
+            instanceId: input.instanceId,
+            state: { ...state, sequence: instance.current_sequence },
+            event: callRow,
+          });
+          state = applied.state;
+        }
+
+        const action = input.action;
+        if (action === undefined) {
+          const stored = await getGameInstance(transaction, input.instanceId);
+          if (!stored) throw new AppError(500, "INSTANCE_MISSING", "The match vanished during the write");
+          return { accepted: true, summary: summarize(stored) };
+        }
+
+        const actionKey = `${input.turnKey}:act:${input.callIndex}`;
+        const replayed = await findEventByIdempotencyKey(transaction, input.instanceId, actionKey);
+        if (replayed) {
+          const stored = await getGameInstance(transaction, input.instanceId);
+          if (!stored) throw new AppError(500, "INSTANCE_MISSING", "The match vanished during the write");
+          return { accepted: true, summary: summarize(stored) };
+        }
+
+        const current = stateOf(instance);
+        try {
+          const applied = await applyEvent(transaction, {
+            game,
+            instanceId: input.instanceId,
+            state: { ...current, sequence: state.sequence },
+            event: {
+              eventId: randomUUID(),
+              instanceId: input.instanceId,
+              sequence: state.sequence + 1,
+              type: action.type,
+              participantId: seat.id,
+              actorUserId: null,
+              stepId: state.stepId,
+              occurredAtMs: Date.now(),
+              idempotencyKey: actionKey,
+              payload: action.payload,
+              usage: null,
+            },
+          });
+          return {
+            accepted: true,
+            summary: {
+              ...summarize(instance),
+              status: applied.state.status,
+              sequence: applied.lastSequence,
+              stepId: applied.state.stepId,
+            },
+          };
+        } catch (error) {
+          // The rule refused the action: the call stays in the log and the reason goes back.
+          if (error instanceof AppError) {
+            return {
+              accepted: false,
+              code: error.code,
+              message: error.message,
+              summary: { ...summarize(instance), sequence: state.sequence },
+            };
+          }
+          throw error;
+        }
+      });
+    },
+
+    async recordFailure(input) {
+      return db.transaction().execute(async (transaction) => {
+        const instance = await lockGameInstance(transaction, input.instanceId);
+        if (!instance) throw new AppError(404, "MATCH_NOT_FOUND", "No such match");
+        const game = requireGame(instance.game_id);
+        const key = `${input.turnKey}:failed`;
+        const already = await findEventByIdempotencyKey(transaction, input.instanceId, key);
+        if (already) return summarize(instance);
+
+        // The game may react (skip the seat, replace it, end the match); the platform does not.
+        const applied = await applyEvent(transaction, {
+          game,
+          instanceId: input.instanceId,
+          state: { ...stateOf(instance), sequence: instance.current_sequence },
+          event: {
+            eventId: randomUUID(),
+            instanceId: input.instanceId,
+            sequence: instance.current_sequence + 1,
+            type: platformEventTypes.aiFailed,
+            participantId: input.participantId,
+            actorUserId: null,
+            stepId: stateOf(instance).stepId,
+            occurredAtMs: Date.now(),
+            idempotencyKey: key,
+            payload: { code: input.code, message: input.message },
+            usage: null,
+          },
+        });
+        return { ...summarize(instance), status: applied.state.status, sequence: applied.lastSequence };
       });
     },
 

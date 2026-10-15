@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createBuiltInRegistry } from "../src/server/games/index.js";
 import { createMatchService } from "../src/server/match/service.js";
+import { createAiSeatRunner } from "../src/server/match/ai-seat.js";
+import { parseCredentialKey, sealCredential } from "../src/server/runtime/secret-box.js";
+import type { ModelCallOutput } from "../src/server/llm/client.js";
 import {
   bootstrapPlatformAdmin,
   closeDb,
@@ -15,6 +18,7 @@ import {
   deleteProvider,
   deleteProviderModel,
   findPlatformUserByUsername,
+  findReadyAiSeats,
   getAuthSessionByTokenHash,
   getGameInstance,
   listProvidersWithModels,
@@ -37,7 +41,9 @@ const platformUserId = randomUUID();
 const platformSessionId = randomUUID();
 const providerId = randomUUID();
 const providerName = `integration-provider-${suffix}`;
+const INTEGRATION_KEY = Buffer.alloc(32).toString("base64");
 let matchId: string | null = null;
+let aiMatchIdValue: string | null = null;
 
 try {
   await createGameInstance(db, {
@@ -239,13 +245,7 @@ try {
     name: providerName,
     baseUrl: "https://api.example.com/v1",
     enabled: true,
-    credential: {
-      // Database-layer fixture represents ciphertext; the API owns AEAD encryption.
-      credential_ciphertext: randomBytes(32),
-      credential_nonce: randomBytes(12),
-      credential_tag: randomBytes(16),
-      credential_key_version: 1,
-    },
+    credential: sealCredential("s".repeat(32), providerId, parseCredentialKey(INTEGRATION_KEY, 1)),
   });
   await createProviderModel(db, {
     id: randomUUID(),
@@ -293,19 +293,6 @@ try {
     .executeTakeFirstOrThrow();
   assert.equal(stored.credential_ciphertext.length, 32);
   assert.equal(stored.credential_tag.length, 16);
-
-  // Deleting the models first makes the provider deletable.
-  const catalogRows = await db
-    .selectFrom("provider_models")
-    .select("id")
-    .where("provider_id", "=", providerId)
-    .execute();
-  for (const row of catalogRows) {
-    assert.equal(await deleteProviderModel(db, row.id), true);
-  }
-  assert.equal(await deleteProvider(db, providerId), true);
-  assert.equal(await deleteProvider(db, providerId), false, "a second delete must report nothing");
-
 
   // ─── The match write path: one transaction, one record, one order ─────────
   const matchService = createMatchService({ db, registry: createBuiltInRegistry() });
@@ -436,6 +423,120 @@ try {
   assert.equal(eliminated.length, 3);
   assert.ok(eliminated.every((seat) => seat.status === "active"));
 
+
+  // ─── AI seats: one call per row, refusals fed back, no action means failure ─────────
+  // Finished matches are never scanned, so the one above must be closed before the scan runs.
+  await setInstanceStatus(db, matchId, "completed");
+
+  const aiMatch = await matchService.create({
+    actor,
+    request: {
+      gameId: "undercover",
+      seats: [
+        { key: "p1", control: "ai" },
+        { key: "p2", control: "ai" },
+        { key: "p3", control: "ai" },
+      ],
+    },
+  });
+  const aiMatchId = aiMatch.instanceId;
+  aiMatchIdValue = aiMatchId;
+
+  function answer(overrides: Partial<ModelCallOutput>): ModelCallOutput {
+    return {
+      content: null,
+      reasoning: "因为 p2 的描述太直白",
+      toolCalls: [],
+      usage: { promptTokens: 500, completionTokens: 120, totalTokens: 620 },
+      finishReason: "tool_calls",
+      latencyMs: 12,
+      ...overrides,
+    };
+  }
+
+  function scriptedClient(script: ModelCallOutput[]) {
+    const calls = { count: 0 };
+    return {
+      calls,
+      client: {
+        async call(): Promise<ModelCallOutput> {
+          const next = script[Math.min(calls.count, script.length - 1)]!;
+          calls.count += 1;
+          return next;
+        },
+      },
+    };
+  }
+
+  function runnerWith(client: { call(): Promise<ModelCallOutput> }) {
+    return createAiSeatRunner({
+      db,
+      registry: createBuiltInRegistry(),
+      service: matchService,
+      credentialKey: parseCredentialKey(INTEGRATION_KEY, 1),
+      client,
+      logger: { info: () => {} },
+    });
+  }
+
+  // Preconditions, asserted so a later failure says which one broke.
+  assert.ok(
+    (await listProvidersWithModels(db, { includeDisabled: false })).length > 0,
+    "AI seats need an enabled provider to play with",
+  );
+  assert.ok(
+    (await findReadyAiSeats(db, 10)).some((seat) => seat.instanceId === aiMatchId),
+    "the scan must offer the new match",
+  );
+
+  // 1) A refusal is fed back and the seat recovers inside the same turn.
+  const refusing = scriptedClient([
+    answer({ toolCalls: [{ id: "c1", name: "vote", arguments: '{"target":"p2"}' }] }),
+    answer({ toolCalls: [{ id: "c2", name: "seatMessage", arguments: '{"text":"我这东西冬天常见"}' }] }),
+  ]);
+  const aiTurn = await runnerWith(refusing.client).runOnce({ limit: 1 });
+  assert.equal(aiTurn.turns, 1, "the seat must recover and act");
+  assert.equal(refusing.calls.count, 2, "one refused call, then a good one");
+
+  const aiRows = await matchService.read({ actor, instanceId: aiMatchId });
+  assert.deepEqual(
+    aiRows.record.map((row) => row.type),
+    ["instanceCreated", "aiCall", "aiCall", "seatMessage"],
+  );
+  // The refused call stays in the record, with its usage and the action it asked for.
+  assert.deepEqual(aiRows.record[1]?.payload["toolCalls"], [
+    { id: "c1", name: "vote", arguments: '{"target":"p2"}' },
+  ]);
+  assert.equal(aiRows.record[1]?.usage?.totalTokens, 620);
+  assert.equal(aiRows.record[1]?.participantId, aiRows.record[3]?.participantId);
+
+  // 2) A turn that never produces an action is a failure the game can see.
+  const silent = scriptedClient([answer({ finishReason: "length" })]);
+  const aiFailure = await runnerWith(silent.client).runOnce({ limit: 1 });
+  assert.equal(aiFailure.failures, 1);
+  const afterFailure = await matchService.read({ actor, instanceId: aiMatchId });
+  const failure = afterFailure.record.at(-1);
+  assert.equal(failure?.type, "aiFailed");
+  assert.equal(failure?.payload["code"], "TOKEN_BUDGET_EXHAUSTED");
+
+  // 3) A match that is no longer running is not scanned at all.
+  await setInstanceStatus(db, aiMatchId, "completed");
+  const idle = await runnerWith(scriptedClient([answer({})]).client).runOnce({ limit: 1 });
+  assert.deepEqual(idle, { turns: 0, failures: 0 });
+
+  // Deleting the models first makes the provider deletable.
+  const catalogRows = await db
+    .selectFrom("provider_models")
+    .select("id")
+    .where("provider_id", "=", providerId)
+    .execute();
+  for (const row of catalogRows) {
+    assert.equal(await deleteProviderModel(db, row.id), true);
+  }
+  assert.equal(await deleteProvider(db, providerId), true);
+  assert.equal(await deleteProvider(db, providerId), false, "a second delete must report nothing");
+
+
   console.log("Database integration test passed");
 } finally {
   await db.deleteFrom("provider_models").where("provider_id", "=", providerId).execute();
@@ -444,7 +545,12 @@ try {
   await db.deleteFrom("audit_logs").where("actor_user_id", "=", platformUserId).execute();
   // Deleting an instance cascades to its participants and events, and it must go before the user
   // rows it references.
-  const instanceIds = [instanceId, secondInstanceId, ...(matchId === null ? [] : [matchId])];
+  const instanceIds = [
+    instanceId,
+    secondInstanceId,
+    ...(matchId === null ? [] : [matchId]),
+    ...(aiMatchIdValue === null ? [] : [aiMatchIdValue]),
+  ];
   await db.deleteFrom("game_instances").where("id", "in", instanceIds).execute();
   await db.deleteFrom("users").where("id", "=", platformUserId).execute();
   await closeDb(db);

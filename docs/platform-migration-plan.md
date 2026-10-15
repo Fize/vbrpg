@@ -306,8 +306,8 @@ DSL 撤除后，这个问题变简单了：**编排库是游戏代码的内部�
 - [x] `M2-01` **动作契约**：`waiting.actions`（允许的名字子集）+ `GameModule.actions`（静态目录）；删掉 `waiting.kind` 的 `'ai'`；`undercover` 填目录（`seatMessage` / `vote`）并在每个等待点声明子集。
 - [x] `M2-02` **模型客户端**：OpenAI 兼容的 `chat/completions`（支持 `tools`），复用 SSRF 防护与超时/体积上限，解析 `content` / `tool_calls` / `usage`；传输层可注入，便于测试。
 - [x] `M2-03` **prompt 组装（前缀稳定）**：`tools` 全量目录、`system` 规则 + 人格 + 私有状态、尾部指令写当前回合与允许动作；跨回合逐字保持稳定部分不变。
-- [ ] `M2-04` **worker 扫描 + 席位执行器**（并入原 `M1-04`）：扫 `running`/`waiting` 的对局 → 按实例取行锁 → 待办席位里是 AI 的就替它走一步：组装 prompt → 调模型 → 按允许集校验工具调用 → 拒绝以工具结果回灌 → 走 `submit` 写入路径 → 写 `aiCall` 行（一次调用一行）。
-- [ ] `M2-05` **失败与上限**：单次调用超时、每回合迭代上限、模型不可用 → `aiFailed`，后果由游戏规则定义。
+- [x] `M2-04` **worker 扫描 + 席位执行器**（并入原 `M1-04`）：扫 `running`/`waiting` 的对局 → 按实例取行锁 → 待办席位里是 AI 的就替它走一步：组装 prompt → 调模型 → 按允许集校验工具调用 → 拒绝以工具结果回灌 → 走 `submit` 写入路径 → 写 `aiCall` 行（一次调用一行）。
+- [x] `M2-05` **失败与上限**：单次调用超时、每回合迭代上限、模型不可用 → `aiFailed`，后果由游戏规则定义。
 
 验收：一个 AI 席位在「谁是卧底」里跑完整局（描述 + 投票）；每次调用都有行与用量；越界工具调用被纠正且回合不中断；模型连续失败不会让对局卡死。
 
@@ -589,6 +589,24 @@ Greenfield：**不迁移旧数据、不做双轨切流、不引入兼容层**（
 4. 删掉 `waiting.kind` 的 `'ai'` 档：待办席位由等待点指名，是人还是 AI 看 `game_participants.control`。
 
 **因此新增两处契约**：`GameModule.actions`（静态目录）与 `waiting.actions`（允许子集）；`M1-04`（worker 扫描）并入 `M2-04`。
+
+### 第十五轮（2026-10-15）：M2 完成，四个 AI 席位真打完了一局
+
+**交付**：worker 扫描（jsonb 包含检查，只挑"等待点里还欠 AI 席位"的对局）、席位执行器、以及一次回合的原子写入（`recordTurn`：`aiCall` 行必落，它请求的动作除非被规则拒绝否则同事务落；`recordFailure`：无动作写成 `aiFailed`）。模型绑定暂时取目录里第一个可用组合——游戏自己声明席位绑定的接缝就在 `chooseBinding` 这一个函数里。
+
+**实机证据**（tokenhub / `deepseek/deepseek-flash`，4 个 AI 席位无人类）：
+
+- 19 行记录走完全程：4 次描述 → `describePhaseEnded` → 4 次投票 → `votesRevealed` → 卧底（拿到"老虎"的 ai3）被 3 票投出，平民胜。
+- 8 次模型调用全部落行，合计 **13,043 token**（prompt 8,014 + completion 5,029），每次调用 1.0–2.7k token。
+- 隐藏信息没泄漏：ai1/ai2 的思考里只有自己的词与他人发言，最后两人都投中了卧底。
+- 拒绝回灌、空动作失败、`TOKEN_BUDGET_EXHAUSTED` 三条路径由集成测试（真库 + 假模型）覆盖。
+
+**实测得到的两条实现约束**（都已落地）：
+
+1. **`max_tokens` 对推理模型是陷阱**：400 token 会全被思考吃掉、返回空动作（`finishReason=length`）。默认给 2048，并且把"没有工具调用"当成失败回合（`finishReason=length` 立即 `aiFailed`，纯文字回答先提示一次再重试）。
+2. **思考必须跨轮原样回传**：provider 要求（带 tools 时）把 `reasoning_content` 在后续所有请求里带上，实测 8 次调用都没有 400。代价是 **prompt 会随对局的思考历史增长**（每次调用约 1.0–2.7k token），所以"前缀逐字稳定"这条不只是省钱技巧，是长局能跑下去的前提。
+
+**尚未验证**：provider 是否真的对稳定前缀给了折扣（用量里没有 cached token 字段，"省了多少"目前无法从数据看出来）；成本指标属于 M5。
 
 ## 17. 参考资料
 

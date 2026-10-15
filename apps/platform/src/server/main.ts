@@ -9,6 +9,7 @@ import { closeDb, createDb } from "./db/index.js";
 import { createPlatformStore } from "./store.js";
 import { createBuiltInRegistry } from "./games/index.js";
 import { createMatchService } from "./match/service.js";
+import { createAiSeatRunner } from "./match/ai-seat.js";
 import { createWorker } from "./worker.js";
 
 type Role = "api" | "worker" | "both";
@@ -95,11 +96,26 @@ async function startWorker(databaseUrl: string | undefined): Promise<void> {
     throw new Error("DATABASE_URL is required for the worker role");
   }
   const db = createDb({ databaseUrl });
-  // The instance scan arrives with the match runtime; the poll loop is already in place.
-  const worker = createWorker({
-    workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,
-    pollIntervalMs: Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1_000),
+  const config = loadConfig();
+  const registry = createBuiltInRegistry();
+  const credentialKey = config.credentialKey;
+  if (!credentialKey) {
+    throw new Error("PLATFORM_CREDENTIAL_KEY is required to run AI seats");
+  }
+  const runner = createAiSeatRunner({
+    db,
+    registry,
+    service: createMatchService({ db, registry }),
+    credentialKey,
   });
+  const worker = createWorker(
+    {
+      workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,
+      pollIntervalMs: Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1_000),
+    },
+    console,
+    () => runner.runOnce(),
+  );
 
   let running = true;
   const stop = (): void => {

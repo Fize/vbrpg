@@ -11,18 +11,31 @@ export interface WorkerRunResult {
   processed: number;
 }
 
+export type WorkerTick = () => Promise<{ turns: number; failures: number }>;
+
 /**
- * There is no queue table: due work is derived from instance state. Instances that are `running` or
- * `waiting` get scanned, locked one at a time, and asked to advance — that scan arrives with the
- * match runtime, so this loop currently has nothing to poll.
+ * There is no queue table: due work is derived from instance state. Each tick hands the instance
+ * scan to the caller — the AI seat runner today, potentially more than one job later.
  */
-export function createWorker(config: WorkerConfig, logger: WorkerLogger = console) {
+export function createWorker(
+  config: WorkerConfig,
+  logger: WorkerLogger = console,
+  tick?: WorkerTick,
+) {
   return {
     config,
     async runOnce(): Promise<WorkerRunResult> {
-      const result = { processed: 0 };
-      logger.info({ workerId: config.workerId, ...result }, "worker poll completed");
-      return result;
+      if (!tick) {
+        const idle = { processed: 0 };
+        logger.info({ workerId: config.workerId, ...idle }, "worker poll completed");
+        return idle;
+      }
+      const result = await tick();
+      logger.info(
+        { workerId: config.workerId, turns: result.turns, failures: result.failures },
+        "worker poll completed",
+      );
+      return { processed: result.turns };
     },
   };
 }

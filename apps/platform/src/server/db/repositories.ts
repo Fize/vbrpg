@@ -1,4 +1,4 @@
-import type { Insertable, Kysely, Selectable, Transaction } from "kysely";
+import { sql, type Insertable, type Kysely, type Selectable, type Transaction } from "kysely";
 import type { GameState } from "../../shared/index.js";
 import type {
   Database,
@@ -162,4 +162,25 @@ export async function listGameEvents(
     .where("instance_id", "=", instanceId)
     .orderBy("sequence", "asc")
     .execute();
+}
+
+/**
+ * Matches where a waiting point still expects an AI seat. The pending list lives in the state, so
+ * the filter is a jsonb containment check rather than a scan followed by a filter in JavaScript.
+ */
+export async function findReadyAiSeats(
+  db: DbExecutor,
+  limit: number,
+): Promise<Array<{ instanceId: string; participantId: string }>> {
+  const result = await sql<{ instance_id: string; participant_id: string }>`
+    select i.id as instance_id, p.id as participant_id
+    from game_instances i
+    join game_participants p
+      on p.instance_id = i.id and p.control = 'ai' and p.status = 'active'
+    where i.status in ('running', 'waiting')
+      and i.state_json -> 'waiting' -> 'participantIds' ? p.id
+    order by i.updated_at asc, p.seat asc
+    limit ${limit}
+  `.execute(db);
+  return result.rows.map((row) => ({ instanceId: row.instance_id, participantId: row.participant_id }));
 }
