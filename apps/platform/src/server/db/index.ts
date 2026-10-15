@@ -31,7 +31,19 @@ export type {
   ProviderCredentialColumns,
   ProviderWithModels,
 } from "./platform-repositories.js";
-export { createGameInstance, getGameInstance, setInstanceStatus } from "./repositories.js";
+export {
+  advanceGameInstance,
+  createGameInstance,
+  findEventByIdempotencyKey,
+  getGameInstance,
+  insertGameEvent,
+  insertGameParticipants,
+  listGameEvents,
+  listGameParticipants,
+  lockGameInstance,
+  setInstanceStatus,
+  updateGameParticipantStatus,
+} from "./repositories.js";
 export type { DbExecutor } from "./repositories.js";
 export type {
   AuthSessionsTable,

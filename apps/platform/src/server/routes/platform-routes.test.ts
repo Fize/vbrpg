@@ -9,6 +9,8 @@ import { hashToken } from "../session.js";
 import { hashCsrfToken } from "../csrf.js";
 import { sealCredential } from "../runtime/index.js";
 import type { PlatformUserRecord } from "../db/index.js";
+import { AppError } from "../runtime/index.js";
+import type { MatchService } from "../match/service.js";
 
 const ORIGIN = "http://localhost:5173";
 const MASTER_KEY = randomBytes(32).toString("base64");
@@ -213,7 +215,7 @@ function makeUser(overrides: Partial<PlatformUserRecord> & { passwordHash: strin
   };
 }
 
-async function createApp(state: FakeState) {
+async function createApp(state: FakeState, matchService?: MatchService) {
   return buildApp({
     config: loadConfig({
       NODE_ENV: "test",
@@ -221,7 +223,49 @@ async function createApp(state: FakeState) {
       PLATFORM_CREDENTIAL_KEY: MASTER_KEY,
     }),
     platformStore: state.store,
+    ...(matchService === undefined ? {} : { matchService }),
   });
+}
+
+const MATCH_ID = "11111111-1111-1111-1111-111111111111";
+
+/** Records what reached the service; the write path itself is covered against real PostgreSQL. */
+function fakeMatchService(overrides: Partial<MatchService> = {}): MatchService & { seen: string[] } {
+  const seen: string[] = [];
+  const summary = {
+    instanceId: MATCH_ID,
+    gameId: "undercover",
+    gameVersion: "1.0.0",
+    status: "waiting" as const,
+    sequence: 1,
+    stepId: "describe",
+    createdAt: "2026-10-15T00:00:00.000Z",
+  };
+  const view = {
+    instanceId: MATCH_ID,
+    gameVersionId: "undercover@1.0.0",
+    sequence: 1,
+    status: "waiting" as const,
+    publicState: {},
+    privateState: {},
+    availableActions: [],
+  };
+  return {
+    seen,
+    create: async ({ request }) => {
+      seen.push(`create:${request.gameId}`);
+      return summary;
+    },
+    submit: async ({ idempotencyKey, request }) => {
+      seen.push(`submit:${request.participantKey}:${idempotencyKey}`);
+      return { replayed: false, summary, view };
+    },
+    read: async ({ instanceId }) => {
+      seen.push(`read:${instanceId}`);
+      return { summary, seats: [], view: null, record: [] };
+    },
+    ...overrides,
+  };
 }
 
 async function login(
@@ -830,5 +874,115 @@ describe("deletion", () => {
     for (const response of missing) {
       assert.equal(response.statusCode, 404, response.body);
     }
+  });
+});
+
+describe("match routes", () => {
+  async function seated(options: { matchService?: MatchService } = {}) {
+    const passwordHash = await hashPassword(PASSWORD);
+    const state = createFakeStore({ passwordHash, users: [makeUser({ passwordHash })] });
+    const matchService = options.matchService ?? fakeMatchService();
+    const app = await createApp(state, matchService);
+    const { cookie, body } = await login(app);
+    return {
+      app,
+      matchService,
+      headers: { cookie, origin: ORIGIN, "x-csrf-token": body.csrfToken as string },
+    };
+  }
+
+  it("refuses match writes without a session, an origin or a CSRF token", async () => {
+    const { app, headers, matchService } = await seated();
+    const body = { gameId: "undercover", seats: [{ key: "p1", control: "human" }] };
+
+    const anonymous = await app.inject({ method: "POST", url: "/v1/instances", payload: body });
+    assert.equal(anonymous.statusCode, 401);
+
+    const noOrigin = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers: { cookie: headers.cookie, "x-csrf-token": headers["x-csrf-token"] },
+      payload: body,
+    });
+    assert.equal(noOrigin.statusCode, 403);
+
+    const noCsrf = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers: { cookie: headers.cookie, origin: ORIGIN },
+      payload: body,
+    });
+    assert.equal(noCsrf.statusCode, 403);
+    assert.equal(noCsrf.json().code, "CSRF_TOKEN_INVALID");
+    assert.deepEqual(matchService.seen, [], "a refused write must not reach the service");
+  });
+
+  it("creates a match, rejecting unknown body fields", async () => {
+    const { app, headers, matchService } = await seated();
+
+    const strict = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers,
+      payload: { gameId: "undercover", seats: [{ key: "p1", control: "human" }], extra: true },
+    });
+    assert.equal(strict.statusCode, 400);
+    assert.equal(strict.json().code, "INVALID_REQUEST");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/instances",
+      headers,
+      payload: { gameId: "undercover", seats: [{ key: "p1", control: "human" }, { key: "p2", control: "ai" }] },
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    assert.equal(created.json().instanceId, MATCH_ID);
+    assert.deepEqual(matchService.seen, ["create:undercover"]);
+  });
+
+  it("requires an Idempotency-Key header before submitting anything", async () => {
+    const { app, headers, matchService } = await seated();
+    const payload = { type: "seatMessage", participantKey: "p1", payload: { text: "hi" } };
+
+    const missing = await app.inject({
+      method: "POST",
+      url: `/v1/instances/${MATCH_ID}/events`,
+      headers,
+      payload,
+    });
+    assert.equal(missing.statusCode, 400);
+    assert.equal(missing.json().code, "IDEMPOTENCY_KEY_REQUIRED");
+
+    const submitted = await app.inject({
+      method: "POST",
+      url: `/v1/instances/${MATCH_ID}/events`,
+      headers: { ...headers, "idempotency-key": "turn-1" },
+      payload,
+    });
+    assert.equal(submitted.statusCode, 200, submitted.body);
+    assert.equal(submitted.json().replayed, false);
+    assert.deepEqual(matchService.seen, ["submit:p1:turn-1"]);
+  });
+
+  it("validates the instance id and passes service refusals through", async () => {
+    const { app, headers } = await seated();
+
+    const badId = await app.inject({ method: "GET", url: "/v1/instances/not-a-uuid", headers });
+    assert.equal(badId.statusCode, 400);
+
+    const refused = await seated({
+      matchService: fakeMatchService({
+        read: async () => {
+          throw new AppError(403, "NOT_A_PARTICIPANT", "Only this match's seats may read it");
+        },
+      }),
+    });
+    const response = await refused.app.inject({
+      method: "GET",
+      url: `/v1/instances/${MATCH_ID}`,
+      headers: refused.headers,
+    });
+    assert.equal(response.statusCode, 403);
+    assert.equal(response.json().code, "NOT_A_PARTICIPANT");
   });
 });

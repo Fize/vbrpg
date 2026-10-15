@@ -128,6 +128,8 @@ interface GameModule {
 class GameRegistry { get(id); require(id); list(); }   // 启动时注册，重复 id 直接拒绝
 ```
 
+`visibility` 可以是状态函数（`(state) => Visibility`）：每席位的秘密变量只有在席位存在之后才可寻址，游戏据此计算规则。读接口返回的席位表给出 `key ↔ participantId` 映射；事件 payload 里的席位引用一律用 `participantId`。
+
 `transition` 内不能访问数据库、网络、系统时间或直接调用 LLM。随机数、时间与 AI 结果都必须作为显式输入（事件）进来；它只能返回新的状态与要追加的事件，由平台在事务里落库。
 
 已落地的内核：`GameModule` 接口 + `GameRegistry` + `createBaseState`（对局外壳）+ `projectPlayerView`（三档投影，fail-closed）+ `EngineError`/`TransitionResult`。（`replayEvents` 已于 2026-10-15 第十轮删除：记录是给人读的历史，不是重建状态的输入，见 ADR-010。）
@@ -146,6 +148,19 @@ class GameRegistry { get(id); require(id); list(); }   // 启动时注册，重�
 
 任何重试都必须依靠 `(instance_id, sequence)` 与 `(instance_id, idempotency_key)` 唯一约束避免重复结算；
 `update ... where current_sequence = N-1` 影响零行就说明别人先推进了。
+
+### 4.4 AI 席位契约（2026-10-15 定，实现见 M2）
+
+**AI 玩家是每局临时席位**：不建 `agents` 表，AI 席位的身份就是它那一行 `game_participants`（`control='ai'`、`actor_user_id` 为空）。人格、模型与角色由游戏在 `initialState` 里写进状态或席位，平台不认识它们。
+
+其余四条：
+
+1. **谁驱动 AI 回合**：游戏在状态里表达"某席位欠一步"（`waiting.kind = 'ai'`，`participantIds` 指名席位），平台看到就去调模型，并把结果写成 `aiCall` / `aiResultReceived` 行。游戏代码不直接调模型。
+2. **工具契约**：模型可调两类工具——查询类只读（读该席位自己的投影与记录），动作类产出事件（走同一条写入路径）。游戏通过 `visibility` 与等待点声明这一步允许什么；平台只负责把声明翻译成工具定义。
+3. **模型与人格的来源**：席位开始时由游戏写进 `variables`（例如 `{ "p1": { model: "deepseek-chat", persona: "多疑" } }`）。平台只提供目录与凭据，不存绑定关系。
+4. **`aiFailed` 之后怎么办**：由游戏规则决定（跳过该席位、换人、或结束对局），平台只保证失败会作为事件送达，不做重试策略。
+
+prompt 不入库；每次模型调用一行（含用量）；模型回复原文与 provider 签名字段随行入库；席位之间的可见性由 prompt 组装决定，不是读取路径的过滤（ADR-010）。
 
 ## 5. 游戏封装方式（代码化）
 
@@ -176,7 +191,7 @@ class GameRegistry { get(id); require(id); list(); }   // 启动时注册，重�
 | `users` | 平台账号与平台角色 |
 | `auth_sessions` | 不透明会话（Cookie）、CSRF 摘要、滑动与绝对过期 |
 | `providers` / `provider_models` | 模型供应商与模型目录（凭据以 AEAD 密文存列内） |
-| `game_instances` | 对局、记录的代码版本、状态、当前序号 |
+| `game_instances` | 对局、`game_id`、代码版本 `game_version`、状态、当前序号 |
 | `game_participants` | 对局参与者、座位、控制方式 |
 | `game_events` | 对局记录：一行一层意思，按 `sequence` 读；含 AI 每次交互与用量（ADR-010） |
 | `audit_logs` | 账号、模型目录与对局运维操作审计 |
@@ -253,11 +268,11 @@ DSL 撤除后，这个问题变简单了：**编排库是游戏代码的内部�
 
 目标：两个真人席位能跑完一整局。
 
-- [ ] `M1-01` **写入路径**：仓储与事务——按实例取行锁；创建对局时写 `game_instances` + `game_participants` + 首条记录行；提交事件时校验 `(instance_id, idempotency_key)`、跑 `transition`、追加记录行、按 `current_sequence` 乐观推进，全部在同一事务内。
-- [ ] `M1-02` **三个 HTTP 接口**：创建对局、提交事件、读取（自己席位的投影 + 按 `sequence` 的完整记录）。
-- [ ] `M1-03` **一个游戏模块**：`apps/platform/src/server/games/<slug>.ts`（候选：狼人杀，先做哪个待定）+ 回归夹具（标准对局脚本、期望记录序列、隐藏信息断言）。
-- [ ] `M1-04` **worker 的实例扫描**：找出 `running`/`waiting` 的对局、按实例取行锁、处理它当前欠的事（玩家输入超时、等待点推进）。
-- [ ] `M1-05` **并发与幂等测试**：同键重复提交、两个请求同时推进、进程重启后继续。
+- [x] `M1-01` **写入路径**（`src/server/match/service.ts`）：按实例取行锁 → 跑 `transition` → 追加记录行（平台分配 `sequence`，游戏产出派生事件）→ 收敛固定席位状态 → 按 `current_sequence` 乐观推进，全部在同一事务内。创建对局同路：先落实例与席位，再把 `instanceCreated` 当一次普通写入应用。
+- [x] `M1-02` **三个 HTTP 接口**（`src/server/routes/matches.ts`）：`POST /v1/instances`、`POST /v1/instances/:id/events`（要求 `Idempotency-Key`）、`GET /v1/instances/:id`（自己席位的投影 + 完整记录；管理员可读但无投影）。
+- [x] `M1-03` **第一个游戏模块**：`src/server/games/undercover.ts`（「谁是卧底」，4 席起步，轮流描述 + 投票淘汰）+ 回归夹具（`undercover.test.ts`：确定性发牌、阶段推进、隐藏信息断言、非法动作、未知事件类型被忽略）。狼人杀随后。
+- [ ] `M1-04` **worker 的实例扫描**：等待点还没有时限时不需要它；与 M2 的 AI 席位一起做（那时才有"平台要替某席位动手"）。
+- [x] `M1-05` **并发与幂等测试**：同键重复提交（单元 + 集成 + 实机）、两个请求同时提交（行锁串行化、`sequence` 不重不漏）、同一 key 并发只落一行。
 
 验收：创建一局 → 两个席位轮流提交 → 跑到结束；重复提交不产生重复记录；隐藏信息断言通过；两个并发提交只有一个成功。
 
@@ -524,6 +539,19 @@ Greenfield：**不迁移旧数据、不做双轨切流、不引入兼容层**（
 **理由**：强制改密属于"给不信任的初始密码加一道闸"，而这个平台的账号全部由管理员创建、且没有自助注册，闸门只带来额外一次交互和一条需要维护的状态位。安全性不因此下降：初始密码仍然只经管理员渠道传递、不落日志、不可回读；改密本身仍会撤销所有旧会话。
 
 **连带**：`users` 表少一列；登录后直接进大厅；e2e 首个用例改为"登录后落地大厅"，并新增一条"用户自助改密 → 改完进大厅 → 访问管理页被弹回"。
+
+### 第十三轮（2026-10-15）：M1 完成，一局真的能跑
+
+**交付**：写入路径（事务 + 行锁 + 平台分配序号 + 派生事件）、三个接口、第一个游戏模块「谁是卧底」、以及与它配套的回归夹具；并发与幂等都有测试。实机验证：4 个账号在 `POST /v1/instances` 建局、各自读到（且只读到）自己的词、轮流描述、投票淘汰卧底、对局收尾；`Idempotency-Key` 重复提交返回 `replayed: true` 且不新增行。
+
+**过程中被现实纠正的两个设计**：
+
+1. **`visibility` 必须是状态的函数**。原先它是模块级的静态映射，但"只给某席位看得见的变量名"里带着运行期才生成的 `participantId`，静态写法根本表达不出来。改成 `Visibility | ((state) => Visibility)`，内核多十行，AI 席位将来靠它拿到自己的秘密。
+2. **席位状态要跟着状态走**。`game_participants.status` 是给查询和写入前检查用的冗余副本，原先只在创建时写一次，淘汰后就成了谎话。现在每次写入结束会把变化的席位状态收敛回表里（实测：被投出的卧底在表里是 `eliminated`）。
+
+**同时定下的两件小事**：`game_instances` 拆成 `game_id` + `game_version`（按 id 找模块，按 version 钉代码版本）；`TransitionResult.events` 明确是"额外事件"，入站事件由平台追加，游戏不得回显。
+
+**还没做**：worker 的实例扫描（等 M2 的 AI 席位一起）、狼人杀、对局界面。
 
 ## 17. 参考资料
 

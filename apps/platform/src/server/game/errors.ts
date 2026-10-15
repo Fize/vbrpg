@@ -2,7 +2,10 @@ import type { GameEvent, GameState } from "../../shared/index.js";
 
 export interface TransitionResult {
   state: GameState;
-  /** Further events this step produced, appended in order by the platform. */
+  /**
+   * Further events this step produced. The inbound event is appended by the platform and must not
+   * be echoed here; anything listed is appended after it, with the next sequence numbers.
+   */
   events: GameEvent[];
 }
 

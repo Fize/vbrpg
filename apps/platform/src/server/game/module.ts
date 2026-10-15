@@ -41,12 +41,23 @@ export function createBaseState(
  * `transition` must stay pure: no database, no network, no clock, no randomness. Time, randomness
  * and model replies arrive as events; anything the outside world must do leaves as a command.
  */
+/**
+ * Visibility may depend on the state: a per-seat secret is only addressable once the seats exist,
+ * so a game that deals private information computes its rules from `state.participants`.
+ */
+export type VisibilitySource = Visibility | ((state: GameState) => Visibility);
+
+export function resolveVisibility(source: VisibilitySource | undefined, state: GameState): Visibility {
+  if (source === undefined) return {};
+  return typeof source === "function" ? source(state) : source;
+}
+
 export interface GameModule {
   readonly id: string;
   readonly version: string;
   readonly engineVersion: string;
   /** Which variables each viewer may see. Absent means nobody sees them (fail-closed). */
-  readonly visibility?: Visibility;
+  readonly visibility?: VisibilitySource;
   /** Roles, dealt cards and per-game variables are the game's business, so creation is its hook. */
   initialState(input: CreateInstanceInput): GameState;
   transition(state: GameState, event: GameEvent): TransitionResult;

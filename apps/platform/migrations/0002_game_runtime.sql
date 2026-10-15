@@ -1,7 +1,8 @@
 create table game_instances (
   id text primary key,
-  -- The game version is a constant inside the game's own code, not a table row.
-  game_version_id text not null,
+  game_id text not null,
+  -- The version is a constant inside the game's own code, not a table row.
+  game_version text not null,
   status text not null default 'created' check (status in ('created', 'running', 'waiting', 'paused', 'completed', 'cancelled')),
   current_sequence integer not null default 0 check (current_sequence >= 0),
   state_json jsonb not null,

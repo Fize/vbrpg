@@ -14,7 +14,8 @@ const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
 
 export const participantSchema = z.object({
   participantId: idSchema,
-  actorId: idSchema,
+  /** The account behind a human seat. AI seats are unowned, so this is absent. */
+  actorId: idSchema.optional(),
   roleId: idSchema.optional(),
   control: z.enum(["human", "ai"]),
   status: z.enum(["active", "eliminated", "disconnected", "finished"]),
@@ -87,6 +88,34 @@ export const gameEventSchema = z.object({
   usage: eventUsageSchema.nullable(),
 });
 
+export const seatRequestSchema = z
+  .object({
+    key: z.string().min(1).max(64),
+    control: z.enum(["human", "ai"]),
+    /** Human seat: the account to seat. Omitted means the caller takes the seat. */
+    username: z.string().min(1).max(64).optional(),
+    /** Usually dealt by the game in `initialState`, so it is only an invitation here. */
+    roleId: z.string().min(1).max(64).optional(),
+  })
+  .strict();
+
+export const createMatchRequestSchema = z
+  .object({
+    gameId: idSchema,
+    seats: z.array(seatRequestSchema).min(1).max(24),
+    randomSeed: z.string().min(1).max(128).optional(),
+    variables: z.record(jsonValueSchema).optional(),
+  })
+  .strict();
+
+export const submitEventRequestSchema = z
+  .object({
+    type: z.string().min(1).max(64),
+    participantKey: z.string().min(1).max(64),
+    payload: z.record(jsonValueSchema).default({}),
+  })
+  .strict();
+
 export const playerViewSchema = z.object({
   instanceId: idSchema,
   gameVersionId: idSchema,
@@ -103,6 +132,9 @@ export const playerViewSchema = z.object({
 export type GameEvent = z.infer<typeof gameEventSchema>;
 export type GameState = z.infer<typeof gameStateSchema>;
 export type Participant = z.infer<typeof participantSchema>;
+export type SeatRequest = z.infer<typeof seatRequestSchema>;
+export type CreateMatchRequest = z.infer<typeof createMatchRequestSchema>;
+export type SubmitEventRequest = z.infer<typeof submitEventRequestSchema>;
 export type PlayerView = z.infer<typeof playerViewSchema>;
 
 export function parseGameEvent(input: unknown): GameEvent {
@@ -115,4 +147,12 @@ export function parseGameState(input: unknown): GameState {
 
 export function parsePlayerView(input: unknown): PlayerView {
   return playerViewSchema.parse(input);
+}
+
+export function parseCreateMatchRequest(input: unknown): CreateMatchRequest {
+  return createMatchRequestSchema.parse(input);
+}
+
+export function parseSubmitEventRequest(input: unknown): SubmitEventRequest {
+  return submitEventRequestSchema.parse(input);
 }

@@ -52,7 +52,8 @@ export interface ProviderModelsTable {
 
 export interface GameInstancesTable {
   id: string;
-  game_version_id: string;
+  game_id: string;
+  game_version: string;
   status: "created" | "running" | "waiting" | "paused" | "completed" | "cancelled";
   current_sequence: number;
   state_json: JsonObject;

@@ -7,6 +7,8 @@ import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { closeDb, createDb } from "./db/index.js";
 import { createPlatformStore } from "./store.js";
+import { createBuiltInRegistry } from "./games/index.js";
+import { createMatchService } from "./match/service.js";
 import { createWorker } from "./worker.js";
 
 type Role = "api" | "worker" | "both";
@@ -68,7 +70,12 @@ async function startHttp(databaseUrl: string | undefined): Promise<void> {
   const db = databaseUrl === undefined ? undefined : createDb({ databaseUrl });
   const app = buildApp({
     config,
-    ...(db ? { platformStore: createPlatformStore(db) } : {}),
+    ...(db
+      ? {
+        platformStore: createPlatformStore(db),
+        matchService: createMatchService({ db, registry: createBuiltInRegistry() }),
+      }
+      : {}),
   });
 
   const webRoot = fileURLToPath(new URL("../browser", import.meta.url));

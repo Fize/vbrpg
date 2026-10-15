@@ -28,21 +28,29 @@ export type {
 } from "./auth.js";
 
 export {
+  createMatchRequestSchema,
   gameEventSchema,
   gameStateSchema,
+  parseCreateMatchRequest,
   parseGameEvent,
   parseGameState,
   parsePlayerView,
+  parseSubmitEventRequest,
   participantSchema,
   platformEventTypes,
   playerViewSchema,
+  seatRequestSchema,
+  submitEventRequestSchema,
   waitingSchema,
 } from "./domain.js";
 
 export type {
+  CreateMatchRequest,
   GameEvent,
   GameState,
   Participant,
+  SeatRequest,
+  SubmitEventRequest,
   PlayerView,
 } from "./domain.js";
 

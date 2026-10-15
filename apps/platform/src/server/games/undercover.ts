@@ -1,0 +1,300 @@
+import type { GameEvent, GameState, Participant } from "../../shared/index.js";
+import { platformEventTypes } from "../../shared/index.js";
+import { EngineError, type TransitionResult } from "../game/errors.js";
+import { createBaseState, type CreateInstanceInput, type GameModule } from "../game/module.js";
+import type { Visibility } from "../game/projector.js";
+
+/**
+ * 「谁是卧底」：多数席位拿到同一个词，一名卧底拿到近义词。每回合先轮流描述、再全体投票，
+ * 票高者出局；卧底出局则平民胜，卧底与最后两人同场则卧底胜。
+ *
+ * 隐藏信息只有两样：自己的词（`word:<participantId>`，只对该席位可见）与投票内容
+ * （`votes` 不写进可见性，任何席位都看不到；只有结算后的 `summary` 公开）。
+ */
+
+const WORDS: ReadonlyArray<readonly [string, string]> = [
+  ["苹果", "梨"],
+  ["咖啡", "茶"],
+  ["猫", "老虎"],
+  ["钢琴", "吉他"],
+  ["地铁", "公交"],
+  ["雪", "冰"],
+];
+
+const MIN_SEATS = 3;
+
+type UndercoverVariables = {
+  phase: "describe" | "vote" | "over";
+  round: number;
+  alive: string[];
+  spoken: string[];
+  votes: Record<string, string>;
+  summary: { round: number; tally: Record<string, number>; eliminated: string | null; tie: boolean } | null;
+  winner: string | null;
+};
+
+function variablesOf(state: GameState): UndercoverVariables {
+  return state.variables as unknown as UndercoverVariables;
+}
+
+/** Deterministic from the seed: `initialState` must not read a clock or a random source. */
+function hash(input: string): number {
+  let value = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    value ^= input.charCodeAt(index);
+    value = Math.imul(value, 16777619);
+  }
+  return Math.abs(value);
+}
+
+function waitingFor(stepId: "describe" | "vote", seats: string[]): GameState["waiting"] {
+  return { kind: "collectInput", stepId, participantIds: seats };
+}
+
+function withStatus(participants: Participant[], eliminated: string | null): Participant[] {
+  if (eliminated === null) return participants;
+  return participants.map((seat) =>
+    seat.participantId === eliminated ? { ...seat, status: "eliminated" as const } : seat,
+  );
+}
+
+/** A derived event reports why the phase changed; the platform gives it a sequence and a key. */
+function derived(state: GameState, type: string, payload: Record<string, unknown>): GameEvent {
+  const sequence = state.sequence + 1;
+  return {
+    eventId: `${state.instanceId}:${sequence}:${type}`,
+    instanceId: state.instanceId,
+    sequence,
+    type,
+    participantId: null,
+    actorUserId: null,
+    stepId: state.stepId,
+    occurredAtMs: 0,
+    idempotencyKey: `${state.instanceId}:${sequence}:${type}`,
+    payload,
+    usage: null,
+  };
+}
+
+function requireActor(state: GameState, participantId: string | null): string {
+  if (participantId === null) {
+    throw new EngineError("SEAT_REQUIRED", "This event must come from a seat");
+  }
+  if (!state.participants.some((seat) => seat.participantId === participantId)) {
+    throw new EngineError("UNKNOWN_SEAT", "That seat is not in this match");
+  }
+  if (!variablesOf(state).alive.includes(participantId)) {
+    throw new EngineError("SEAT_NOT_ACTIVE", "That seat is not part of the round");
+  }
+  return participantId;
+}
+
+export const undercover: GameModule = {
+  id: "undercover",
+  version: "1.0.0",
+  engineVersion: "core-1",
+
+  /**
+   * Rules are computed from the state because a seat's secret is only addressable once the seats
+   * exist. Everything absent from the map — including `votes` — is visible to nobody.
+   */
+  visibility(state: GameState): Visibility {
+    const rules: Visibility = {
+      phase: "public",
+      round: "public",
+      alive: "public",
+      summary: "public",
+      winner: "public",
+    };
+    for (const seat of state.participants) {
+      rules[`word:${seat.participantId}`] = { participant: seat.participantId };
+    }
+    return rules;
+  },
+
+  initialState(input: CreateInstanceInput): GameState {
+    if (input.participants.length < MIN_SEATS) {
+      throw new EngineError("TOO_FEW_SEATS", `At least ${MIN_SEATS} seats are required`);
+    }
+
+    const pair = WORDS[hash(input.randomSeed) % WORDS.length] as readonly [string, string];
+    const undercoverIndex = hash(`${input.randomSeed}#u`) % input.participants.length;
+    const alive = input.participants.map((seat) => seat.participantId);
+
+    const variables: Record<string, unknown> = {
+      phase: "describe",
+      round: 1,
+      alive,
+      spoken: [],
+      votes: {},
+      summary: null,
+      winner: null,
+    };
+    for (const [index, seat] of input.participants.entries()) {
+      variables[`word:${seat.participantId}`] = index === undercoverIndex ? pair[1] : pair[0];
+    }
+
+    const state = createBaseState(
+      {
+        ...input,
+        participants: input.participants.map((seat, index) => ({
+          ...seat,
+          roleId: index === undercoverIndex ? "undercover" : "civilian",
+        })),
+      },
+      variables,
+    );
+
+    return { ...state, status: "waiting", stepId: "describe", waiting: waitingFor("describe", alive) };
+  },
+
+  transition(state: GameState, event): TransitionResult {
+    const variables = variablesOf(state);
+
+    switch (event.type) {
+      case platformEventTypes.instanceCreated: {
+        return { state: { ...state, status: "waiting", stepId: "describe" }, events: [] };
+      }
+
+      case platformEventTypes.seatMessage: {
+        if (variables.phase !== "describe") {
+          throw new EngineError("NOT_DESCRIBING", "Descriptions are only accepted in the describe phase");
+        }
+        const speaker = requireActor(state, event.participantId);
+        const spoken = variables.spoken.includes(speaker)
+          ? variables.spoken
+          : [...variables.spoken, speaker];
+        const pending = variables.alive.filter((seat) => !spoken.includes(seat));
+        if (pending.length > 0) {
+          return {
+            state: {
+              ...state,
+              variables: { ...state.variables, spoken },
+              waiting: waitingFor("describe", pending),
+            },
+            events: [],
+          };
+        }
+        // Everyone has described; the phase change gets its own row so the record explains itself.
+        return {
+          state: {
+            ...state,
+            stepId: "vote",
+            waiting: waitingFor("vote", variables.alive),
+            variables: { ...state.variables, spoken, phase: "vote", votes: {} },
+          },
+          events: [derived(state, "describePhaseEnded", { round: variables.round })],
+        };
+      }
+
+      case "describePhaseEnded": {
+        return {
+          state: { ...state, stepId: "vote", waiting: waitingFor("vote", variables.alive) },
+          events: [],
+        };
+      }
+
+      case "vote": {
+        if (variables.phase !== "vote") {
+          throw new EngineError("NOT_VOTING", "Votes are only accepted in the vote phase");
+        }
+        const voter = requireActor(state, event.participantId);
+        const target = String(event.payload["target"] ?? "");
+        if (!variables.alive.includes(target)) {
+          throw new EngineError("UNKNOWN_TARGET", "The target is not an active seat");
+        }
+        if (target === voter) {
+          throw new EngineError("SELF_VOTE", "A seat cannot vote for itself");
+        }
+        if (variables.votes[voter] !== undefined) {
+          throw new EngineError("ALREADY_VOTED", "That seat already voted this round");
+        }
+
+        const votes = { ...variables.votes, [voter]: target };
+        const pending = variables.alive.filter((seat) => votes[seat] === undefined);
+        if (pending.length > 0) {
+          return {
+            state: {
+              ...state,
+              variables: { ...state.variables, votes },
+              waiting: waitingFor("vote", pending),
+            },
+            events: [],
+          };
+        }
+        return {
+          state: { ...state, stepId: "resolve", waiting: null, variables: { ...state.variables, votes } },
+          events: [derived(state, "votesRevealed", { round: variables.round })],
+        };
+      }
+
+      case "votesRevealed": {
+        return resolveRound(state);
+      }
+
+      default: {
+        // Unknown types are recorded and ignored: the same record also carries platform rows that
+        // no rule needs to understand.
+        return { state, events: [] };
+      }
+    }
+  },
+};
+
+function resolveRound(state: GameState): TransitionResult {
+  const variables = variablesOf(state);
+  const tally: Record<string, number> = {};
+  for (const target of Object.values(variables.votes)) {
+    tally[target] = (tally[target] ?? 0) + 1;
+  }
+
+  const ranked = Object.entries(tally).sort((left, right) =>
+    right[1] === left[1] ? left[0].localeCompare(right[0]) : right[1] - left[1],
+  );
+  const top = ranked[0];
+  const tied = top !== undefined && ranked[1] !== undefined && ranked[1][1] === top[1];
+  const eliminated = top === undefined || tied ? null : top[0];
+
+  const alive = eliminated === null ? variables.alive : variables.alive.filter((seat) => seat !== eliminated);
+  const undercoverAlive = state.participants.some(
+    (seat) => seat.roleId === "undercover" && alive.includes(seat.participantId),
+  );
+  const summary = { round: variables.round, tally, eliminated, tie: tied };
+
+  const winner =
+    eliminated === null ? null : !undercoverAlive ? "civilian" : alive.length <= 2 ? "undercover" : null;
+
+  if (winner !== null) {
+    return {
+      state: {
+        ...state,
+        status: "completed",
+        stepId: "over",
+        waiting: null,
+        participants: withStatus(state.participants, eliminated),
+        variables: { ...state.variables, phase: "over", alive, votes: {}, summary, winner },
+      },
+      events: [],
+    };
+  }
+
+  return {
+    state: {
+      ...state,
+      participants: withStatus(state.participants, eliminated),
+      stepId: "describe",
+      waiting: waitingFor("describe", alive),
+      variables: {
+        ...state.variables,
+        phase: "describe",
+        round: variables.round + 1,
+        alive,
+        spoken: [],
+        votes: {},
+        summary,
+        winner: null,
+      },
+    },
+    events: [],
+  };
+}

@@ -5,12 +5,15 @@ import { AppError, type ErrorResponse } from "./runtime/index.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerPlatformAuthRoutes } from "./routes/platform-auth.js";
 import { registerPlatformAdminRoutes } from "./routes/platform-admin.js";
+import { registerMatchRoutes } from "./routes/matches.js";
+import type { MatchService } from "./match/service.js";
 import type { PlatformStore } from "./store.js";
 import { createPlatformRequestContext } from "./platform-auth.js";
 
 export interface BuildAppOptions {
   config?: ApiConfig;
   platformStore?: PlatformStore;
+  matchService?: MatchService;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -70,6 +73,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     const platformContext = createPlatformRequestContext(options.platformStore, config);
     void registerPlatformAuthRoutes(app, platformContext);
     void registerPlatformAdminRoutes(app, platformContext);
+    if (options.matchService) {
+      void registerMatchRoutes(app, platformContext, options.matchService);
+    }
   }
   return app;
 }

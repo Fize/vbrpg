@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createBuiltInRegistry } from "../src/server/games/index.js";
+import { createMatchService } from "../src/server/match/service.js";
 import {
   bootstrapPlatformAdmin,
   closeDb,
@@ -35,18 +37,21 @@ const platformUserId = randomUUID();
 const platformSessionId = randomUUID();
 const providerId = randomUUID();
 const providerName = `integration-provider-${suffix}`;
+let matchId: string | null = null;
 
 try {
   await createGameInstance(db, {
     id: instanceId,
-    gameVersionId: versionId,
+    gameId: "integration-game",
+    gameVersion: versionId,
     status: "running",
     currentSequence: 0,
     stateJson: {},
   });
   await createGameInstance(db, {
     id: secondInstanceId,
-    gameVersionId: versionId,
+    gameId: "integration-game",
+    gameVersion: versionId,
     status: "running",
     currentSequence: 0,
     stateJson: {},
@@ -302,6 +307,135 @@ try {
   assert.equal(await deleteProvider(db, providerId), false, "a second delete must report nothing");
 
 
+  // ─── The match write path: one transaction, one record, one order ─────────
+  const matchService = createMatchService({ db, registry: createBuiltInRegistry() });
+  const actor = { userId: platformUserId, isAdmin: true };
+  const created = await matchService.create({
+    actor,
+    request: {
+      gameId: "undercover",
+      seats: [
+        { key: "p1", control: "human" },
+        { key: "p2", control: "ai" },
+        { key: "p3", control: "ai" },
+      ],
+    },
+  });
+  matchId = created.instanceId;
+  assert.equal(created.gameId, "undercover");
+  assert.equal(created.gameVersion, "1.0.0");
+  assert.equal(created.status, "waiting");
+  // Creation is a write: the game saw `instanceCreated` and moved to its first waiting point.
+  assert.equal(created.sequence, 1);
+
+  const opened = await matchService.read({ actor, instanceId: matchId });
+  assert.equal(opened.seats.length, 3);
+  assert.equal(opened.record.length, 1);
+  assert.equal(opened.record[0]?.type, "instanceCreated");
+  assert.equal(opened.view?.publicState["phase"], "describe");
+  assert.equal(Object.keys(opened.view?.privateState ?? {}).length, 1, "a seat sees its own word only");
+
+  const first = await matchService.submit({
+    actor,
+    instanceId: matchId,
+    idempotencyKey: "turn-1",
+    request: { type: "seatMessage", participantKey: "p1", payload: { text: "苹果" } },
+  });
+  assert.equal(first.replayed, false);
+  assert.equal(first.summary.sequence, 2);
+  assert.deepEqual(first.view.availableActions, []);
+
+  // The same key is a replay: no second row, and the caller gets the current state back.
+  const replay = await matchService.submit({
+    actor,
+    instanceId: matchId,
+    idempotencyKey: "turn-1",
+    request: { type: "seatMessage", participantKey: "p1", payload: { text: "苹果" } },
+  });
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.summary.sequence, 2);
+  assert.equal((await matchService.read({ actor, instanceId: matchId })).record.length, 2);
+
+  // A seat that belongs to nobody cannot act, and a stranger cannot read.
+  let foreignSeat = false;
+  try {
+    await matchService.submit({
+      actor,
+      instanceId: matchId,
+      idempotencyKey: "turn-2",
+      request: { type: "seatMessage", participantKey: "p2", payload: { text: "x" } },
+    });
+  } catch (error) {
+    foreignSeat = error instanceof Error && "code" in error && error.code === "NOT_YOUR_SEAT";
+  }
+  assert.equal(foreignSeat, true, "an AI seat must not accept a human submission");
+
+  let stranger = false;
+  try {
+    await matchService.read({ actor: { userId: randomUUID(), isAdmin: false }, instanceId: matchId });
+  } catch (error) {
+    stranger = error instanceof Error && "code" in error && error.code === "NOT_A_PARTICIPANT";
+  }
+  assert.equal(stranger, true, "a non-participant must not read the match");
+
+  // Two writes at once: the row lock serializes them instead of losing one.
+  const parallel = await Promise.allSettled([
+    matchService.submit({
+      actor,
+      instanceId: matchId,
+      idempotencyKey: "parallel-a",
+      request: { type: "seatMessage", participantKey: "p1", payload: { text: "a" } },
+    }),
+    matchService.submit({
+      actor,
+      instanceId: matchId,
+      idempotencyKey: "parallel-b",
+      request: { type: "seatMessage", participantKey: "p1", payload: { text: "b" } },
+    }),
+  ]);
+  assert.equal(parallel.filter((entry) => entry.status === "fulfilled").length, 2);
+  const sequences = (
+    await db
+      .selectFrom("game_events")
+      .select("sequence")
+      .where("instance_id", "=", matchId)
+      .execute()
+  ).map((row) => row.sequence);
+  assert.equal(new Set(sequences).size, sequences.length, "sequences must stay unique and gapless");
+
+  // The same key twice at once still lands as one row.
+  const races = await Promise.allSettled([
+    matchService.submit({
+      actor,
+      instanceId: matchId,
+      idempotencyKey: "parallel-same",
+      request: { type: "seatMessage", participantKey: "p1", payload: { text: "same" } },
+    }),
+    matchService.submit({
+      actor,
+      instanceId: matchId,
+      idempotencyKey: "parallel-same",
+      request: { type: "seatMessage", participantKey: "p1", payload: { text: "same" } },
+    }),
+  ]);
+  assert.equal(races.filter((entry) => entry.status === "fulfilled").length, 2);
+  const sameKey = await db
+    .selectFrom("game_events")
+    .select("sequence")
+    .where("instance_id", "=", matchId)
+    .where("idempotency_key", "=", "parallel-same")
+    .execute();
+  assert.equal(sameKey.length, 1, "one key, one row, even under a race");
+
+  // A seat the rules eliminated is marked in the table too, not only in the state.
+  const eliminated = await db
+    .selectFrom("game_participants")
+    .select(["participant_key", "status"])
+    .where("instance_id", "=", matchId)
+    .execute();
+  assert.equal(eliminated.length, 3);
+  assert.ok(eliminated.every((seat) => seat.status === "active"));
+
   console.log("Database integration test passed");
 } finally {
   await db.deleteFrom("provider_models").where("provider_id", "=", providerId).execute();
@@ -310,7 +444,8 @@ try {
   await db.deleteFrom("audit_logs").where("actor_user_id", "=", platformUserId).execute();
   // Deleting an instance cascades to its participants and events, and it must go before the user
   // rows it references.
-  await db.deleteFrom("game_instances").where("id", "in", [instanceId, secondInstanceId]).execute();
+  const instanceIds = [instanceId, secondInstanceId, ...(matchId === null ? [] : [matchId])];
+  await db.deleteFrom("game_instances").where("id", "in", instanceIds).execute();
   await db.deleteFrom("users").where("id", "=", platformUserId).execute();
   await closeDb(db);
 }
