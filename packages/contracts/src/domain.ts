@@ -43,6 +43,29 @@ export const workflowNodeSchema = z.object({
   next: z.array(idSchema).default([]),
 });
 
+/**
+ * An agent is an author-side declaration, frozen with the game version: one agent per seat
+ * (`aiGenerate.participantId`), its own session. Two seats of the same role are two agents
+ * that share this declaration but not their context. The model is tenant-side (a binding).
+ */
+export const agentLimitsSchema = z
+  .object({
+    timeoutMs: z.number().int().positive(),
+    maxAttempts: z.number().int().positive(),
+    /** Input plus output tokens allowed for one call before the node degrades. */
+    tokenBudget: z.number().int().positive(),
+  })
+  .strict();
+
+export const agentDefinitionSchema = z
+  .object({
+    id: idSchema,
+    roleId: idSchema,
+    systemPrompt: z.string().min(1),
+    limits: agentLimitsSchema,
+  })
+  .strict();
+
 export const gameDefinitionSchema = z.object({
   manifest: z.object({
     gameId: idSchema,
@@ -60,6 +83,7 @@ export const gameDefinitionSchema = z.object({
     nodes: z.array(workflowNodeSchema).min(1),
   }),
   roles: z.array(z.object({ id: idSchema, name: z.string().min(1) })).default([]),
+  agents: z.array(agentDefinitionSchema).default([]),
   variables: z.record(jsonValueSchema).default({}),
   visibility: z.record(jsonValueSchema).default({}),
   presentation: z.record(jsonValueSchema).default({}),
@@ -182,6 +206,8 @@ export const playerViewSchema = z.object({
   })),
 });
 
+export type AgentDefinition = z.infer<typeof agentDefinitionSchema>;
+export type AgentLimits = z.infer<typeof agentLimitsSchema>;
 export type ActorRef = z.infer<typeof actorRefSchema>;
 export type GameDefinition = z.infer<typeof gameDefinitionSchema>;
 export type GameEvent = z.infer<typeof gameEventSchema>;

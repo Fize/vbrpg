@@ -1,12 +1,15 @@
 import { AppError } from "./errors.js";
 import type { GameEvent, PlayerView } from "@vbrpg/contracts";
 
-const systemPrompt = "You are a game AI. Use only the current game context. Return the smallest useful JSON value or plain answer.";
+const DEFAULT_SYSTEM_PROMPT =
+  "You are a game AI. Use only the current game context. Return the smallest useful JSON value or plain answer.";
 
 export interface AiConfig {
   apiKey?: string;
   baseUrl: string;
   model: string;
+  /** The agent's own system prompt; the platform default covers agent-less callers. */
+  systemPrompt?: string;
   timeoutMs: number;
   contextWindowTokens: number;
   maxInputTokens: number;
@@ -129,6 +132,7 @@ export function createOpenAiCompatibleClient(config: AiConfig): AiClient {
       if (!config.apiKey) {
         throw new AppError(503, "AI_NOT_CONFIGURED", "An AI API key is required for the AI demo");
       }
+      const systemPrompt = config.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
       const requestedAction = `Requested action:\n${JSON.stringify(request.input)}`;
       const fixedPromptTokens = estimateTokens(systemPrompt) + estimateTokens(requestedAction);
       const contextBudget = Math.max(

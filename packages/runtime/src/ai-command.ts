@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { parseGameEvent, parseGameState, type GameEvent, type PlayerView } from "@vbrpg/contracts";
+import {
+  parseGameEvent,
+  parseGameState,
+  type AgentDefinition,
+  type GameEvent,
+  type PlayerView,
+} from "@vbrpg/contracts";
 import {
   getAgentModelBinding,
   getProviderModelWithProvider,
@@ -63,6 +69,8 @@ interface AiNodePlan {
   compiled: CompiledGame;
   nodeId: string;
   agentId: string;
+  agent: AgentDefinition;
+  participantId: string;
   input: Record<string, unknown>;
   timeoutMs: number;
   maxAttempts: number;
@@ -129,16 +137,22 @@ async function loadPlan(
   if (typeof resultKey !== "string" || resultKey === "") {
     throw new AiCommandError("RESULT_KEY_MISSING", `AI node ${nodeId} declares no resultKey`);
   }
+  const agent = loaded.compiled.definition.agents.find((candidate) => candidate.id === agentId);
+  if (!agent) {
+    throw new AiCommandError("AGENT_UNDEFINED", `Version declares no agent: ${agentId}`);
+  }
 
-  // The agent sees its seat's projection; a node without a seat only gets public state.
-  const participantId = config.participantId;
-  const viewer =
-    typeof participantId === "string" && participantId.length > 0
-      ? { kind: "participant" as const, participantId }
-      : { kind: "spectator" as const };
+  // The waiting seat is the session key: one agent per seat, its own context.
+  const participantId = loaded.state.waiting.participantIds[0];
+  if (participantId === undefined) {
+    throw new AiCommandError("AGENT_SEAT_MISSING", `AI node ${nodeId} waits for no seat`);
+  }
   let view: PlayerView;
   try {
-    view = projectPlayerView(loaded.compiled.definition, loaded.state, viewer);
+    view = projectPlayerView(loaded.compiled.definition, loaded.state, {
+      kind: "participant",
+      participantId,
+    });
   } catch (error) {
     throw new AiCommandError(
       "AGENT_VIEW_UNKNOWN",
@@ -150,6 +164,8 @@ async function loadPlan(
     compiled: loaded.compiled,
     nodeId,
     agentId,
+    agent,
+    participantId,
     input: asInputRecord(command.payload),
     timeoutMs: positiveInteger(config.timeoutMs, DEFAULT_MAX_TIMEOUT_MS),
     maxAttempts: positiveInteger(command.max_attempts, 1),
@@ -281,12 +297,26 @@ export async function runAiCommand(
 
   const now = dependencies.now ?? (() => new Date());
   const maxTimeoutMs = dependencies.maxTimeoutMs ?? DEFAULT_MAX_TIMEOUT_MS;
-  const maxInputTokens = dependencies.maxInputTokens ?? DEFAULT_MAX_INPUT_TOKENS;
   const buildClient = dependencies.createClient ?? createOpenAiCompatibleClient;
+  const contextWindowTokens = dependencies.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS;
+  const reserveOutputTokens = dependencies.reserveOutputTokens ?? DEFAULT_RESERVE_OUTPUT_TOKENS;
 
   const plan = await loadPlan(db, context, command, dependencies.recentEventLimit ?? DEFAULT_RECENT_EVENT_LIMIT);
   if (!plan) {
     return { outcome: "skipped", reason: "INSTANCE_NOT_WAITING_FOR_AI" };
+  }
+
+  // The version's token budget caps the call; an oversized node input degrades instead of paying.
+  const maxInputTokens = Math.min(
+    dependencies.maxInputTokens ?? DEFAULT_MAX_INPUT_TOKENS,
+    plan.agent.limits.tokenBudget,
+  );
+  const prompt = buildGameContext(plan.view, plan.recentEvents, maxInputTokens);
+  if (
+    estimateTokens(prompt) + estimateTokens(JSON.stringify(plan.input))
+    > plan.agent.limits.tokenBudget
+  ) {
+    return failWithFallback(db, context, plan, command, now(), { reason: "BUDGET_EXCEEDED" });
   }
 
   const binding = await getAgentModelBinding(db, context, {
@@ -326,10 +356,11 @@ export async function runAiCommand(
       ),
       baseUrl: provider.base_url,
       model: model.model_id,
+      systemPrompt: plan.agent.systemPrompt,
       timeoutMs: Math.min(plan.timeoutMs, maxTimeoutMs),
-      contextWindowTokens: dependencies.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
+      contextWindowTokens,
       maxInputTokens,
-      reserveOutputTokens: dependencies.reserveOutputTokens ?? DEFAULT_RESERVE_OUTPUT_TOKENS,
+      reserveOutputTokens,
     });
   } catch (error) {
     return failWithFallback(db, context, plan, command, now(), {
@@ -357,7 +388,6 @@ export async function runAiCommand(
     throw new AiCommandError("PROVIDER_RETRY", detail);
   }
 
-  const prompt = buildGameContext(plan.view, plan.recentEvents, maxInputTokens);
   const outcome = await submitOutcomeEvent(db, context, plan, {
     type: "aiResultReceived",
     payload: toJsonObject({ result: result ?? null }),

@@ -31,6 +31,8 @@ const unboundVersionId = `ai-unbound-version-${suffix}`;
 const successInstanceId = `ai-instance-ok-${suffix}`;
 const unboundInstanceId = `ai-instance-unbound-${suffix}`;
 const brokenInstanceId = `ai-instance-broken-${suffix}`;
+const budgetVersionId = `ai-budget-version-${suffix}`;
+const budgetInstanceId = `ai-instance-budget-${suffix}`;
 const providerId = `ai-provider-${suffix}`;
 const modelId = `ai-model-${suffix}`;
 const credential = "sk-integration-secret";
@@ -57,6 +59,7 @@ function definition() {
           type: "aiGenerate",
           config: {
             agentId: "seer",
+            participantId: "seer-seat",
             input: { action: "choose" },
             timeoutMs: 5_000,
             maxAttempts: 2,
@@ -70,9 +73,34 @@ function definition() {
       ],
     },
     roles: [{ id: "seer", name: "Seer" }],
-    variables: { publicNote: "public-note", hiddenPlan: "hidden-plan-canary" },
-    visibility: { publicNote: "public", hiddenPlan: { role: "seer" } },
+    agents: [
+      {
+        id: "seer",
+        roleId: "seer",
+        systemPrompt: "You are the seer.",
+        limits: { timeoutMs: 5_000, maxAttempts: 2, tokenBudget: 131_072 },
+      },
+    ],
+    variables: { publicNote: "public-note", seerNote: "seer-only", hiddenPlan: "hidden-plan-canary" },
+    // hiddenPlan declares no rule, so fail-closed keeps it out of every projection.
+    visibility: { publicNote: "public", seerNote: { role: "seer" } },
     presentation: {},
+  };
+}
+
+const seats = [
+  { participantId: "seer-seat", actorId: userId, roleId: "seer", control: "ai", status: "active" },
+];
+
+/** Same package, but the agent's budget cannot cover even one call. */
+function budgetDefinition() {
+  const base = definition();
+  return {
+    ...base,
+    agents: base.agents.map((agent) => ({
+      ...agent,
+      limits: { ...agent.limits, tokenBudget: 1 },
+    })),
   };
 }
 
@@ -87,7 +115,7 @@ async function createWaitingInstance(
     instanceId,
     gameVersionId,
     randomSeed: `seed-${instanceId}`,
-    participants: [],
+    participants: seats,
   });
   await db
     .insertInto("game_instances")
@@ -218,6 +246,7 @@ try {
     [boundVersionId, "1.0.0", definition()],
     [unboundVersionId, "1.0.1", definition()],
     [timerVersionId, "1.0.2", timerDefinition()],
+    [budgetVersionId, "1.0.3", budgetDefinition()],
   ] as const) {
     await db
       .insertInto("game_versions")
@@ -272,6 +301,11 @@ try {
     agentId: "seer",
     providerModelId: modelId,
   });
+  await upsertAgentModelBinding(db, { tenantId }, {
+    gameVersionId: budgetVersionId,
+    agentId: "seer",
+    providerModelId: modelId,
+  });
 
   await createWaitingInstance(boundVersionId, successInstanceId);
   await createWaitingInstance(unboundVersionId, unboundInstanceId);
@@ -313,8 +347,12 @@ try {
   assert.equal((successLedger[0]?.metadata as { outcome?: string }).outcome, "completed");
   assert.deepEqual(seededCredentials, [credential]);
 
-  // The agent only receives its seat's projection: a role-scoped variable never reaches it.
-  assert.deepEqual(providerRequests, [{ publicState: { publicNote: "public-note" }, privateState: {} }]);
+  // The agent receives its own seat's projection: role-scoped secrets yes, unlisted ones never.
+  assert.deepEqual(providerRequests, [{
+    publicState: { publicNote: "public-note" },
+    privateState: { seerNote: "seer-only" },
+  }]);
+  assert.equal(JSON.stringify(providerRequests).includes("hidden-plan-canary"), false);
 
   // Drained queue and a re-delivered command must not advance the instance twice.
   assert.equal((await worker.runOnce()).claimed, 0);
@@ -338,10 +376,12 @@ try {
 
   // Provider failure with attempts left goes back to the queue with backoff.
   await createWaitingInstance(boundVersionId, brokenInstanceId);
+  const retryViews: unknown[] = [];
   const failingHandler = createAiCommandHandler(db, {
     credentialKeyEncoded,
     createClient: () => ({
-      async generate() {
+      async generate(request) {
+        retryViews.push(request.view);
         throw new Error("provider exploded");
       },
     }),
@@ -379,6 +419,42 @@ try {
     .execute();
   assert.equal(brokenLedger.length, 1);
   assert.match(String((brokenLedger[0]?.metadata as { reason?: string }).reason), /PROVIDER_ERROR/);
+
+  // Retrying is the same session: both attempts rebuild an identical context from state and log.
+  assert.equal(retryViews.length, 2);
+  assert.deepEqual(retryViews[0], retryViews[1]);
+
+  // Token budget: a call the agent's budget cannot cover degrades without reaching the provider.
+  await createWaitingInstance(budgetVersionId, budgetInstanceId);
+  const budgetHandler = createAiCommandHandler(db, {
+    credentialKeyEncoded,
+    createClient: () => ({
+      async generate() {
+        throw new Error("the budget gate should have stopped this call");
+      },
+    }),
+  });
+  const budgetWorker = workerWith(
+    async (command) => budgetHandler({ ...(command as never), tenant_id: tenantId } as never),
+    `ai-worker-budget-${suffix}`,
+  );
+  const budgetRun = await budgetWorker.runOnce();
+  assert.equal(budgetRun.claimed, 1);
+  assert.equal(budgetRun.processed, 1);
+  const budgeted = await instance(budgetInstanceId);
+  assert.equal(budgeted.status, "completed");
+  assert.equal(variables(budgeted).degraded, true);
+  assert.deepEqual(await eventTypes(budgetInstanceId), ["instanceCreated", "aiFailed"]);
+  assert.equal(
+    (
+      await db
+        .selectFrom("ai_usage_ledger")
+        .select("id")
+        .where("instance_id", "=", budgetInstanceId)
+        .execute()
+    ).length,
+    0,
+  );
 
   // Timers are consumed by the same worker: an expired timer advances the instance.
   await createWaitingInstance(timerVersionId, timerInstanceId, timerCompiled);

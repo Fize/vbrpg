@@ -318,22 +318,29 @@ function runAutomaticNodes(
       }
       case "aiGenerate": {
         const agentId = requiredString(config, "agentId");
-        const timeoutMs = requiredPositiveInteger(config, "timeoutMs");
-        const maxAttempts = requiredPositiveInteger(config, "maxAttempts");
+        // The waiting seat keys the agent's session, so the node must name it.
+        const participantId = requiredString(config, "participantId");
+        const agent = definition.agents.find((candidate) => candidate.id === agentId);
+        if (!agent) {
+          throw new EngineError(
+            "UNKNOWN_AGENT",
+            `Node ${node.id} references an undeclared agent: ${agentId}`,
+          );
+        }
         const fallbackNodeId = requiredString(config, "fallbackNodeId");
         const input = config.input;
         if (typeof input !== "object" || input === null || Array.isArray(input)) {
           throw new EngineError("INVALID_NODE_CONFIG", "AI input must be an object");
         }
-        state = setWaiting(state, "ai", node.id);
+        state = setWaiting(state, "ai", node.id, [participantId]);
         commands.push({
           commandId: `${state.instanceId}:ai:${state.sequence}:${node.id}`,
           instanceId: state.instanceId,
           type: "aiGenerate",
           agentId,
           input: input as Record<string, unknown>,
-          timeoutMs,
-          maxAttempts,
+          timeoutMs: agent.limits.timeoutMs,
+          maxAttempts: agent.limits.maxAttempts,
           fallbackNodeId,
         });
         return { state, commands };

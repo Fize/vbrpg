@@ -171,19 +171,27 @@ insert into agent_model_bindings (id, tenant_id, game_version_id, agent_id, prov
 values (gen_random_uuid()::text, '<tenant-id>', '<game-version-id>', 'seer', '<provider-model-id>');
 ```
 
-An `aiGenerate` node may name the seat the agent acts for:
+An agent is declared inside the game version, one per seat (ADR-006). The node names the agent, the seat
+it acts for, its input and its fallback; limits live on the agent so a version cannot carry two copies:
 
 ```json
 { "agentId": "seer", "participantId": "p3", "input": { "action": "choose" },
-  "timeoutMs": 5000, "maxAttempts": 2, "fallbackNodeId": "degraded", "resultKey": "choice" }
+  "fallbackNodeId": "degraded", "resultKey": "choice" }
+```
+
+```json
+"agents": [{ "id": "seer", "roleId": "seer", "systemPrompt": "You are the seer.",
+             "limits": { "timeoutMs": 5000, "maxAttempts": 2, "tokenBudget": 131072 } }]
 ```
 
 The prompt is built from that seat's projection (`projectPlayerView`) and never from the authoritative
-state; without `participantId` the agent sees public state only, and a seat the instance does not contain
-fails the command instead of degrading silently. Event payloads are never sent: whether a payload is
-public is the game's call (a night vote is secret, a day vote is not) and a definition cannot declare
-event visibility yet, so the prompt carries event headers (sequence, type, participantId) only. The
-stateless `/v1/mvp/runtime/ai-dispatch` line projects as a spectator for the same reason.
+state; the session key is `(instance, participantId)`, so two seats of the same role never share context
+and a seat the instance does not contain fails the command instead of degrading silently. Event payloads
+are never sent: whether a payload is public is the game's call (a night vote is secret, a day vote is
+not) and a definition cannot declare event visibility yet, so the prompt carries event headers
+(sequence, type, participantId) only. `tokenBudget` covers input plus output for one call; a node whose
+input cannot fit degrades through `fallbackNodeId` with reason `BUDGET_EXCEEDED` before the provider is
+called. The stateless `/v1/mvp/runtime/ai-dispatch` line projects the seat the node waits for as well.
 
 `apps/worker` consumes both queues: `pending_commands` (AI commands) and `scheduled_jobs` (expired
 timers, which re-enter the instance as `timerExpired` events). `outbox_events` still has no handler:

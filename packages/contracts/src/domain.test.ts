@@ -36,6 +36,26 @@ describe("contracts v0", () => {
     expect(parsed.workflow.nodes[0]?.next).toEqual(["wait"]);
   });
 
+  it("keeps agent declarations version-scoped and bounded", () => {
+    const parsed = gameDefinitionSchema.parse({
+      ...definition,
+      agents: [{
+        id: "seer",
+        roleId: "seer",
+        systemPrompt: "You are the seer.",
+        limits: { timeoutMs: 5_000, maxAttempts: 2, tokenBudget: 131_072 },
+      }],
+    });
+    expect(parsed.agents[0]?.limits.tokenBudget).toBe(131_072);
+
+    // An agent without limits cannot be bounded at runtime, so it cannot be published.
+    expect(() => gameDefinitionSchema.parse({
+      ...definition,
+      agents: [{ id: "seer", roleId: "seer", systemPrompt: "You are the seer." }],
+    })).toThrow();
+    expect(gameDefinitionSchema.parse(definition).agents).toEqual([]);
+  });
+
   it("rejects a definition with an invalid game slug", () => {
     expect(() => gameDefinitionSchema.parse({
       ...definition,

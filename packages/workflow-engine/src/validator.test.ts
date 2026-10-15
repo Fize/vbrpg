@@ -28,6 +28,7 @@ function definition(overrides: Partial<GameDefinition["workflow"]> = {}): GameDe
       ...overrides,
     },
     roles: [],
+    agents: [],
     variables: {},
     visibility: {},
     presentation: {},
@@ -127,24 +128,78 @@ describe("workflow definition validator", () => {
     expect(unparseable.issues[0]?.message).toMatch(/Visibility rule for "secret"/);
   });
 
-  it("requires an agent on every AI node", () => {
-    const result = validateGameDefinition(
-      definition({
+  it("requires an AI node to name a declared agent and a seat", () => {
+    const nodes = [
+      { id: "start", type: "start" as const, config: {}, next: ["ai"] },
+      {
+        id: "ai",
+        type: "aiGenerate" as const,
+        config: { agentId: "seer", fallbackNodeId: "end", input: {}, resultKey: "out" },
+        next: ["end"],
+      },
+      { id: "end", type: "end" as const, config: {}, next: [] },
+    ];
+    const roles = [{ id: "seer", name: "Seer" }];
+    const agent = {
+      id: "seer",
+      roleId: "seer",
+      systemPrompt: "You are the seer.",
+      limits: { timeoutMs: 5_000, maxAttempts: 1, tokenBudget: 2_048 },
+    };
+
+    // No participantId: an agent without a seat has no session key.
+    const missingSeat = validateGameDefinition({
+      ...definition({ nodes }),
+      roles,
+      agents: [agent],
+    });
+    expect(missingSeat.valid).toBe(false);
+    expect(missingSeat.issues.map((issue) => issue.code)).toContain("INVALID_CONFIG");
+
+    // Decked out: agent declared, seat declared.
+    expect(
+      validateGameDefinition({
+        ...definition({
+          nodes: [
+            nodes[0]!,
+            {
+              ...nodes[1]!,
+              config: { ...nodes[1]!.config, participantId: "p1" },
+            },
+            nodes[2]!,
+          ],
+        }),
+        roles,
+        agents: [agent],
+      }),
+    ).toEqual({ valid: true, issues: [] });
+
+    // Unknown agent reference.
+    const unknown = validateGameDefinition({
+      ...definition({
         nodes: [
-          { id: "start", type: "start", config: {}, next: ["ai"] },
-          {
-            id: "ai",
-            type: "aiGenerate",
-            config: { timeoutMs: 5_000, maxAttempts: 1, fallbackNodeId: "end", input: {}, resultKey: "out" },
-            next: ["end"],
-          },
-          { id: "end", type: "end", config: {}, next: [] },
+          nodes[0]!,
+          { ...nodes[1]!, config: { ...nodes[1]!.config, participantId: "p1", agentId: "ghost" } },
+          nodes[2]!,
         ],
       }),
-    );
+      roles,
+      agents: [agent],
+    });
+    expect(unknown.issues.map((issue) => issue.code)).toContain("UNKNOWN_AGENT");
 
-    expect(result.valid).toBe(false);
-    expect(result.issues.map((issue) => issue.code)).toContain("INVALID_CONFIG");
+    // Agent pointing at an undeclared role.
+    const unknownRole = validateGameDefinition({
+      ...definition({
+        nodes: [
+          nodes[0]!,
+          { ...nodes[1]!, config: { ...nodes[1]!.config, participantId: "p1" } },
+          nodes[2]!,
+        ],
+      }),
+      agents: [agent],
+    });
+    expect(unknownRole.issues.map((issue) => issue.code)).toContain("INVALID_CONFIG");
   });
 
   it("accepts an explicit loop and still rejects cycles that skip it", () => {

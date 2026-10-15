@@ -44,6 +44,7 @@ const definition: GameDefinition = {
     ],
   },
   roles: [],
+  agents: [],
   variables: {},
   visibility: {},
   presentation: {},
@@ -90,9 +91,8 @@ const aiDefinition: GameDefinition = {
         type: "aiGenerate",
         config: {
           agentId: "seer",
+          participantId: "seer",
           input: { promptKey: "runtime-spike" },
-          timeoutMs: 5_000,
-          maxAttempts: 2,
           fallbackNodeId: "end",
           resultKey: "aiResult",
         },
@@ -101,6 +101,15 @@ const aiDefinition: GameDefinition = {
       { id: "end", type: "end", config: {}, next: [] },
     ],
   },
+  roles: [{ id: "seer", name: "Seer" }],
+  agents: [
+    {
+      id: "seer",
+      roleId: "seer",
+      systemPrompt: "You are the seer.",
+      limits: { timeoutMs: 5_000, maxAttempts: 2, tokenBudget: 4_096 },
+    },
+  ],
 };
 
 const loopDefinition: GameDefinition = {
@@ -290,12 +299,18 @@ describe("native workflow runtime spike", () => {
   it("turns an AI node into a bounded command and resumes from its result", () => {
     const result = transition(aiDefinition, initialState, event(1, "instanceCreated"));
 
+    expect(result.state.waiting).toEqual({
+      kind: "ai",
+      nodeId: "ai",
+      participantIds: ["seer"],
+    });
     expect(result.commands).toEqual([{
       commandId: "instance-1:ai:1:ai",
       instanceId: "instance-1",
       type: "aiGenerate",
       agentId: "seer",
       input: { promptKey: "runtime-spike" },
+      // The limits come from the agent the version declares, not from the node.
       timeoutMs: 5_000,
       maxAttempts: 2,
       fallbackNodeId: "end",
@@ -308,6 +323,17 @@ describe("native workflow runtime spike", () => {
     );
     expect(completed.state.status).toBe("completed");
     expect(completed.state.variables.aiResult).toEqual({ choice: "seer" });
+  });
+
+  it("refuses an AI node whose agent the version does not declare", () => {
+    const unknownAgent: GameDefinition = {
+      ...aiDefinition,
+      agents: [],
+    };
+
+    expect(() => transition(unknownAgent, initialState, event(1, "instanceCreated"))).toThrowError(
+      new EngineError("UNKNOWN_AGENT", "Node ai references an undeclared agent: seer"),
+    );
   });
 
   it("routes an exhausted AI command to its declared fallback node", () => {

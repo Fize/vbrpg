@@ -29,6 +29,8 @@ export type {
 
 export {
   actorRefSchema,
+  agentDefinitionSchema,
+  agentLimitsSchema,
   createInstanceRequestSchema,
   externalCommandSchema,
   gameDefinitionSchema,
@@ -51,6 +53,8 @@ export {
 
 export type {
   ActorRef,
+  AgentDefinition,
+  AgentLimits,
   CreateInstanceRequest,
   ExternalCommand,
   GameDefinition,

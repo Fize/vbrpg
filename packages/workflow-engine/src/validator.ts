@@ -129,11 +129,8 @@ function validateNodeConfig(node: Node, issues: ValidationIssue[]): void {
       break;
     case "aiGenerate":
       stringConfig(node, "agentId", issues);
-      if (config.participantId !== undefined) {
-        stringConfig(node, "participantId", issues);
-      }
-      positiveIntegerConfig(node, "timeoutMs", issues);
-      positiveIntegerConfig(node, "maxAttempts", issues);
+      // One agent per seat: the node must say which seat it acts for, so the session has a key.
+      stringConfig(node, "participantId", issues);
       if (typeof config.input !== "object" || config.input === null || Array.isArray(config.input)) {
         issues.push({
           code: "INVALID_CONFIG",
@@ -224,6 +221,40 @@ function validateVisibility(definition: GameDefinition, issues: ValidationIssue[
       issues.push({
         code: "INVALID_CONFIG",
         message: `Visibility rule for "${variable}" references undeclared role: ${rule.roleId}`,
+      });
+    }
+  }
+}
+
+/**
+ * Agents are frozen with the game version: every AI node must resolve to a declared agent, and
+ * every agent must name a declared role. Limits (timeout, retries, token budget) live on the
+ * agent rather than the node so a version cannot carry two conflicting copies.
+ */
+function validateAgents(definition: GameDefinition, issues: ValidationIssue[]): void {
+  const roleIds = new Set(definition.roles.map((role) => role.id));
+  const agentIds = new Set<string>();
+  for (const agent of definition.agents) {
+    if (agentIds.has(agent.id)) {
+      issues.push({ code: "DUPLICATE_AGENT", message: `Duplicate agent id: ${agent.id}` });
+    }
+    agentIds.add(agent.id);
+    if (!roleIds.has(agent.roleId)) {
+      issues.push({
+        code: "INVALID_CONFIG",
+        message: `Agent ${agent.id} references undeclared role: ${agent.roleId}`,
+      });
+    }
+  }
+
+  for (const node of definition.workflow.nodes) {
+    if (node.type !== "aiGenerate") continue;
+    const agentId = configOf(node).agentId;
+    if (typeof agentId === "string" && agentId.length > 0 && !agentIds.has(agentId)) {
+      issues.push({
+        code: "UNKNOWN_AGENT",
+        nodeId: node.id,
+        message: `AI node references an agent the version does not declare: ${agentId}`,
       });
     }
   }
@@ -340,6 +371,7 @@ export function validateGameDefinition(definition: GameDefinition): ValidationRe
   };
   for (const node of nodes) detectCycle(node.id);
   validateLoopCounters(nodes, issues);
+  validateAgents(definition, issues);
   validateVisibility(definition, issues);
   validateNodeExpressions(definition, issues);
 

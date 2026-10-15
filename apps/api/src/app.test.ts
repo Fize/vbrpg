@@ -235,9 +235,8 @@ describe("API foundation", () => {
             type: "aiGenerate",
             config: {
               agentId: "seer",
+              participantId: "seer",
               input: { action: "choose" },
-              timeoutMs: 1000,
-              maxAttempts: 1,
               fallbackNodeId: "end",
               resultKey: "choice",
             },
@@ -246,6 +245,15 @@ describe("API foundation", () => {
           { id: "end", type: "end", config: {}, next: [] },
         ],
       },
+      roles: [{ id: "seer", name: "Seer" }],
+      agents: [
+        {
+          id: "seer",
+          roleId: "seer",
+          systemPrompt: "You are the seer.",
+          limits: { timeoutMs: 1_000, maxAttempts: 1, tokenBudget: 8_192 },
+        },
+      ],
     };
     const app = buildApp({
       config,
@@ -271,7 +279,13 @@ describe("API foundation", () => {
           status: "created",
           currentNodeId: "start",
           variables: {},
-          participants: [],
+          participants: [{
+            participantId: "seer",
+            actorId: "user-1",
+            roleId: "seer",
+            control: "ai",
+            status: "active",
+          }],
           waiting: null,
           randomSeed: "seed",
         },

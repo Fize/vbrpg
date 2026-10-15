@@ -89,8 +89,13 @@ export async function registerRuntimeRoutes(app: FastifyInstance, aiClient?: AiC
     const recentEvents = body.recentEvents
       .map((item) => parseGameEvent(item))
       .filter((candidate) => candidate.instanceId === first.state.instanceId && candidate.sequence <= first.state.sequence);
-    // The stateless MVP line has no seat, so the agent only ever sees public state.
-    const view = projectPlayerView(compiled.definition, first.state, { kind: "spectator" });
+    // The projection follows the seat the AI node waits for, never the authoritative state.
+    const seat = first.state.waiting?.participantIds[0];
+    const view = projectPlayerView(
+      compiled.definition,
+      first.state,
+      seat === undefined ? { kind: "spectator" } : { kind: "participant", participantId: seat },
+    );
     const result = await aiClient.generate({ input: command.input, view, recentEvents });
     const aiEvent = {
       eventId: `${event.eventId}:ai-result`,

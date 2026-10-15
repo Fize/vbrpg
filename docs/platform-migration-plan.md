@@ -176,7 +176,7 @@ function transition(
 - `vote`
 - `random`
 - `loop`
-- `aiGenerate`
+- `aiGenerate`（必须声明 `agentId` 与席位 `participantId`，上限取自版本内的 agent 定义）
 - `emitEvent`
 - `subflow`
 - `parallel`、`join`
@@ -245,6 +245,8 @@ Draft -> Testing -> Published
 | `tenant_secrets` | 加密后的租户模型密钥和配置 |
 | `ai_usage_ledger` | 模型、token、费用、归属和预算 |
 | `audit_logs` | 管理、发布、授权和敏感操作审计 |
+
+agent 定义随 `workflow_definitions.definition_json` 一并保存，**不新增会话表**（ADR-006：会话是事件流按席位投影的确定性派生）；`agent_model_bindings` 承担租户侧的"这个 agent 用哪个模型"。
 
 所有租户资源表都应包含 `tenant_id`，或通过不可绕过的父表关系证明租户归属；`users` 等平台级身份表除外。关键唯一约束至少包括：
 
@@ -381,7 +383,7 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 - [/] `P3-06`：实现快照策略、乐观/悲观并发控制、动作幂等和实例级顺序号。 — 核验 2026-10-14：实例行锁 + 顺序号校验 + idempotency key 幂等追加已实现（`services/game-dispatch.ts`）；快照写入策略与并发竞争测试未做
 - [ ] `P3-07`：实现公共视图、角色视图、个人视图的投影器，并加入防泄漏测试。 — 核验 2026-10-14：未实现（`playerViewSchema` 已定义但无投影器与防泄漏测试）
 - [/] `P3-08`：按 Phase 0 决策接入 LangGraph JS 适配器或原生解释器。 — 核验 2026-10-14：已由原生解释器承载；ADR-002 要求先完成对照再定稿，LangGraph 对照与书面结论缺失
-- [/] `P3-09`：实现 AI command、超时、有限重试、预算限制、模型用量记账和 fallback 事件。 — 核验 2026-10-15：命令、超时、有限重试、用量记账、fallback 事件与绑定表已实现；**预算限制（token/费用上限）与模型返回值的 schema 校验未实现**
+- [/] `P3-09`：实现 AI command、超时、有限重试、预算限制、模型用量记账和 fallback 事件。 — 核验 2026-10-15：命令、超时、有限重试、用量记账、fallback 事件、绑定表与 **token 预算上限**（`BUDGET_EXCEEDED` 走 `fallbackNodeId`，provider 不被调用）已实现；仍缺：模型返回值的 schema 校验、费用上限
 - [/] `P3-10`：实现管理员暂停、取消、强制超时和查看脱敏运行状态的能力。 — 核验 2026-10-14 第二轮：已实现暂停/恢复/取消/强制超时/脱敏状态（`/v1/admin/instances/*`），暂停期间 worker 停止领取该实例的任务、恢复即重新可领取。仍缺：`adminCommandApplied` 事件类型未使用（管理员动作走 `audit_logs` 而非游戏事件流）、玩家输入的等待没有超时处置
 
 交付物：可复用工作流引擎、运行时适配器、发布校验器、事件回放器、投影器。
@@ -398,7 +400,7 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 
 - [/] `P4-01`：从现有 Python 逻辑提取角色、阶段、动作、胜负、超时和可见性规格。 — 核验 2026-10-14：角色/阶段/动作/胜负规则已提取为黄金轨迹；超时与可见性规格未提取（可见性改由新的 `visibility` 规则集直接表达）
 - [ ] `P4-02`：把狼人杀表示为游戏包，而不是在引擎中增加狼人杀专用分支。 — 核验 2026-10-15：**第二增量已落地**：`docs/fixtures/werewolf-package.json` 改为多回合（`loop` 回合循环 + 每回合重置票箱 + 由 `winner` 条件退出），两回合剧本与投影隔离测试通过，引擎侧仍无狼人杀专用分支。仍缺：发牌（角色分配由实例创建方提供 participants）、参与者状态变更节点（淘汰目前用计数变量而非 `participants[].status`）
-- [/] `P4-03`：将 AI 行为改为外部 activity；prompt、模型参数和输出 schema 随游戏版本保存。 — 核验 2026-10-15：AI 行为已是外部 activity（worker 消费持久化命令）；prompt 改由该席位的投影生成（节点可选 `participantId`，未声明则只给 public）。仍缺：agent 定义随版本保存（prompt 模板、模型参数、输出 schema）与事件可见性声明
+- [/] `P4-03`：将 AI 行为改为外部 activity；prompt、模型参数和输出 schema 随游戏版本保存。 — 核验 2026-10-15：AI 行为已是外部 activity；prompt 与上限随版本保存——`agents[]`（`roleId`+`systemPrompt`+`limits{timeoutMs,maxAttempts,tokenBudget}`），节点只声明 `agentId`/席位/输入/降级，prompt 由该席位投影生成。仍缺：**输出 schema（返回值的结构校验）** 与事件可见性声明
 - [ ] `P4-04`：用 Phase 0 黄金轨迹比较旧系统和新引擎；差异必须归类为缺陷修复或经批准的规则变更。 — 核验 2026-10-14：未实现
 - [ ] `P4-05`：实现旧用户、历史对局和默认 `legacy` 租户的数据回填脚本，并提供 dry-run 报告。 — 核验 2026-10-14：未实现
 - [ ] `P4-06`：让内部测试租户创建新引擎房间，旧生产路径继续服务其他用户。 — 核验 2026-10-14：未实现（无房间/实例 HTTP 入口）
@@ -642,9 +644,16 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 - 缺口来源：事件可见性需要游戏自己声明（白天的投票是公开的、夜里的不是），在作者能声明之前一律 fail-closed；这条留给 `P4-03`。
 - 回归证据：`packages/runtime/src/ai.test.ts` 断言 payload 值不出现在 prompt；worker 集成脚本在定义里放一个 role 级隐藏变量作为 canary，断言它没有到达 provider 客户端。仍缺：agent 定义随版本保存、token 预算、模型返回值的 schema 校验。
 
-### 下一步建议顺序
+### 第五轮（2026-10-15）：agent 定义随版本保存（每席位一个 agent）
 
-1. **~~Agent 执行链~~ 已落地（2026-10-14/15），余下收尾**：agent 定义（prompt 模板、模型参数、输出 schema、token 预算）随游戏版本保存并在发布期校验（缺预算/缺降级直接拒绝）；模型返回值按 schema 校验后再落 `aiResultReceived`；事件 payload 的可见性由游戏声明。绑定表继续只负责"该租户用哪个模型"。
+- 决策落成 ADR-006：每席位一个 agent、会话键 `(instance, participantId)`、**不新增会话表**（会话 = 事件流按席位投影的确定性派生）、不允许 agent 私有笔记、重试即同一次会话。
+- 契约：`agents[]`（`id`/`roleId`/`systemPrompt`/`limits{timeoutMs,maxAttempts,tokenBudget}`）随游戏版本冻结；`aiGenerate` 只保留 `agentId`/`participantId`/`input`/`resultKey`/`fallbackNodeId`，上限从 agent 定义取（避免两处配置冲突）——这是一处**破坏性 DSL 变更**，节点不再自带 `timeoutMs`/`maxAttempts`。
+- 引擎：AI 节点的席位写入 `state.waiting.participantIds`，运行时以 state 为唯一真相取席位；发布期校验：`aiGenerate` 必须引用已声明 agent 且必须声明席位，agent 的 `roleId` 必须已声明，agent id 不得重复。
+- 运行时：system prompt 来自 agent 定义；`tokenBudget` 作为调用前的闸门（超出即 `BUDGET_EXCEEDED` 降级，不调用 provider、不产生用量）。
+- 回归证据：worker 集成脚本新增"预算不足直接降级"场景、以及"两次重试拿到逐字节相同的上下文"断言（证明重试即同一次会话）。
+- 仍缺：输出 schema 校验、事件 payload 可见性、费用上限、动态席位（"轮到谁替谁行动"）。
+
+1. **~~Agent 执行链~~ 已落地（2026-10-14/15），余下收尾**：模型返回值的 **输出 schema 校验**（格式待定：JSON Schema 子集还是字段清单）；事件 payload 的可见性由游戏声明；费用上限与实时指标。绑定表继续只负责"该租户用哪个模型"。
 2. **实例与事件 HTTP 入口**：把 `dispatchGameEvent` 接成受租户鉴权保护的实例创建/事件提交端点，与 AI command 入队合并为同一事务路径（`P3-06` 收口）。
 3. **投影器（`P3-07`）**：公共/角色/个人视图 + 防泄漏测试；没有投影就无法验证 AI 结果对玩家可见性与信息隔离。
 4. **worker handler 接入（`P2-07` 收口）**：把 AI command、计时器到期与广播 handler 注入 `createWorker`，并加死信观测。
