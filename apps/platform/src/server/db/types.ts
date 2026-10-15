@@ -79,10 +79,17 @@ export interface GameEventsTable {
   instance_id: string;
   sequence: number;
   type: string;
+  participant_id: string | null;
   actor_user_id: string | null;
+  step_id: string | null;
   idempotency_key: string;
   occurred_at: Generated<Date>;
   payload: JsonObject;
+  provider_id: string | null;
+  model_id: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
 }
 
 export interface AuditLogsTable {

@@ -28,6 +28,7 @@ const db = createDb({ databaseUrl });
 const suffix = randomUUID();
 const versionId = `integration-version-${suffix}`;
 const instanceId = `integration-instance-${suffix}`;
+const secondInstanceId = `integration-instance-b-${suffix}`;
 const platformUserId = randomUUID();
 const platformSessionId = randomUUID();
 const providerId = randomUUID();
@@ -41,6 +42,13 @@ try {
     currentSequence: 0,
     stateJson: {},
   });
+  await createGameInstance(db, {
+    id: secondInstanceId,
+    gameVersionId: versionId,
+    status: "running",
+    currentSequence: 0,
+    stateJson: {},
+  });
   assert.equal((await getGameInstance(db, instanceId))?.id, instanceId);
   assert.equal(await getGameInstance(db, `missing-${suffix}`), undefined);
   assert.equal(await setInstanceStatus(db, instanceId, "waiting"), true);
@@ -49,37 +57,65 @@ try {
   // Seats and the event log are the only per-match data left; their uniqueness is the concurrency guard.
   await db
     .insertInto("game_participants")
-    .values({
-      id: randomUUID(),
-      instance_id: instanceId,
-      actor_user_id: null,
-      participant_key: "p1",
-      control: "ai",
-      status: "active",
-      seat: 1,
-    })
+    .values([
+      {
+        id: randomUUID(),
+        instance_id: instanceId,
+        actor_user_id: null,
+        participant_key: "p1",
+        control: "ai",
+        status: "active",
+        seat: 1,
+      },
+      {
+        id: randomUUID(),
+        instance_id: secondInstanceId,
+        actor_user_id: null,
+        participant_key: "p1",
+        control: "ai",
+        status: "active",
+        seat: 1,
+      },
+    ])
     .execute();
+  const seat = await db
+    .selectFrom("game_participants")
+    .select("id")
+    .where("instance_id", "=", instanceId)
+    .where("participant_key", "=", "p1")
+    .executeTakeFirstOrThrow();
+
   await db
     .insertInto("game_events")
-    .values({
-      id: randomUUID(),
-      instance_id: instanceId,
-      sequence: 1,
-      type: "instanceCreated",
-      idempotency_key: "create",
-      payload: {},
-    })
-    .execute();
-  await db
-    .insertInto("game_events")
-    .values({
-      id: randomUUID(),
-      instance_id: instanceId,
-      sequence: 2,
-      type: "aiResultReceived",
-      idempotency_key: "turn-1",
-      payload: { participantKey: "p1" },
-    })
+    .values([
+      {
+        id: randomUUID(),
+        instance_id: instanceId,
+        sequence: 1,
+        type: "instanceCreated",
+        participant_id: null,
+        actor_user_id: null,
+        step_id: "start",
+        idempotency_key: "create",
+        payload: {},
+      },
+      {
+        id: randomUUID(),
+        instance_id: instanceId,
+        sequence: 2,
+        type: "aiCall",
+        participant_id: seat.id,
+        actor_user_id: null,
+        step_id: "night-1",
+        idempotency_key: "turn-1",
+        payload: { content: "vote p2", reasoning: "p2 spoke early" },
+        provider_id: randomUUID(),
+        model_id: "deepseek-chat",
+        prompt_tokens: 1200,
+        completion_tokens: 42,
+        total_tokens: 1242,
+      },
+    ])
     .execute();
 
   // A repeat of either key must be rejected by the database, not by application code.
@@ -95,7 +131,10 @@ try {
           id: randomUUID(),
           instance_id: instanceId,
           sequence: clash.sequence,
-          type: "aiResultReceived",
+          type: "playerInputReceived",
+          participant_id: null,
+          actor_user_id: null,
+          step_id: null,
           idempotency_key: clash.idempotency_key,
           payload: {},
         })
@@ -105,6 +144,51 @@ try {
     }
     assert.equal(rejected, true, `duplicate ${clash.label} must be rejected`);
   }
+
+  // Usage is stored as a whole: a row may not carry only part of it.
+  let partialUsageRejected = false;
+  try {
+    await db
+      .insertInto("game_events")
+      .values({
+        id: randomUUID(),
+        instance_id: instanceId,
+        sequence: 4,
+        type: "aiCall",
+        participant_id: seat.id,
+        actor_user_id: null,
+        step_id: null,
+        idempotency_key: "partial-usage",
+        payload: {},
+        total_tokens: 10,
+      })
+      .execute();
+  } catch (error) {
+    partialUsageRejected = (error as { code?: string }).code === "23514";
+  }
+  assert.equal(partialUsageRejected, true, "partial usage must be rejected");
+
+  // A row cannot point at a seat of another match.
+  let foreignSeatRejected = false;
+  try {
+    await db
+      .insertInto("game_events")
+      .values({
+        id: randomUUID(),
+        instance_id: secondInstanceId,
+        sequence: 1,
+        type: "playerInputReceived",
+        participant_id: seat.id,
+        actor_user_id: null,
+        step_id: null,
+        idempotency_key: "cross-seat",
+        payload: {},
+      })
+      .execute();
+  } catch (error) {
+    foreignSeatRejected = (error as { code?: string }).code === "23503";
+  }
+  assert.equal(foreignSeatRejected, true, "a seat from another match must be rejected");
 
   // ─── Platform accounts, sessions and the provider catalog ─────────────────
   // The count is asserted as a delta: this database may already hold other administrators.
@@ -210,8 +294,9 @@ try {
   await db.deleteFrom("providers").where("id", "=", providerId).execute();
   await db.deleteFrom("auth_sessions").where("id", "=", platformSessionId).execute();
   await db.deleteFrom("audit_logs").where("actor_user_id", "=", platformUserId).execute();
+  // Deleting an instance cascades to its participants and events, and it must go before the user
+  // rows it references.
+  await db.deleteFrom("game_instances").where("id", "in", [instanceId, secondInstanceId]).execute();
   await db.deleteFrom("users").where("id", "=", platformUserId).execute();
-  // Deleting the instance cascades to its participants and events.
-  await db.deleteFrom("game_instances").where("id", "=", instanceId).execute();
   await closeDb(db);
 }

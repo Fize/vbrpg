@@ -28,19 +28,18 @@ export type {
 } from "./auth.js";
 
 export {
-  actorRefSchema,
   gameEventSchema,
   gameStateSchema,
   parseGameEvent,
   parseGameState,
   parsePlayerView,
   participantSchema,
+  platformEventTypes,
   playerViewSchema,
   waitingSchema,
 } from "./domain.js";
 
 export type {
-  ActorRef,
   GameEvent,
   GameState,
   Participant,

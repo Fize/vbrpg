@@ -1,4 +1,4 @@
-drop index if exists game_events_instance_sequence_idx;
+drop index if exists game_events_instance_participant_idx;
 drop table if exists game_events;
 
 drop table if exists game_participants;

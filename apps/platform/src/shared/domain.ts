@@ -12,11 +12,6 @@ const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   ]),
 );
 
-export const actorRefSchema = z.object({
-  userId: idSchema,
-  participantId: idSchema.optional(),
-});
-
 export const participantSchema = z.object({
   participantId: idSchema,
   actorId: idSchema,
@@ -47,23 +42,49 @@ export const gameStateSchema = z.object({
 
 const eventPayloadSchema = z.record(jsonValueSchema);
 
+/**
+ * Types the platform itself writes. A game may invent its own — the column has no check, because
+ * the vocabulary belongs to the rules, not to the platform.
+ */
+export const platformEventTypes = {
+  instanceCreated: "instanceCreated",
+  playerInputReceived: "playerInputReceived",
+  /** A seat said something in the room. Who said it comes from `participantId`. */
+  seatMessage: "seatMessage",
+  /** One model call, carrying usage. The seat's reasoning and reply live in `payload`. */
+  aiCall: "aiCall",
+  aiResultReceived: "aiResultReceived",
+  aiFailed: "aiFailed",
+  timerExpired: "timerExpired",
+  randomResolved: "randomResolved",
+  adminCommandApplied: "adminCommandApplied",
+} as const;
+
+const eventUsageSchema = z.object({
+  providerId: idSchema,
+  modelId: z.string().min(1),
+  promptTokens: z.number().int().nonnegative(),
+  completionTokens: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+});
+
+/**
+ * One row of the match record. Rows are read as history, never replayed into state, so every field
+ * a viewer might want — including a seat's own reasoning — is part of the row.
+ */
 export const gameEventSchema = z.object({
   eventId: idSchema,
   instanceId: idSchema,
   sequence: z.number().int().positive(),
-  type: z.enum([
-    "instanceCreated",
-    "playerInputReceived",
-    "timerExpired",
-    "randomResolved",
-    "aiResultReceived",
-    "aiFailed",
-    "adminCommandApplied",
-  ]),
-  actor: actorRefSchema.nullable(),
+  type: z.string().min(1),
+  participantId: idSchema.nullable(),
+  actorUserId: idSchema.nullable(),
+  stepId: idSchema.nullable(),
   occurredAtMs: z.number().int().nonnegative(),
   idempotencyKey: z.string().min(1),
   payload: eventPayloadSchema,
+  /** Set on model-call rows only, and always as a whole. */
+  usage: eventUsageSchema.nullable(),
 });
 
 export const playerViewSchema = z.object({
@@ -79,7 +100,6 @@ export const playerViewSchema = z.object({
   })),
 });
 
-export type ActorRef = z.infer<typeof actorRefSchema>;
 export type GameEvent = z.infer<typeof gameEventSchema>;
 export type GameState = z.infer<typeof gameStateSchema>;
 export type Participant = z.infer<typeof participantSchema>;
