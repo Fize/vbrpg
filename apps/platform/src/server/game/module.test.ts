@@ -21,8 +21,7 @@ const greeting: GameModule = {
           waiting: { kind: "playerInput", stepId: "ask", participantIds: ["p1"] },
         },
         events: [event],
-        commands: [],
-      };
+        };
     }
     return {
       state: {
@@ -34,7 +33,6 @@ const greeting: GameModule = {
         variables: { ...state.variables, answer: event.payload["value"] },
       },
       events: [event],
-      commands: [],
     };
   },
 };

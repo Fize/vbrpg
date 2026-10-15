@@ -85,48 +85,6 @@ export interface GameEventsTable {
   payload: JsonObject;
 }
 
-export interface GameSnapshotsTable {
-  id: string;
-  instance_id: string;
-  sequence: number;
-  state_json: JsonObject;
-  created_at: Generated<Date>;
-}
-
-export interface PendingCommandsTable {
-  id: string;
-  instance_id: string;
-  command_id: string;
-  command_type: string;
-  status: Generated<"pending" | "leased" | "completed" | "failed" | "dead">;
-  payload: JsonObject;
-  attempts: Generated<number>;
-  max_attempts: Generated<number>;
-  available_at: Generated<Date>;
-  lease_until: Date | null;
-  leased_by: string | null;
-  last_error: string | null;
-  created_at: Generated<Date>;
-  completed_at: Date | null;
-}
-
-export interface ScheduledJobsTable {
-  id: string;
-  instance_id: string | null;
-  job_key: string;
-  job_type: string;
-  status: Generated<"scheduled" | "leased" | "completed" | "cancelled" | "dead">;
-  payload: JsonObject;
-  run_at: Date;
-  attempts: Generated<number>;
-  max_attempts: Generated<number>;
-  lease_until: Date | null;
-  leased_by: string | null;
-  last_error: string | null;
-  created_at: Generated<Date>;
-  completed_at: Date | null;
-}
-
 export interface AuditLogsTable {
   id: string;
   actor_user_id: string | null;
@@ -145,8 +103,5 @@ export interface Database {
   game_instances: GameInstancesTable;
   game_participants: GameParticipantsTable;
   game_events: GameEventsTable;
-  game_snapshots: GameSnapshotsTable;
-  pending_commands: PendingCommandsTable;
-  scheduled_jobs: ScheduledJobsTable;
   audit_logs: AuditLogsTable;
 }

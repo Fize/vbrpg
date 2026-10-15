@@ -29,10 +29,8 @@ export type {
 
 export {
   actorRefSchema,
-  externalCommandSchema,
   gameEventSchema,
   gameStateSchema,
-  parseExternalCommand,
   parseGameEvent,
   parseGameState,
   parsePlayerView,
@@ -43,7 +41,6 @@ export {
 
 export type {
   ActorRef,
-  ExternalCommand,
   GameEvent,
   GameState,
   Participant,

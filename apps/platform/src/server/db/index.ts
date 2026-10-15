@@ -30,19 +30,8 @@ export type {
   ProviderModelWithProvider,
   ProviderWithModels,
 } from "./platform-repositories.js";
-export {
-  claimPendingCommands,
-  claimScheduledJobs,
-  completePendingCommand,
-  completeScheduledJob,
-  createGameInstance,
-  failLeasedTask,
-  getGameInstance,
-  getLatestSnapshot,
-  releaseLease,
-  setInstanceStatus,
-} from "./repositories.js";
-export type { DbExecutor, LeaseOptions } from "./repositories.js";
+export { createGameInstance, getGameInstance, setInstanceStatus } from "./repositories.js";
+export type { DbExecutor } from "./repositories.js";
 export type {
   AuthSessionsTable,
   AuditLogsTable,
@@ -50,13 +39,10 @@ export type {
   GameEventsTable,
   GameInstancesTable,
   GameParticipantsTable,
-  GameSnapshotsTable,
   JsonObject,
-  PendingCommandsTable,
   PlatformRole,
   ProviderModelsTable,
   ProviderType,
   ProvidersTable,
-  ScheduledJobsTable,
   UsersTable,
 } from "./types.js";

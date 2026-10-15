@@ -88,16 +88,11 @@ async function startWorker(databaseUrl: string | undefined): Promise<void> {
     throw new Error("DATABASE_URL is required for the worker role");
   }
   const db = createDb({ databaseUrl });
-  // Handlers arrive with the game runtime; the claim/lease loop is already in place.
-  const worker = createWorker(
-    {
-      workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,
-      pollIntervalMs: Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1_000),
-      leaseMs: Number(process.env.WORKER_LEASE_MS ?? 30_000),
-    },
-    console,
-    { db, handlers: {} },
-  );
+  // The instance scan arrives with the match runtime; the poll loop is already in place.
+  const worker = createWorker({
+    workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,
+    pollIntervalMs: Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1_000),
+  });
 
   let running = true;
   const stop = (): void => {

@@ -25,7 +25,6 @@ import {
   type ProviderCredentialColumns,
 } from "./db/index.js";
 import type {
-  ExternalCommand,
   GameEvent,
   GameState,
   Participant,

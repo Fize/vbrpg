@@ -2,10 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   bootstrapPlatformAdmin,
-  claimPendingCommands,
-  claimScheduledJobs,
   closeDb,
-  completePendingCommand,
   countActiveAdmins,
   createAuthSession,
   createDb,
@@ -13,7 +10,6 @@ import {
   createPlatformUser,
   createProvider,
   createProviderModel,
-  failLeasedTask,
   findPlatformUserByUsername,
   getAuthSessionByTokenHash,
   getGameInstance,
@@ -36,7 +32,6 @@ const platformUserId = randomUUID();
 const platformSessionId = randomUUID();
 const providerId = randomUUID();
 const providerName = `integration-provider-${suffix}`;
-const workerId = `integration-worker-${suffix}`;
 
 try {
   await createGameInstance(db, {
@@ -48,104 +43,68 @@ try {
   });
   assert.equal((await getGameInstance(db, instanceId))?.id, instanceId);
   assert.equal(await getGameInstance(db, `missing-${suffix}`), undefined);
+  assert.equal(await setInstanceStatus(db, instanceId, "waiting"), true);
+  assert.equal((await getGameInstance(db, instanceId))?.status, "waiting");
 
-  // ─── Queue: claim, lease, complete ────────────────────────────────────────
-  const commandId = randomUUID();
+  // Seats and the event log are the only per-match data left; their uniqueness is the concurrency guard.
   await db
-    .insertInto("pending_commands")
+    .insertInto("game_participants")
     .values({
-      id: commandId,
+      id: randomUUID(),
       instance_id: instanceId,
-      command_id: `cmd-${suffix}`,
-      command_type: "emit",
-      payload: { eventName: "tick" },
+      actor_user_id: null,
+      participant_key: "p1",
+      control: "ai",
+      status: "active",
+      seat: 1,
     })
     .execute();
-
-  const claimed = await claimPendingCommands(db, { workerId, leaseMs: 30_000 });
-  assert.equal(claimed.length, 1);
-  assert.equal(claimed[0]?.id, commandId);
-  assert.equal(claimed[0]?.status, "leased");
-  assert.equal(claimed[0]?.attempts, 1);
-  assert.equal(claimed[0]?.leased_by, workerId);
-
-  // A leased row is invisible to other workers until its lease expires.
-  assert.equal((await claimPendingCommands(db, { workerId: "other-worker" })).length, 0);
-
-  await completePendingCommand(db, commandId, workerId);
-  assert.equal(
-    (await db.selectFrom("pending_commands").select("status").where("id", "=", commandId).executeTakeFirst())?.status,
-    "completed",
-  );
-
-  // ─── Queue: a paused match keeps its work queued ──────────────────────────
-  const pausedCommandId = randomUUID();
   await db
-    .insertInto("pending_commands")
+    .insertInto("game_events")
     .values({
-      id: pausedCommandId,
+      id: randomUUID(),
       instance_id: instanceId,
-      command_id: `cmd-paused-${suffix}`,
-      command_type: "emit",
+      sequence: 1,
+      type: "instanceCreated",
+      idempotency_key: "create",
       payload: {},
     })
     .execute();
-  await setInstanceStatus(db, instanceId, "paused");
-  assert.equal((await claimPendingCommands(db, { workerId })).length, 0);
-  await setInstanceStatus(db, instanceId, "running");
-  assert.equal((await claimPendingCommands(db, { workerId })).length, 1);
-
-  // ─── Queue: exhausted retries land in `dead` ──────────────────────────────
-  const failingCommandId = randomUUID();
   await db
-    .insertInto("pending_commands")
+    .insertInto("game_events")
     .values({
-      id: failingCommandId,
+      id: randomUUID(),
       instance_id: instanceId,
-      command_id: `cmd-fail-${suffix}`,
-      command_type: "emit",
-      max_attempts: 1,
-      payload: {},
+      sequence: 2,
+      type: "aiResultReceived",
+      idempotency_key: "turn-1",
+      payload: { participantKey: "p1" },
     })
     .execute();
-  assert.equal((await claimPendingCommands(db, { workerId })).length, 1);
-  await failLeasedTask(db, "pending_commands", failingCommandId, workerId, "boom");
-  assert.equal(
-    (await db.selectFrom("pending_commands").select("status").where("id", "=", failingCommandId).executeTakeFirst())?.status,
-    "dead",
-  );
 
-  // ─── Scheduled jobs: instance-scoped and standalone timers ────────────────
-  const jobId = randomUUID();
-  await db
-    .insertInto("scheduled_jobs")
-    .values({
-      id: jobId,
-      instance_id: instanceId,
-      job_key: `job-${suffix}`,
-      job_type: "timerExpired",
-      run_at: new Date(Date.now() - 1_000),
-      payload: {},
-    })
-    .execute();
-  const standaloneJobId = randomUUID();
-  await db
-    .insertInto("scheduled_jobs")
-    .values({
-      id: standaloneJobId,
-      instance_id: null,
-      job_key: `standalone-job-${suffix}`,
-      job_type: "timerExpired",
-      run_at: new Date(Date.now() - 1_000),
-      payload: {},
-    })
-    .execute();
-  const jobs = await claimScheduledJobs(db, { workerId });
-  assert.deepEqual(
-    jobs.map((job) => job.id).sort(),
-    [jobId, standaloneJobId].sort(),
-    "a timer without an instance must still be claimable",
-  );
+  // A repeat of either key must be rejected by the database, not by application code.
+  for (const clash of [
+    { sequence: 2, idempotency_key: "other-key", label: "sequence" },
+    { sequence: 3, idempotency_key: "turn-1", label: "idempotency key" },
+  ]) {
+    let rejected = false;
+    try {
+      await db
+        .insertInto("game_events")
+        .values({
+          id: randomUUID(),
+          instance_id: instanceId,
+          sequence: clash.sequence,
+          type: "aiResultReceived",
+          idempotency_key: clash.idempotency_key,
+          payload: {},
+        })
+        .execute();
+    } catch (error) {
+      rejected = (error as { code?: string }).code === "23505";
+    }
+    assert.equal(rejected, true, `duplicate ${clash.label} must be rejected`);
+  }
 
   // ─── Platform accounts, sessions and the provider catalog ─────────────────
   // The count is asserted as a delta: this database may already hold other administrators.
@@ -252,8 +211,7 @@ try {
   await db.deleteFrom("auth_sessions").where("id", "=", platformSessionId).execute();
   await db.deleteFrom("audit_logs").where("actor_user_id", "=", platformUserId).execute();
   await db.deleteFrom("users").where("id", "=", platformUserId).execute();
-  // Deleting the instance cascades to its events, commands and jobs.
-  await db.deleteFrom("scheduled_jobs").where("job_key", "=", `standalone-job-${suffix}`).execute();
+  // Deleting the instance cascades to its participants and events.
   await db.deleteFrom("game_instances").where("id", "=", instanceId).execute();
   await closeDb(db);
 }

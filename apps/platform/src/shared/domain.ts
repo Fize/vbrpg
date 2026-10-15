@@ -66,23 +66,6 @@ export const gameEventSchema = z.object({
   payload: eventPayloadSchema,
 });
 
-export const externalCommandSchema = z.discriminatedUnion("type", [
-  z.object({
-    commandId: idSchema,
-    instanceId: idSchema,
-    type: z.literal("schedule"),
-    runAtMs: z.number().int().nonnegative(),
-    job: z.enum(["timerExpired", "resumeWorkflow"]),
-  }),
-  z.object({
-    commandId: idSchema,
-    instanceId: idSchema,
-    type: z.literal("emit"),
-    eventName: idSchema,
-    payload: eventPayloadSchema,
-  }),
-]);
-
 export const playerViewSchema = z.object({
   instanceId: idSchema,
   gameVersionId: idSchema,
@@ -100,7 +83,6 @@ export type ActorRef = z.infer<typeof actorRefSchema>;
 export type GameEvent = z.infer<typeof gameEventSchema>;
 export type GameState = z.infer<typeof gameStateSchema>;
 export type Participant = z.infer<typeof participantSchema>;
-export type ExternalCommand = z.infer<typeof externalCommandSchema>;
 export type PlayerView = z.infer<typeof playerViewSchema>;
 
 export function parseGameEvent(input: unknown): GameEvent {
@@ -109,10 +91,6 @@ export function parseGameEvent(input: unknown): GameEvent {
 
 export function parseGameState(input: unknown): GameState {
   return gameStateSchema.parse(input);
-}
-
-export function parseExternalCommand(input: unknown): ExternalCommand {
-  return externalCommandSchema.parse(input);
 }
 
 export function parsePlayerView(input: unknown): PlayerView {

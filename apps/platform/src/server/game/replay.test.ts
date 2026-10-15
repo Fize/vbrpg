@@ -10,7 +10,6 @@ const transition: TransitionFn = (state, event) => {
         kind: "playerInput", stepId: "input", participantIds: ["p1"],
       } },
       events: [event],
-      commands: [],
     };
   }
   const value = (event.payload as { value?: unknown }).value;
@@ -18,7 +17,6 @@ const transition: TransitionFn = (state, event) => {
     state: { ...state, sequence: event.sequence, status: "completed", waiting: null,
       variables: { ...state.variables, answer: value } },
     events: [event],
-    commands: [],
   };
 };
 

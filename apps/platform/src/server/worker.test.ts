@@ -9,9 +9,9 @@ describe("worker foundation", () => {
         logs.push(fields);
       },
     };
-    const worker = createWorker({ workerId: "test-worker", pollIntervalMs: 1000, leaseMs: 30_000 }, logger);
+    const worker = createWorker({ workerId: "test-worker", pollIntervalMs: 1000 }, logger);
 
-    await expect(worker.runOnce()).resolves.toEqual({ claimed: 0, processed: 0 });
-    expect(logs).toEqual([{ workerId: "test-worker", claimed: 0, processed: 0 }]);
+    await expect(worker.runOnce()).resolves.toEqual({ processed: 0 });
+    expect(logs).toEqual([{ workerId: "test-worker", processed: 0 }]);
   });
 });

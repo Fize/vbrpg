@@ -1,9 +1,9 @@
-import type { ExternalCommand, GameEvent, GameState } from "../../shared/index.js";
+import type { GameEvent, GameState } from "../../shared/index.js";
 
 export interface TransitionResult {
   state: GameState;
+  /** Further events this step produced, appended in order by the platform. */
   events: GameEvent[];
-  commands: ExternalCommand[];
 }
 
 export class EngineError extends Error {
