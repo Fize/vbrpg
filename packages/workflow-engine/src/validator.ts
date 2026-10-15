@@ -129,6 +129,9 @@ function validateNodeConfig(node: Node, issues: ValidationIssue[]): void {
       break;
     case "aiGenerate":
       stringConfig(node, "agentId", issues);
+      if (config.participantId !== undefined) {
+        stringConfig(node, "participantId", issues);
+      }
       positiveIntegerConfig(node, "timeoutMs", issues);
       positiveIntegerConfig(node, "maxAttempts", issues);
       if (typeof config.input !== "object" || config.input === null || Array.isArray(config.input)) {

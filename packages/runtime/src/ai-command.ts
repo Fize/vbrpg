@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { parseGameEvent, parseGameState, type GameEvent } from "@vbrpg/contracts";
+import { parseGameEvent, parseGameState, type GameEvent, type PlayerView } from "@vbrpg/contracts";
 import {
   getAgentModelBinding,
   getProviderModelWithProvider,
@@ -7,7 +7,7 @@ import {
   type JsonObject,
   type TenantContext,
 } from "@vbrpg/db";
-import type { CompiledGame } from "@vbrpg/workflow-engine";
+import { projectPlayerView, type CompiledGame } from "@vbrpg/workflow-engine";
 import type { Kysely } from "kysely";
 import type { Database } from "@vbrpg/db";
 import {
@@ -68,6 +68,7 @@ interface AiNodePlan {
   maxAttempts: number;
   sequence: number;
   state: ReturnType<typeof parseGameState>;
+  view: PlayerView;
   recentEvents: GameEvent[];
 }
 
@@ -129,6 +130,22 @@ async function loadPlan(
     throw new AiCommandError("RESULT_KEY_MISSING", `AI node ${nodeId} declares no resultKey`);
   }
 
+  // The agent sees its seat's projection; a node without a seat only gets public state.
+  const participantId = config.participantId;
+  const viewer =
+    typeof participantId === "string" && participantId.length > 0
+      ? { kind: "participant" as const, participantId }
+      : { kind: "spectator" as const };
+  let view: PlayerView;
+  try {
+    view = projectPlayerView(loaded.compiled.definition, loaded.state, viewer);
+  } catch (error) {
+    throw new AiCommandError(
+      "AGENT_VIEW_UNKNOWN",
+      `AI node ${nodeId} cannot resolve its view: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
   return {
     compiled: loaded.compiled,
     nodeId,
@@ -138,6 +155,7 @@ async function loadPlan(
     maxAttempts: positiveInteger(command.max_attempts, 1),
     sequence: loaded.currentSequence + 1,
     state: loaded.state,
+    view,
     recentEvents: await loadRecentEvents(db, context, command.instance_id, recentEventLimit),
   };
 }
@@ -323,7 +341,7 @@ export async function runAiCommand(
   try {
     result = await client.generate({
       input: plan.input,
-      state: plan.state,
+      view: plan.view,
       recentEvents: plan.recentEvents,
     });
   } catch (error) {
@@ -339,7 +357,7 @@ export async function runAiCommand(
     throw new AiCommandError("PROVIDER_RETRY", detail);
   }
 
-  const prompt = buildGameContext(plan.state, plan.recentEvents, maxInputTokens);
+  const prompt = buildGameContext(plan.view, plan.recentEvents, maxInputTokens);
   const outcome = await submitOutcomeEvent(db, context, plan, {
     type: "aiResultReceived",
     payload: toJsonObject({ result: result ?? null }),

@@ -1,5 +1,5 @@
 import { AppError } from "./errors.js";
-import type { GameEvent, GameState } from "@vbrpg/contracts";
+import type { GameEvent, PlayerView } from "@vbrpg/contracts";
 
 const systemPrompt = "You are a game AI. Use only the current game context. Return the smallest useful JSON value or plain answer.";
 
@@ -15,7 +15,8 @@ export interface AiConfig {
 
 export interface AiRequest {
   input: Record<string, unknown>;
-  state: GameState;
+  /** What the seat this agent acts for is allowed to see — never the authoritative state. */
+  view: PlayerView;
   recentEvents: readonly GameEvent[];
 }
 
@@ -62,52 +63,53 @@ function trimTextToTokens(text: string, maxTokens: number): string {
   return `${text.slice(0, low)}${marker}`;
 }
 
-function gameStateJson(state: GameState): string {
-  return JSON.stringify({
-    sequence: state.sequence,
-    status: state.status,
-    currentNodeId: state.currentNodeId,
-    variables: state.variables,
-    participants: state.participants,
-    waiting: state.waiting,
-  });
+/**
+ * Events carry only their header: a payload can hold hidden state, and whether it is
+ * public is the game's call (a night vote is secret, a day vote is not), so nothing is
+ * sent until the definition can declare event visibility.
+ */
+function eventHeader(event: GameEvent): Record<string, unknown> {
+  const participantId = event.actor?.participantId;
+  return {
+    sequence: event.sequence,
+    type: event.type,
+    ...(participantId === undefined ? {} : { participantId }),
+  };
 }
 
-/**
- * Builds a cache-friendly, current-game-only context window.
- * The append-only history is placed before the changing current state so the
- * provider can reuse the stable prompt prefix across turns.
- */
+/** Builds a cache-friendly, current-game-only context window from one seat's projection. */
 export function buildGameContext(
-  state: GameState,
+  view: PlayerView,
   recentEvents: readonly GameEvent[],
   maxContextTokens: number,
 ): string {
   const budget = Math.max(256, maxContextTokens);
   const stablePrefix = [
     "Game context v1 (current game only)",
-    `Instance: ${state.instanceId}`,
-    `Game version: ${state.gameVersionId}`,
+    `Instance: ${view.instanceId}`,
+    `Game version: ${view.gameVersionId}`,
     "Past events (oldest to newest):",
   ].join("\n") + "\n";
   const eventLines = recentEvents
     .slice()
     .sort((left, right) => left.sequence - right.sequence)
-    .map((event) => JSON.stringify({ sequence: event.sequence, type: event.type, payload: event.payload }));
-  const currentStateLabel = "\nCurrent state:\n";
-  const currentState = gameStateJson(state);
+    .map((event) => JSON.stringify(eventHeader(event)));
+  const privateState = JSON.stringify(view.privateState);
+  const privateSection = privateState === "{}" ? "" : `\nYour private information:\n${privateState}`;
+  const publicLabel = "\nCurrent public state:\n";
+  const publicState = JSON.stringify(view.publicState);
 
   let firstEvent = 0;
   while (firstEvent < eventLines.length) {
     const eventText = eventLines.slice(firstEvent).join("\n");
-    if (estimateTokens(`${stablePrefix}${eventText}${currentStateLabel}${currentState}`) <= budget) break;
+    if (estimateTokens(`${stablePrefix}${eventText}${privateSection}${publicLabel}${publicState}`) <= budget) break;
     firstEvent += 1;
   }
   const omittedMarker = firstEvent > 0 ? "...[older events omitted]\n" : "";
   const eventText = eventLines.slice(firstEvent).join("\n");
-  const fixed = `${stablePrefix}${omittedMarker}${eventText}${currentStateLabel}`;
+  const fixed = `${stablePrefix}${omittedMarker}${eventText}${privateSection}${publicLabel}`;
   const remainingTokens = budget - estimateTokens(fixed);
-  const stateText = trimTextToTokens(currentState, remainingTokens);
+  const stateText = trimTextToTokens(publicState, remainingTokens);
   return trimTextToTokens(`${fixed}${stateText}`, budget);
 }
 
@@ -151,7 +153,7 @@ export function createOpenAiCompatibleClient(config: AiConfig): AiClient {
               { role: "system", content: systemPrompt },
               {
                 role: "user",
-                content: `${buildGameContext(request.state, request.recentEvents, contextBudget)}\n\n${requestedAction}`,
+                content: `${buildGameContext(request.view, request.recentEvents, contextBudget)}\n\n${requestedAction}`,
               },
             ],
             max_tokens: config.reserveOutputTokens,

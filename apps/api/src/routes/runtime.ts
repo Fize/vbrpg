@@ -1,7 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { parseGameEvent, parseGameState, participantSchema } from "@vbrpg/contracts";
-import { compileGameDefinition, createInitialState, DefinitionCompileError, dispatchEvent } from "@vbrpg/workflow-engine";
+import {
+  compileGameDefinition,
+  createInitialState,
+  DefinitionCompileError,
+  dispatchEvent,
+  projectPlayerView,
+} from "@vbrpg/workflow-engine";
 import { AppError } from "@vbrpg/runtime";
 import type { AiClient } from "@vbrpg/runtime";
 
@@ -83,7 +89,9 @@ export async function registerRuntimeRoutes(app: FastifyInstance, aiClient?: AiC
     const recentEvents = body.recentEvents
       .map((item) => parseGameEvent(item))
       .filter((candidate) => candidate.instanceId === first.state.instanceId && candidate.sequence <= first.state.sequence);
-    const result = await aiClient.generate({ input: command.input, state: first.state, recentEvents });
+    // The stateless MVP line has no seat, so the agent only ever sees public state.
+    const view = projectPlayerView(compiled.definition, first.state, { kind: "spectator" });
+    const result = await aiClient.generate({ input: command.input, view, recentEvents });
     const aiEvent = {
       eventId: `${event.eventId}:ai-result`,
       instanceId: event.instanceId,

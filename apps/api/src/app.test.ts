@@ -251,7 +251,7 @@ describe("API foundation", () => {
       config,
       aiClient: {
         async generate(request) {
-          expect(request.state.currentNodeId).toBe("ai");
+          expect(request.view.instanceId).toBe("ai-instance");
           expect(request.recentEvents).toHaveLength(1);
           return { choice: "A" };
         },

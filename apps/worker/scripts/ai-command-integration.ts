@@ -69,9 +69,9 @@ function definition() {
         { id: "end", type: "end", config: {}, next: [] },
       ],
     },
-    roles: [],
-    variables: {},
-    visibility: {},
+    roles: [{ id: "seer", name: "Seer" }],
+    variables: { publicNote: "public-note", hiddenPlan: "hidden-plan-canary" },
+    visibility: { publicNote: "public", hiddenPlan: { role: "seer" } },
     presentation: {},
   };
 }
@@ -276,12 +276,17 @@ try {
   await createWaitingInstance(boundVersionId, successInstanceId);
   await createWaitingInstance(unboundVersionId, unboundInstanceId);
 
+  const providerRequests: Array<{ publicState: Record<string, unknown>; privateState: Record<string, unknown> }> = [];
   const handler = createAiCommandHandler(db, {
     credentialKeyEncoded,
     createClient: (config): AiClient => {
       seededCredentials.push(config.apiKey ?? "");
       return {
-        async generate() {
+        async generate(request) {
+          providerRequests.push({
+            publicState: request.view.publicState,
+            privateState: request.view.privateState,
+          });
           return { choice: "A" };
         },
       };
@@ -307,6 +312,9 @@ try {
   assert.equal(successLedger.length, 1);
   assert.equal((successLedger[0]?.metadata as { outcome?: string }).outcome, "completed");
   assert.deepEqual(seededCredentials, [credential]);
+
+  // The agent only receives its seat's projection: a role-scoped variable never reaches it.
+  assert.deepEqual(providerRequests, [{ publicState: { publicNote: "public-note" }, privateState: {} }]);
 
   // Drained queue and a re-delivered command must not advance the instance twice.
   assert.equal((await worker.runOnce()).claimed, 0);
