@@ -184,7 +184,7 @@ class GameRegistry { get(id); require(id); list(); }   // 启动时注册，重�
 | `providers` / `provider_models` | 模型供应商与模型目录（凭据以 AEAD 密文存列内） |
 | `game_instances` | 对局、记录的代码版本、状态、当前序号 |
 | `game_participants` | 对局参与者、座位、控制方式 |
-| `game_events` | 只追加的事件与交互日志（真相；含 AI 每次交互与用量） |
+| `game_events` | 对局记录：一行一层意思，按 `sequence` 读；含 AI 每次交互与用量（ADR-010） |
 | `audit_logs` | 账号、模型目录与对局运维操作审计 |
 
 2026-10-15 撤除 DSL 时删掉了 `games`、`game_versions`、`workflow_definitions`、`ai_usage_ledger` 与 `agent_model_bindings`：游戏身份与版本回到代码里，模型目录留在 `providers`/`provider_models`。`game_instances.game_version_id` 保留为纯文本（对局自报的代码版本），不再有外键。
@@ -197,11 +197,16 @@ class GameRegistry { get(id); require(id); list(); }   // 启动时注册，重�
 
 ```text
 (instance_id, sequence) on game_events        -- 顺序靠序号，不靠时间
-(instance_id, idempotency_key) on game_events -- 幂等重放
+(instance_id, idempotency_key) on game_events -- 追加幂等
 (instance_id, participant_key) on game_participants
 (instance_id, seat) on game_participants
 (provider_id, model_id) on provider_models
 ```
+
+`game_events` 是**对局记录**，不是重建状态的输入：`state_json` 是当前状态的真相，两者在同一事务里一起写，
+读历史就是按 `sequence` 读行（ADR-010）。行里有 `type`、`participant_id`、`actor_user_id`、`step_id`、
+`payload`，模型调用行另外带 `provider_id`/`model_id`/三个 token 计数（由约束保证要么全空要么全填）。
+读历史不做行级过滤：能看这个对局，就能读到全部内容（含各席位的思考）。
 
 状态快照使用 `jsonb`；需要筛选、排序、关联和约束的数据使用普通关系列。对局相关的前缀（`instance_id`）都在每个唯一键里，所以跨对局的撞号不可能发生。
 
@@ -285,7 +290,7 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 - [x] ~~`P2-04`：建立 tenant-scoped repository；代码评审禁止无租户上下文的业务查询。~~ — 撤销（2026-10-15 第八轮）：`withTenantContext` 与租户作用域仓储已删除 — 核验 2026-10-14：`withTenantContext` + `SET LOCAL app.tenant_id` 与租户作用域仓储已实现；无禁止无租户查询的静态门禁
 - [x] ~~`P2-05`：为关键表启用并测试 PostgreSQL RLS。~~ — 撤销（2026-10-15 第八轮）：策略与应用过滤引用同一个常量，等于自证；随租户层一并删除 — 核验 2026-10-14：0004 RLS 已启用，非 owner 角色跨租户隔离在真实 PostgreSQL 验证
 - [/] `P2-06`：实现审计日志、凭据信封加密、密钥轮换接口和日志脱敏。 — 核验 2026-10-14：`audit_logs` 与审计写入、`secret-box` AEAD 信封加密与密钥版本已实现；密钥轮换操作流程未实现
-- [x] ~~`P2-07`：实现 `pending_commands`、`scheduled_jobs` 的 claim、lease、重试和死信状态。~~ — 撤销（2026-10-15 第九轮）：两张队列表与其 claim/lease/重试/死信实现已删除，改为实例行锁 + 扫描待办（ADR-009）
+- [x] ~~`P2-07`：实现 `pending_commands`、`scheduled_jobs` 的 claim、lease、重试和死信状态。~~ — 撤销（2026-10-15 第九轮）：两张队列表与其实现已删除；2026-10-15 第十轮进一步把工作来源改为实例状态推导（ADR-009、ADR-010）
 - [x] ~~`P2-08`：建立跨租户 REST、WebSocket、worker 和直接对象引用攻击测试。~~ — 撤销（2026-10-15 第八轮）：无租户边界；替身是"非参与者读不到对局"的投影测试 — 核验 2026-10-14：DB 层跨租户隔离测试已通过；REST/WebSocket/worker 攻击测试未做（WebSocket 未实现）
 
 交付物：账号与模型目录控制面、首版数据库 schema、安全测试套件。
@@ -630,6 +635,22 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 - 模型回复原文与 provider 返回的签名字段一并存进该行 payload（带 tools 的请求要求原样回传）。
 
 **已知取舍**（接受并记录）：模型调用的退避与上限没有持久化位置，失败后果由游戏规则定义（契约里已有 `aiFailed`）；需要"任意延迟事件"的游戏不能再表达，只能用等待点加时限；对局规模到数千并发时需要重新引入队列。
+
+### 第十轮（2026-10-15）：`game_events` 定型为对局记录（ADR-010）
+
+**决策**：把"重放"的两种含义分开——本项目要的是"让用户看到整局完整历史"，不是"用事件重算状态"。因此
+`state_json` 是当前状态的真相（写路径），`game_events` 是记录（读路径），两者同事务写入。
+
+**行形状**：`sequence`（对局内唯一总序）、`type`、`participant_id`、`actor_user_id`、`step_id`、
+`idempotency_key`、`occurred_at`、`payload`，加模型调用行的 `provider_id`/`model_id`/三个 token 计数。
+不设 `kind` 判别列（没有重放要保护），不设受众列（能看对局就能看全部）。
+
+**其它确认**：一次模型调用一行、回合结果另写一行；用量由 `num_nonnulls(...) in (0,5)` 保证要么全空要么全填；
+`participant_id` 用复合外键绑到同一对局的席位；`game_participants` 因此补 `unique (instance_id, id)`；
+按序读由唯一键承担，不再另建索引。
+
+**`replayEvents` 的处置**：保留，但降级为测试对账工具（用记录重建状态并与 `state_json` 比对，抓 `transition` 不纯），
+不再是运行时代码路径。
 
 ## 17. 参考资料
 
