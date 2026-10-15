@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import { Lock } from "@element-plus/icons-vue";
 import { ApiError, apiRequestId } from "../services/api";
 import { uiErrorMessage } from "../services/messages";
-import { changePassword, sessionState } from "../stores/session";
+import { changePassword } from "../stores/session";
 
 const router = useRouter();
 
@@ -18,8 +18,6 @@ const formError = ref<string | null>(null);
 const errorCode = ref<string | null>(null);
 const requestId = ref<string | null>(null);
 const submitting = ref(false);
-
-const forced = sessionState.user?.mustChangePassword === true;
 
 function validate(): boolean {
   currentError.value = currentPassword.value.length === 0 ? "请输入当前密码" : null;
@@ -54,17 +52,8 @@ async function submit(): Promise<void> {
       <header class="auth-head">
         <span class="auth-mark">[AI]</span>
         <h1>修改密码</h1>
-        <p class="auth-sub">设置新密码后可继续使用平台。</p>
+        <p class="auth-sub">修改后其他会话会被撤销。</p>
       </header>
-
-      <el-alert
-        v-if="forced"
-        class="auth-alert"
-        type="warning"
-        title="首次登录需要先设置新密码。"
-        :closable="false"
-        show-icon
-      />
 
       <el-form class="auth-form" label-position="top" novalidate @submit.prevent="submit">
         <el-form-item label="当前密码" :error="currentError ?? undefined">

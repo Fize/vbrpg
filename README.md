@@ -6,7 +6,7 @@
 
 已交付：
 
-- **账号与会话**：管理员建号与重置、首登强制改密、不透明会话（HttpOnly Cookie + 滑动/绝对过期）、CSRF、限流、审计。
+- **账号与会话**：管理员建号/重置/删除、不透明会话（HttpOnly Cookie + 滑动/绝对过期）、CSRF、限流、审计；用户可自行修改密码（修改后撤销其他会话）。
 - **模型目录**：Provider / Model 的增删改与连接测试（含 SSRF 防护），API Key 用 AES-256-GCM 加密存列内，任何接口都不回读密文。
 - **中立内核**：`GameModule` 接口 + `GameRegistry` + `createBaseState` + `projectPlayerView`（三档投影，fail-closed）+ `EngineError`/`TransitionResult`。
 - **数据底座**：8 张表——账号 2、模型目录 2、对局 3（`game_instances`/`game_participants`/`game_events`）、审计 1。

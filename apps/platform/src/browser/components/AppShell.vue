@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRouter } from "vue-router";
-import { Connection, Grid, SwitchButton, User as UserIcon } from "@element-plus/icons-vue";
+import { Connection, Grid, Lock, SwitchButton, User as UserIcon } from "@element-plus/icons-vue";
 import { logout, sessionState } from "../stores/session";
 
 const router = useRouter();
 
 const user = computed(() => sessionState.user);
 const isAdmin = computed(() => user.value?.role === "admin");
-// 首次改密属于强制流程，此时不呈现导航与账号菜单，避免引导用户离开。
-const showChrome = computed(() => user.value !== null && !user.value.mustChangePassword);
+const showChrome = computed(() => user.value !== null);
 const initial = computed(() => (user.value?.username ?? "?").slice(0, 1).toUpperCase());
 const roleLabel = computed(() => (isAdmin.value ? "管理员" : "普通用户"));
 
@@ -52,6 +51,9 @@ async function handleLogout(): Promise<void> {
             <strong>{{ user?.username }}</strong>
             <em>{{ roleLabel }}</em>
           </span>
+          <el-button text :icon="Lock" @click="router.push({ name: 'change-password' })">
+            修改密码
+          </el-button>
           <el-button text :icon="SwitchButton" @click="handleLogout">退出登录</el-button>
         </div>
       </div>

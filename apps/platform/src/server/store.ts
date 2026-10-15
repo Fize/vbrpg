@@ -68,11 +68,10 @@ export interface PlatformStore {
     username: string;
     passwordHash: string;
     role: PlatformRole;
-    mustChangePassword: boolean;
   }): Promise<PlatformUserRecord>;
   updateUser(
     userId: string,
-    patch: { role?: PlatformRole; active?: boolean; passwordHash?: string; mustChangePassword?: boolean },
+    patch: { role?: PlatformRole; active?: boolean; passwordHash?: string },
   ): Promise<PlatformUserRecord | undefined>;
   countActiveAdmins(): Promise<number>;
   deleteUser(userId: string): Promise<boolean>;
@@ -137,7 +136,6 @@ export function createPlatformStore(db: ReturnType<typeof createDb>): PlatformSt
         username: input.username,
         passwordHash: input.passwordHash,
         role: input.role,
-        mustChangePassword: input.mustChangePassword,
       }),
     updateUser: (userId, patch) => updatePlatformUser(db, userId, patch),
     countActiveAdmins: () => countActiveAdmins(db),

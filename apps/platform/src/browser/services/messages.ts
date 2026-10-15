@@ -7,7 +7,6 @@ import { ApiError, apiErrorMessage } from "./api";
 const MESSAGES: Record<string, string> = {
   INVALID_CREDENTIALS: "用户名或密码不正确",
   SESSION_INVALID: "登录已过期，请重新登录",
-  PASSWORD_CHANGE_REQUIRED: "请先修改初始密码",
   CURRENT_PASSWORD_INVALID: "当前密码不正确",
   PASSWORD_UNCHANGED: "新密码不能与当前密码相同",
   CSRF_TOKEN_INVALID: "页面已过期，请刷新后重试",

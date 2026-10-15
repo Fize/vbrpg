@@ -29,8 +29,8 @@ async function submit(): Promise<void> {
 
   submitting.value = true;
   try {
-    const user = await login(username.value.trim(), password.value);
-    await router.push(user.mustChangePassword ? { name: "change-password" } : { name: "lobby" });
+    await login(username.value.trim(), password.value);
+    await router.push({ name: "lobby" });
   } catch (error) {
     // 服务端对所有凭据失败返回同一条信息，前端不得补充任何暗示用户名是否存在的细节。
     formError.value = uiErrorMessage(error);

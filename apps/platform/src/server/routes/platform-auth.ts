@@ -31,7 +31,6 @@ export function toUserView(user: PlatformUserRecord): PlatformUser {
     username: user.username,
     role: user.role,
     active: user.active,
-    mustChangePassword: user.mustChangePassword,
     createdAt: user.createdAt.toISOString(),
   };
 }
@@ -165,7 +164,6 @@ export async function registerPlatformAuthRoutes(
 
       await context.store.updateUser(user.id, {
         passwordHash: await hashPassword(body.newPassword),
-        mustChangePassword: false,
       });
       // Every prior session is invalidated, then a fresh one is issued so the
       // caller keeps working with a rotated token and CSRF secret.

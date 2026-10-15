@@ -202,7 +202,6 @@ try {
     role: "admin",
   });
   assert.equal(platformUser.role, "admin");
-  assert.equal(platformUser.mustChangePassword, true);
   assert.equal(
     (await findPlatformUserByUsername(db, platformUser.username))?.id,
     platformUserId,

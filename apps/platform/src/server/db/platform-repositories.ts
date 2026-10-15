@@ -16,7 +16,6 @@ export interface PlatformUserRecord {
   passwordHash: string | null;
   role: PlatformRole;
   active: boolean;
-  mustChangePassword: boolean;
   createdAt: Date;
 }
 
@@ -29,7 +28,6 @@ function toPlatformUser(row: UserRow): PlatformUserRecord {
     passwordHash: row.password_hash,
     role: row.platform_role,
     active: row.is_active,
-    mustChangePassword: row.must_change_password,
     createdAt: row.created_at,
   };
 }
@@ -66,7 +64,6 @@ export async function createPlatformUser(
     username: string;
     passwordHash: string;
     role: PlatformRole;
-    mustChangePassword?: boolean;
   },
 ): Promise<PlatformUserRecord> {
   const row = await db
@@ -77,7 +74,6 @@ export async function createPlatformUser(
       password_hash: input.passwordHash,
       platform_role: input.role,
       is_active: true,
-      must_change_password: input.mustChangePassword ?? true,
     })
     .returningAll()
     .executeTakeFirstOrThrow();
@@ -91,7 +87,6 @@ export async function updatePlatformUser(
     role?: PlatformRole;
     active?: boolean;
     passwordHash?: string;
-    mustChangePassword?: boolean;
   },
 ): Promise<PlatformUserRecord | undefined> {
   const row = await db
@@ -100,9 +95,6 @@ export async function updatePlatformUser(
       ...(patch.role === undefined ? {} : { platform_role: patch.role }),
       ...(patch.active === undefined ? {} : { is_active: patch.active }),
       ...(patch.passwordHash === undefined ? {} : { password_hash: patch.passwordHash }),
-      ...(patch.mustChangePassword === undefined
-        ? {}
-        : { must_change_password: patch.mustChangePassword }),
       updated_at: new Date(),
     })
     .where("id", "=", userId)
@@ -150,7 +142,6 @@ export async function bootstrapPlatformAdmin(
         password_hash: input.passwordHash,
         platform_role: "admin",
         is_active: true,
-        must_change_password: true,
       })
       .execute();
     await transaction

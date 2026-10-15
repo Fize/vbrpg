@@ -271,11 +271,6 @@ async function confirmReset(): Promise<void> {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="需改密" width="100">
-          <template #default="{ row }">
-            {{ row.mustChangePassword ? "是" : "否" }}
-          </template>
-        </el-table-column>
         <el-table-column label="创建时间" min-width="180">
           <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
         </el-table-column>

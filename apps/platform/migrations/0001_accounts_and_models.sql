@@ -8,7 +8,6 @@ create table users (
   password_hash text,
   platform_role text not null default 'user',
   is_active boolean not null default true,
-  must_change_password boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint users_username_unique unique (username),

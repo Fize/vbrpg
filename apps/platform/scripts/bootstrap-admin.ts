@@ -25,7 +25,7 @@ try {
   const passwordHash = await hashPassword(password);
   const result = await bootstrapPlatformAdmin(db, { username, passwordHash });
   if (result.created) {
-    console.log("Initial administrator created. The password must be changed at first login.");
+    console.log("Initial administrator created.");
   } else {
     console.error("Refusing to bootstrap: an active administrator already exists");
     process.exitCode = 1;

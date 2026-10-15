@@ -5,7 +5,7 @@
 
 ## 已交付（2026-10-15 现状）
 
-- 平台账号：登录、持久化 session、CSRF、首登强制改密、管理员建号与重置、审计。
+- 平台账号：登录、持久化 session、CSRF、管理员建号/重置/删除、用户自助改密、审计。
 - 模型配置：Provider / Model 的增删改与连接测试，API key 用 `PLATFORM_CREDENTIAL_KEY` 加密存放。
 - 对局底座：`game_instances` / `game_participants` / `game_events`。没有队列表，没有快照表：
   worker 按实例行锁 + 扫描待办推进对局（ADR-009）。

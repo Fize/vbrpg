@@ -21,7 +21,6 @@ export interface PlatformPrincipal {
   role: PlatformRole;
   sessionId: string;
   csrfTokenHash: Buffer | null;
-  mustChangePassword: boolean;
   expiresAt: Date;
 }
 
@@ -86,7 +85,6 @@ export async function resolvePrincipal(
     role: user.role,
     sessionId: session.id,
     csrfTokenHash: session.csrfTokenHash,
-    mustChangePassword: user.mustChangePassword,
     expiresAt: session.absoluteExpiresAt,
   };
 }
@@ -95,16 +93,6 @@ export async function resolvePrincipal(
 export function requirePlatformRole(principal: PlatformPrincipal, allowed: readonly PlatformRole[]): void {
   if (!allowed.includes(principal.role)) {
     throw new AppError(403, "INSUFFICIENT_ROLE", "The authenticated account lacks the required role");
-  }
-}
-
-export function requirePasswordChanged(principal: PlatformPrincipal): void {
-  if (principal.mustChangePassword) {
-    throw new AppError(
-      403,
-      "PASSWORD_CHANGE_REQUIRED",
-      "The initial password must be changed before using other endpoints",
-    );
   }
 }
 
@@ -126,7 +114,6 @@ export function authenticatePlatformAdmin(context: PlatformRequestContext): preH
   return async (request) => {
     const principal = await resolvePrincipal(request, context);
     requirePlatformRole(principal, ["admin"]);
-    requirePasswordChanged(principal);
     assertCsrf(request, principal, context.config);
     request.platformPrincipal = principal;
   };
@@ -140,7 +127,6 @@ export function authenticatePlatformAdminRead(context: PlatformRequestContext): 
   return async (request) => {
     const principal = await resolvePrincipal(request, context);
     requirePlatformRole(principal, ["admin"]);
-    requirePasswordChanged(principal);
     request.platformPrincipal = principal;
   };
 }

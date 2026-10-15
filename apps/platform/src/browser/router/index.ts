@@ -59,10 +59,7 @@ router.beforeEach(async (to) => {
   if (!user) {
     return to.name === "login" ? true : { name: "login" };
   }
-  if (user.mustChangePassword) {
-    return to.name === "change-password" ? true : { name: "change-password" };
-  }
-  if (to.name === "login" || to.name === "change-password") {
+  if (to.name === "login") {
     return { name: "lobby" };
   }
   if (to.meta.requiresAdmin === true && user.role !== "admin") {

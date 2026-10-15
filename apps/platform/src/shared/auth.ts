@@ -35,7 +35,6 @@ export const userSchema = z
     username: z.string().min(1),
     role: platformRoleSchema,
     active: z.boolean(),
-    mustChangePassword: z.boolean(),
     createdAt: instantSchema,
   })
   .strict();

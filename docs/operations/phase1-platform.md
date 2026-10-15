@@ -92,13 +92,14 @@ Non-interactive use (secret supplied through a protected mechanism, not a shared
 DATABASE_URL=... pnpm run bootstrap:platform-admin -- --username root --password '<12+ chars>'
 ```
 
-The created account has `must_change_password = true`, so the first login may only read the
-session, read the CSRF token and change the password.
+The created account is immediately usable: there is no forced password change. An administrator
+resets a password through `PATCH /v1/admin/users/{id}` with `resetPassword`, which revokes that
+account's sessions; the account owner can change it at any time from the console (修改密码).
 
 ## 4. Provisioning users
 
-An authenticated, password-changed administrator creates accounts. The API never returns the
-temporary password, and the account must change it at first login.
+An authenticated administrator creates accounts. The API never returns the temporary password,
+and the account is expected to change it from the console; nothing forces it.
 
 ```bash
 # 1. Log in and keep the session cookie + CSRF token.
@@ -217,7 +218,6 @@ the data you care about first. `.down.sql` files are never applied as forward mi
 | `CREDENTIAL_KEY_NOT_CONFIGURED` on provider create | Master key absent in a non-production environment |
 | `ORIGIN_REQUIRED` / `ORIGIN_NOT_ALLOWED` | `Origin` missing or not in `TRUSTED_WEB_ORIGINS` |
 | `CSRF_TOKEN_INVALID` | Missing `x-csrf-token`, or the token belongs to a rotated session |
-| `PASSWORD_CHANGE_REQUIRED` | Initial password not changed yet |
 | `LAST_ADMIN` | Attempt to disable or demote the only active administrator |
 | `dns_rejected` on a connection test | Endpoint resolves to a non-public address |
 | `SESSION_INVALID` after a password or role change | Sessions are revoked by design |

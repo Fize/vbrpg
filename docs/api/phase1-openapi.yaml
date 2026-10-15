@@ -340,13 +340,12 @@ components:
   schemas:
     User:
       type: object
-      required: [id, username, role, active, mustChangePassword, createdAt]
+      required: [id, username, role, active, createdAt]
       properties:
         id: { type: string, format: uuid }
         username: { type: string }
         role: { type: string, enum: [admin, user] }
         active: { type: boolean }
-        mustChangePassword: { type: boolean }
         createdAt: { type: string, format: date-time }
     LoginResult:
       type: object

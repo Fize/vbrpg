@@ -20,8 +20,8 @@ This design implements the confirmed threat model in `docs/security/phase1-auth-
 
 1. An operator runs a one-time admin bootstrap CLI with the database URL and an operator-supplied username/password through a no-echo prompt or protected secret input. No default password or source-controlled credential.
 2. Bootstrap runs transactionally, takes an advisory lock, refuses if any active admin already exists, creates the initial admin, records an audit event, and exits without printing the password. Bootstrap credentials are not persisted outside the password hash.
-3. An authenticated admin creates a user with a validated username and temporary password. The API sets `must_change_password=true`; it never returns a reusable generated secret.
-4. First successful login creates a session restricted to password change and logout. A successful password change clears the flag and revokes all prior sessions for the account.
+3. An authenticated admin creates a user with a validated username and temporary password. The API never returns a reusable generated secret.
+4. A password change (self-service or admin reset) revokes all prior sessions for the account. 2026-10-15: the forced first-login password change was removed.
 5. Admin disable/reset actions revoke all sessions. An inactive account is rejected at every authenticated request.
 
 ### Login and session

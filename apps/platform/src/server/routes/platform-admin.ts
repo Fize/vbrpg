@@ -20,7 +20,6 @@ import {
   authenticatePlatform,
   authenticatePlatformAdmin,
   authenticatePlatformAdminRead,
-  requirePasswordChanged,
   type PlatformPrincipal,
   type PlatformRequestContext,
 } from "../platform-auth.js";
@@ -50,7 +49,6 @@ export async function registerPlatformAdminRoutes(
         username: normalizeUsername(body.username),
         passwordHash: await hashPassword(body.temporaryPassword),
         role: body.role,
-        mustChangePassword: true,
       });
       await context.store.recordAudit({
         actorUserId: principal.userId,
@@ -89,7 +87,7 @@ export async function registerPlatformAdminRoutes(
       ...(body.active === undefined ? {} : { active: body.active }),
       ...(body.resetPassword === undefined
         ? {}
-        : { passwordHash: await hashPassword(body.resetPassword), mustChangePassword: true }),
+        : { passwordHash: await hashPassword(body.resetPassword) }),
     });
     if (!updated) throw new AppError(404, "USER_NOT_FOUND", "No such account");
 
@@ -143,10 +141,9 @@ export async function registerPlatformAdminRoutes(
     return reply.code(204).send();
   });
 
-  app.get("/v1/providers", { preHandler: requireAuthenticated }, async (request) => {
-    requirePasswordChanged(request.platformPrincipal!);
-    return { providers: await context.store.listProviders({ includeDisabled: false }) };
-  });
+  app.get("/v1/providers", { preHandler: requireAuthenticated }, async () => ({
+    providers: await context.store.listProviders({ includeDisabled: false }),
+  }));
 
   app.get("/v1/admin/providers", { preHandler: requireAdminRead }, async () => ({
     providers: await context.store.listProviders({ includeDisabled: true }),

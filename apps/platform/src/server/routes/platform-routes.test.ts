@@ -50,7 +50,6 @@ function createFakeStore(options: {
         passwordHash: input.passwordHash,
         role: input.role,
         active: true,
-        mustChangePassword: input.mustChangePassword,
         createdAt: new Date(),
       };
       if ([...users.values()].some((user) => user.username === created.username)) {
@@ -69,7 +68,6 @@ function createFakeStore(options: {
         ...(patch.role === undefined ? {} : { role: patch.role }),
         ...(patch.active === undefined ? {} : { active: patch.active }),
         ...(patch.passwordHash === undefined ? {} : { passwordHash: patch.passwordHash }),
-        ...(patch.mustChangePassword === undefined ? {} : { mustChangePassword: patch.mustChangePassword }),
       };
       users.set(userId, updated);
       return updated;
@@ -210,7 +208,6 @@ function makeUser(overrides: Partial<PlatformUserRecord> & { passwordHash: strin
     username: "alice",
     role: "user",
     active: true,
-    mustChangePassword: false,
     createdAt: new Date(),
     ...overrides,
   };
@@ -254,7 +251,6 @@ describe("platform login", () => {
       users: [
         makeUser({ passwordHash, username: "alice" }),
         makeUser({ passwordHash, username: "disabled", active: false }),
-        makeUser({ passwordHash, username: "initial", mustChangePassword: true }),
       ],
     });
     const app = await createApp(state);
@@ -500,24 +496,6 @@ describe("authorization", () => {
     }
   });
 
-  it("blocks admin endpoints until the initial password is changed", async () => {
-    const passwordHash = await hashPassword(PASSWORD);
-    const state = createFakeStore({
-      passwordHash,
-      users: [makeUser({ passwordHash, role: "admin", mustChangePassword: true })],
-    });
-    const app = await createApp(state);
-    const { cookie, body } = await login(app);
-
-    const response = await app.inject({
-      method: "GET",
-      url: "/v1/admin/users",
-      headers: { cookie, origin: ORIGIN, "x-csrf-token": body.csrfToken as string },
-    });
-    assert.equal(response.statusCode, 403);
-    assert.equal(response.json().code, "PASSWORD_CHANGE_REQUIRED");
-  });
-
   it("refuses to disable the last active administrator", async () => {
     const passwordHash = await hashPassword(PASSWORD);
     const admin = makeUser({ passwordHash, role: "admin", username: "root" });
@@ -541,7 +519,7 @@ describe("password change", () => {
     const passwordHash = await hashPassword(PASSWORD);
     const state = createFakeStore({
       passwordHash,
-      users: [makeUser({ passwordHash, mustChangePassword: true })],
+      users: [makeUser({ passwordHash })],
     });
     const app = await createApp(state);
     const { cookie, body } = await login(app);
@@ -556,11 +534,11 @@ describe("password change", () => {
     assert.equal(response.json().code, "CURRENT_PASSWORD_INVALID");
   });
 
-  it("clears the flag, revokes prior sessions and rotates the session", async () => {
+  it("revokes prior sessions and rotates the active one", async () => {
     const passwordHash = await hashPassword(PASSWORD);
     const state = createFakeStore({
       passwordHash,
-      users: [makeUser({ passwordHash, mustChangePassword: true })],
+      users: [makeUser({ passwordHash })],
     });
     const app = await createApp(state);
     const { cookie, body } = await login(app);
@@ -572,7 +550,6 @@ describe("password change", () => {
       payload: { currentPassword: PASSWORD, newPassword: "a-new-password-1" },
     });
     assert.equal(response.statusCode, 200);
-    assert.equal(response.json().user.mustChangePassword, false);
 
     // The old cookie is dead; the rotated cookie works.
     assert.equal(

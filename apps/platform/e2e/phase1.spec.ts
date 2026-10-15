@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 const initialPassword = "initial-password-1";
-const newPassword = "changed-password-1";
 const userPassword = "temporary-user-pw-1";
+const changedUserPassword = "player-changed-pw-1";
 const providerApiKey = "sk-e2e-never-return-this";
 
 async function login(page: import("@playwright/test").Page, username: string, password: string) {
@@ -13,21 +13,15 @@ async function login(page: import("@playwright/test").Page, username: string, pa
 }
 
 test.describe.serial("Phase 1 browser acceptance", () => {
-  test("admin must change the bootstrap password before reaching the lobby", async ({ page }) => {
+  test("admin signs in and lands in the lobby", async ({ page }) => {
     await login(page, "e2e-root", initialPassword);
-    await expect(page).toHaveURL(/\/change-password$/);
-    await expect(page.getByRole("heading", { name: "修改密码" })).toBeVisible();
-
-    await page.getByLabel("当前密码").fill(initialPassword);
-    await page.getByLabel("新密码", { exact: true }).fill(newPassword);
-    await page.getByLabel("确认新密码").fill(newPassword);
-    await page.getByRole("button", { name: "保存新密码" }).click();
     await expect(page).toHaveURL(/\/lobby$/);
+    await expect(page.getByRole("heading", { name: "大厅" })).toBeVisible();
     await expect(page.getByText("游戏大厅将在后续阶段开放")).toBeVisible();
   });
 
   test("admin provisions a user and provider/model; secrets do not appear in the UI", async ({ page }) => {
-    await login(page, "e2e-root", newPassword);
+    await login(page, "e2e-root", initialPassword);
     await expect(page).toHaveURL(/\/lobby$/);
 
     await page.goto("/admin/users");
@@ -71,12 +65,15 @@ test.describe.serial("Phase 1 browser acceptance", () => {
     expect(secretLeaks).toBe(false);
   });
 
-  test("user login/logout works and admin routes redirect non-admins", async ({ page }) => {
+  test("user changes its own password, then cannot reach admin routes", async ({ page }) => {
     await login(page, "e2e-player", userPassword);
+    await expect(page).toHaveURL(/\/lobby$/);
+
+    await page.getByRole("button", { name: "修改密码" }).click();
     await expect(page).toHaveURL(/\/change-password$/);
     await page.getByLabel("当前密码").fill(userPassword);
-    await page.getByLabel("新密码", { exact: true }).fill("player-changed-pw-1");
-    await page.getByLabel("确认新密码").fill("player-changed-pw-1");
+    await page.getByLabel("新密码", { exact: true }).fill(changedUserPassword);
+    await page.getByLabel("确认新密码").fill(changedUserPassword);
     await page.getByRole("button", { name: "保存新密码" }).click();
     await expect(page).toHaveURL(/\/lobby$/);
 
@@ -88,7 +85,7 @@ test.describe.serial("Phase 1 browser acceptance", () => {
   });
 
   test("admin deletes an account; the deleted row disappears", async ({ page }) => {
-    await login(page, "e2e-root", newPassword);
+    await login(page, "e2e-root", initialPassword);
     await expect(page).toHaveURL(/\/lobby$/);
 
     await page.goto("/admin/users");
