@@ -158,184 +158,28 @@ Endpoint rules (enforced on create, update and every connection test):
 
 Private and on-premises endpoints are intentionally unsupported in Phase 1.
 
-## 6. Agent model bindings and AI command execution
+## 6. Model credentials
 
-An `aiGenerate` node names an `agentId`, and that agent resolves to exactly one model through
-`agent_model_bindings`, keyed by `(tenant_id, game_version_id, agent_id)`. The binding lives with the
-game version, so a published version keeps the model it shipped with.
+Model providers and their models are managed through the admin endpoints in section 5. Their API keys
+are sealed with `PLATFORM_CREDENTIAL_KEY` (AES-GCM, bound to the provider id) inside `packages/runtime`
+and are never returned by any endpoint.
 
-Bindings are provisioned with SQL until an admin endpoint exists:
+There is no platform-side AI call chain right now: the AI command queue, its retries, fallbacks and the
+usage ledger went away with the declarative game DSL (see the migration plan, §16 第六轮). Game modules
+that need a model resolve a provider credential themselves; usage and cost accounting come back with the
+code-based game runtime.
 
-```sql
-insert into agent_model_bindings (id, tenant_id, game_version_id, agent_id, provider_model_id)
-values (gen_random_uuid()::text, '<tenant-id>', '<game-version-id>', 'seer', '<provider-model-id>');
-```
+## 7. Game instances
 
-An agent is declared inside the game version, one per seat (ADR-006). The node names the agent, the seat
-it acts for, its input and its fallback; limits live on the agent so a version cannot carry two copies:
+The match foundation is still migrated and enforced: `game_instances`, `game_participants`,
+`game_events`, `game_snapshots`, `player_actions`, `pending_commands`, `scheduled_jobs` and
+`outbox_events`, with tenant RLS over all of them. `apps/worker` still claims leases from its queues and
+publishes outbox rows.
 
-```json
-{ "agentId": "seer", "participantId": "p3", "input": { "action": "choose" },
-  "fallbackNodeId": "degraded", "resultKey": "choice" }
-```
+What is gone: the HTTP surface (`POST /instances`, `GET /instances/:id`, the per-seat projection, the
+admin pause/resume/cancel/timeout controls) and the state transition that drove them. They return with
+the code-based game runtime, together with the `GameModule` interface and the game registry.
 
-```json
-"agents": [{ "id": "seer", "roleId": "seer", "systemPrompt": "You are the seer.",
-             "limits": { "timeoutMs": 5000, "maxAttempts": 2, "tokenBudget": 131072 } }]
-```
-
-The prompt is built from that seat's projection (`projectPlayerView`) and never from the authoritative
-state; the session key is `(instance, participantId)`, so two seats of the same role never share context
-and a seat the instance does not contain fails the command instead of degrading silently. Event payloads
-are never sent: whether a payload is public is the game's call (a night vote is secret, a day vote is
-not) and a definition cannot declare event visibility yet, so the prompt carries event headers
-(sequence, type, participantId) only. `tokenBudget` covers input plus output for one call; a node whose
-input cannot fit degrades through `fallbackNodeId` with reason `BUDGET_EXCEEDED` before the provider is
-called. The stateless `/v1/mvp/runtime/ai-dispatch` line projects the seat the node waits for as well.
-
-`apps/worker` consumes both queues: `pending_commands` (AI commands) and `scheduled_jobs` (expired
-timers, which re-enter the instance as `timerExpired` events). `outbox_events` still has no handler:
-its handler is the broadcast transport, which arrives with the realtime phase, so published events
-are not delivered anywhere yet.
-
-Starting the AI side:
-
-```bash
-export DATABASE_URL=postgres://vbrpg:vbrpgpassword@localhost:5433/vbrpg_platform
-export PLATFORM_CREDENTIAL_KEY=<the key that sealed the provider credential>
-pnpm --filter @vbrpg/worker dev
-```
-
-For each claimed command the worker resolves the binding, rejects disabled providers or models,
-decrypts the provider credential with the master key, calls the OpenAI-compatible endpoint with a
-timeout of `min(node timeoutMs, AI_TIMEOUT_MS)`, appends `aiResultReceived` and writes an
-`ai_usage_ledger` row.
-
-Behaviour to know before an incident:
-
-- A provider failure below `maxAttempts` returns the command to the queue with exponential backoff.
-- At `maxAttempts` the worker appends `aiFailed` and the workflow continues at the node's
-  `fallbackNodeId`; an instance is never left parked on an AI node.
-- A missing binding, a disabled model, or an undecryptable credential degrades immediately, with no
-  retries.
-- A command whose instance is no longer waiting for AI is skipped, so a redelivered command cannot
-  advance an instance twice.
-
-## 7. Driving an instance over HTTP
-
-The runtime endpoints are session-authenticated (cookie plus `x-csrf-token`), scoped to the platform
-tenant, and never accept a client-supplied sequence or event id.
-
-```bash
-# Create an instance from a workflow definition and dispatch instanceCreated.
-curl -sS -b cookies.txt -X POST http://localhost:3000/v1/instances \
-  -H 'content-type: application/json' -H 'origin: http://localhost:5173' \
-  -H "x-csrf-token: $CSRF" \
-  -d '{"gameVersionId":"<game-version-id>","randomSeed":"seed-1"}'
-
-# Read the authoritative state.
-curl -sS -b cookies.txt http://localhost:3000/v1/instances/<instance-id>
-
-# Submit player input. Retries are safe: reuse the same Idempotency-Key.
-curl -sS -b cookies.txt -X POST http://localhost:3000/v1/instances/<instance-id>/events \
-  -H 'content-type: application/json' -H 'origin: http://localhost:5173' \
-  -H "x-csrf-token: $CSRF" -H 'idempotency-key: answer-1' \
-  -d '{"type":"playerInputReceived","payload":{"participantId":"p1","value":"yes"}}'
-```
-
-Status codes worth knowing:
-
-- `201` on create; `200` on read and on accepted or replayed events.
-- `404 GAME_VERSION_NOT_FOUND` when the version has no workflow definition; `404 INSTANCE_NOT_FOUND`
-  otherwise.
-- `409` with the engine code (`UNEXPECTED_INPUT`, `SEQUENCE_MISMATCH`, `NOT_ALLOWED`, …) when the
-  event does not fit the current state. A retry carrying a recorded idempotency key still returns
-  `200` with `replayed: true`, even after the instance finished.
-- `429 RATE_LIMITED` after 30 created instances per account per minute.
-- Client-submittable events are limited to `playerInputReceived`: timers and AI results come from
-  `apps/worker`, and admin controls arrive with `P3-10`.
-
-### 7.1 Administrative controls
-
-Administrators can pause, resume, cancel an instance, force the current wait to expire and read a
-redacted operational status. Lifecycle changes are platform state, not game events: they are audited
-in `audit_logs` and never enter the game event log.
-
-```bash
-curl -sS -b cookies.txt -X POST http://localhost:3000/v1/admin/instances/<id>/pause \
-  -H 'origin: http://localhost:5173' -H "x-csrf-token: $CSRF"
-curl -sS -b cookies.txt -X POST http://localhost:3000/v1/admin/instances/<id>/resume  -H 'origin: ...' -H "x-csrf-token: $CSRF"
-curl -sS -b cookies.txt -X POST http://localhost:3000/v1/admin/instances/<id>/cancel  -H 'origin: ...' -H "x-csrf-token: $CSRF"
-curl -sS -b cookies.txt -X POST http://localhost:3000/v1/admin/instances/<id>/timeout -H 'origin: ...' -H "x-csrf-token: $CSRF"
-curl -sS -b cookies.txt http://localhost:3000/v1/admin/instances/<id>
-```
-
-Behaviour worth knowing during an incident:
-
-- A paused or cancelled instance rejects new events with `409 INSTANCE_PAUSED` / `INSTANCE_CANCELLED`,
-  and the worker stops claiming its queued commands and jobs — nothing is consumed, nothing is lost, so
-  resuming makes the same rows claimable again with no re-arming step.
-- `timeout` ends the current wait immediately: a timer fires now, an AI node takes its declared
-  `fallbackNodeId`. Player-input waits return `409 NOT_TIMEOUTABLE` (there is no input-timeout
-  semantics yet).
-- The status endpoint returns structure without values: lifecycle status, sequence, current node,
-  what it is waiting for, participant counts by role and status, variable *names*, and queue counts.
-  It never returns variable values, so it is safe to paste into an incident ticket.
-
-### 7.2 What a player is allowed to see
-
-`GET /v1/instances/:instanceId` returns the **authoritative** state, hidden information included, and
-is therefore administrator-only. Participants read their own projection instead:
-
-```bash
-curl -sS -b cookies.txt "http://localhost:3000/v1/instances/<instance-id>/view?participantId=p1"
-```
-
-`view` is rejected with `403 NOT_YOUR_PARTICIPANT` unless the seat's `actorId` is the signed-in
-account (administrators may read any seat), and with `404 PARTICIPANT_NOT_FOUND` for a participant
-that is not in the instance. The projection follows the definition's `visibility` map and is
-**fail-closed** — a variable the definition does not declare never appears:
-
-| `visibility` entry | Who sees it | Bucket |
-| --- | --- | --- |
-| *(key absent)* | nobody | — |
-| `"public"` | everyone, including spectators | `publicState` |
-| `{ "role": "<roleId>" }` | participants whose `roleId` matches | `privateState` |
-| `{ "participant": "<participantId>" }` | that participant only | `privateState` |
-
-Any other shape is rejected at publish time by the definition validator and again by the runtime, so
-a typo cannot silently widen visibility. `availableActions` is non-empty only while the instance
-waits on that participant (`playerInput`/`collectInput`); it carries the waiting node id and the
-`participantId` to submit.
-
-Instance state is authoritative in `game_instances.state_json`; this path does not write
-`game_participants` yet.
-
-### 7.3 Round loops
-
-A turn-based definition repeats rounds with a `loop` node instead of a back edge to an arbitrary
-node, and the release gate rejects every other cycle:
-
-```json
-{
-  "id": "round-loop",
-  "type": "loop",
-  "config": {
-    "bodyNodeId": "begin-round",
-    "counterKey": "dayNumber",
-    "maxIterations": 6,
-    "while": { "op": "eq", "args": [{ "op": "var", "name": "winner" }, { "op": "lit", "value": null }] }
-  },
-  "next": ["end"]
-}
-```
-
-The body's last node points back at the `loop` node. The loop increments `counterKey` (naming the
-round in progress) and re-enters `bodyNodeId` while `while` holds and the round count is within
-`maxIterations`; otherwise it continues to `next`. The condition reads the committed state, so
-`round < 3` plays rounds 1..3. `counterKey` is owned by the loop: the validator rejects any other
-node writing it, which is what keeps replay and automatic execution bounded. `docs/fixtures/werewolf-package.json`
-is the working example.
 
 ## 8. Master key rotation
 

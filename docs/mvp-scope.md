@@ -1,38 +1,32 @@
 # VBRPG MVP 范围
 
-- 记录日期：2026-08-24
-- 当前目标：验证“定义一个游戏并推进一次状态转换”的最小闭环
+- 记录日期：2026-08-24（2026-10-15 重写）
+- 当前目标：把"多租户游戏平台"的最小可用面立起来——账号、租户、模型配置，加上承载对局的数据底座
 
-## MVP 必须完成
+## 已交付（2026-10-15 现状）
 
-- 用 DSL v1 提交一个游戏定义。
-- 校验并编译定义，返回稳定 definition hash。
-- 创建一个初始状态。
-- 提交一个事件，返回新状态和外部命令。
-- API 有最小的 compile/instances/dispatch 端点和自动化测试。
-- 至少有一个 AI 节点能通过真实 OpenAI-compatible API 完成一次 demo。
+- 平台账号与租户：登录、持久化 session、CSRF、首登强制改密、管理员建号与重置、审计。
+- 模型配置：Provider / Model 的增删改与连接测试，API key 用 `PLATFORM_CREDENTIAL_KEY` 加密存放。
+- 对局底座：`game_instances` / `game_participants` / `game_events` / `game_snapshots` /
+  `player_actions` / `pending_commands` / `scheduled_jobs` / `outbox_events`，全部带租户 RLS；
+  worker 具备 claim / lease / 重试 / outbox 循环。
+- 中立内核：玩家视图投影（fail-closed）、事件重放、转换与错误类型。
+
+## 已撤除（2026-10-15）
+
+原先的 MVP 以"用 DSL 提交游戏定义并推进一次状态转换"为闭环。该路线已撤除：DSL、发布期校验、
+无状态 MVP 端点（`/v1/mvp/runtime/{compile,instances,dispatch,ai-dispatch}`）与平台侧 AI 调用链
+都不再存在，见主计划 §16 第六轮。游戏逻辑改为 TypeScript 模块。
 
 ## MVP 暂不做
 
 - 旧系统迁移、数据兼容和双轨切流。
-- 多租户高级治理、邀请、复杂 RBAC、RLS 攻击测试。
-- Outbox/Worker 的生产级消费、AI 供应商、计费和用量系统。
-- 可视化编辑器、资源市场、插件沙箱和 LangGraph 适配器。
+- Outbox/Worker 的生产级消费与死信观测。
+- 可视化编辑器、资源市场、插件沙箱与第三方游戏分发。
 - 完整 WebSocket、断线恢复、快照优化和容量工程。
 
-## AI Demo
+## 下一步
 
-配置平台级 `DEEPSEEK_API_KEY` 后运行 `pnpm --filter @vbrpg/api demo:ai`。默认使用腾讯云 TokenHub `https://tokenhub.tencentmaas.com/v1/chat/completions` 和模型 `hy3`。本局上下文只包含当前状态和显式传入的本局事件，不保存跨局记忆；`AI_CONTEXT_WINDOW_TOKENS` 为 256K 窗口，`AI_MAX_INPUT_TOKENS` 限制 Hy3 的 192K 最大输入，`AI_RESERVE_OUTPUT_TOKENS` 为思考和回答预留 16K token。历史事件采用稳定的追加顺序放在变化中的当前状态之前，利用 provider 的自动前缀缓存；超过预算时优先淘汰最旧事件。
-
-模型、TokenHub 地址和 ctxwin 策略是平台级配置，不从租户、用户或单局请求读取；所有租户统一使用 `hy3`。
-
-当前实现已通过 OpenAI-compatible 请求协议测试；重新加载 `~/.zshrc` 后，TokenHub 直连和完整游戏 AI demo 均返回 HTTP 200，云端 AI 验收通过。
-
-这些能力可以保留为后续扩展的底层代码，但不能阻塞 MVP 验收。
-
-## 复核（2026-10-14）
-
-- `demo:ai` 依赖环境变量密钥（优先级 `DEEPSEEK_API_KEY` → `AI_API_KEY` → `OPENAI_API_KEY`），仓库内不提供。
-- 默认组合（TokenHub `https://tokenhub.tencentmaas.com/v1` + `hy3`）当前返回 provider HTTP 401，未复现本文所述 HTTP 200；改用 `https://api.deepseek.com/v1` + `deepseek-chat` 后同一凭据可跑通完整 game AI demo。
-- MVP 端点仍在：`/v1/mvp/runtime/{compile,instances,dispatch,ai-dispatch}`。
-- 因此「云端 AI 验收通过」是当时环境的历史结论；在当前环境复现需按上述 endpoint/model 调整配置。
+1. `GameModule` 接口与游戏注册表。
+2. 对局 HTTP 入口（创建对局、提交事件、读取自己的投影）。
+3. 第一个代码化游戏（狼人杀）+ 回归夹具。

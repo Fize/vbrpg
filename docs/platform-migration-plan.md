@@ -1,25 +1,25 @@
 # VBRPG 多租户工作流游戏平台迁移与发布计划
 
 > 状态：提案 / 可执行基线
-> 更新日期：2026-08-24
-> 状态核验：2026-10-14 逐项对照代码、测试与提交核验 §8/§13 任务状态；结论与下一步见 §16。
-> 适用范围：将当前 Python + Vue 项目迁移为以 TypeScript 为主、由用户定义游戏工作流的多租户游戏分发平台
+> 更新日期：2026-10-15
+> 状态核验：2026-10-15 逐项对照代码、测试与提交核验任务状态；结论与下一步见 §16。
+> 适用范围：将当前 Python + Vue 项目迁移为以 TypeScript 为主的多租户游戏平台（游戏为代码化模块，非声明式 DSL）
 
-> 当前执行模式：Greenfield 新项目。旧 Python/Vue 系统、数据迁移、兼容层、双轨切流、旧版本行为兼容和历史黄金轨迹不属于当前交付门槛；旧实现仅作为可选领域参考。后续验收以新 TypeScript 平台、PostgreSQL、DSL v1 和新运行时为准。
+> 当前执行模式：Greenfield 新项目。旧 Python/Vue 系统、数据迁移、兼容层、双轨切流、旧版本行为兼容和历史黄金轨迹不属于当前交付门槛；旧实现仅作为可选领域参考。后续验收以新 TypeScript 平台、PostgreSQL、中立运行时内核与代码化游戏模块为准（DSL 路线已于 2026-10-15 撤除，见 §16 第六轮）。
 
 ## 1. 执行摘要
 
-本项目可以把“游戏规则”建模为工作流，但不能只把它当成普通 DAG。更准确的模型是：**事件驱动、可持久化、可暂停和恢复的状态机工作流**。玩家输入、计时器、随机事件和 AI 调用都是驱动工作流继续执行的事件或外部活动。
+游戏规则是一台**事件驱动、可持久化、可暂停和恢复的状态机**：玩家输入、计时器、随机事件与 AI 调用都是驱动它继续执行的事件或外部活动。规则本身写在 TypeScript 游戏模块里，平台不解释规则、只负责承载对局。
 
 本计划采用以下结论：
 
 1. 后端迁移到 TypeScript 是合理的，但应按领域边界重构，不能逐行翻译现有 Python 服务。
-2. 用户面对的是平台自有、版本化的游戏 DSL，不能直接依赖或暴露 LangGraph API。
-3. LangGraph JS 只作为可替换的运行时适配器候选。先完成技术验证，再决定普通游戏流程由 LangGraph JS 执行，还是由轻量自研解释器执行。
-4. 生产环境只支持 PostgreSQL，避免第一版同时承担 MySQL、PostgreSQL、SQLite 三套语义差异。SQLite 只运行纯引擎单元测试和轻量本地演示；所有集成测试与 CI 必须运行真实 PostgreSQL。
-5. 游戏定义发布后不可修改。运行中的游戏实例固定引用一个 `game_version_id`，新版本不能改变旧对局。
-6. 所有权威状态都进入 PostgreSQL：事件、快照、待处理输入、定时任务、AI 命令、审计和用量。进程内存只允许作缓存，不能作为权威存储。
-7. 第一版只允许声明式 DSL，不允许作者上传任意 TypeScript、执行 `eval` 或安装 npm 包。沙箱插件属于发布后的独立阶段。
+2. **游戏逻辑是代码，不是平台解释的 JSON**：一个游戏一个 TypeScript 模块（`packages/games/<slug>`），平台只提供对局底座与中立内核。原先的声明式 DSL 路线已于 2026-10-15 撤除，见 §16 第六轮。
+3. 编排库（LangGraph JS 等）是游戏代码的内部选择，平台不依赖、也不暴露它们（见 §7）。
+4. 生产环境只支持 PostgreSQL，避免第一版同时承担 MySQL、PostgreSQL、SQLite 三套语义差异。SQLite 只运行纯内核单元测试和轻量本地演示；所有集成测试与 CI 必须运行真实 PostgreSQL。
+5. 对局在创建时固定它使用的代码版本；升级游戏代码不影响进行中的对局。
+6. 所有权威状态都进入 PostgreSQL：事件、快照、待处理输入、定时任务、命令、审计。进程内存只允许作缓存，不能作为权威存储。
+7. 首版由平台自己维护游戏代码，不提供作者上传代码或包的通道；第三方分发需要单独的沙箱与安全设计。
 
 达到可邀请外部作者和玩家参与的 Beta，预计需要 **19～27 人周**；2 名全职工程师并行时约 **10～14 个日历周**，单人串行约 **5～7 个月**。该估算不含高级可视化编辑器、商业结算、移动客户端和任意代码插件沙箱。
 
@@ -28,20 +28,19 @@
 ### 2.1 Beta 目标
 
 - 一个用户可以创建或加入租户，并拥有明确的租户角色。
-- 游戏作者可以在租户内创建游戏、编辑草稿、测试、发布不可变版本。
-- 作者可以导入、导出和 fork 游戏包，并为游戏声明许可证与署名信息，避免被平台运行时锁定。
-- 作者可以使用声明式节点、规则表达式、私密信息投影和 UI 元数据描述一个游戏。
-- 玩家可以从目录安装或加入游戏，在断线、服务重启后继续对局。
-- 一个对局可以同时包含真人和 AI 角色；AI 超时或失败时，工作流能走到明确的降级路径。
-- 所有 REST、WebSocket、后台任务和管理操作都强制租户隔离。
+- 平台内置的游戏可以被创建为对局、开始、并跑到结束（游戏代码在 `packages/games/*` 维护）。
+- 玩家可以加入对局，在断线、服务重启后继续。
+- 一个对局可以同时包含真人和 AI 席位。
+- 玩家只能看到自己有权看到的信息，且这一点由平台强制（投影 fail-closed），不依赖游戏代码自觉。
+- 所有 REST、后台任务和管理操作都强制租户隔离。
 - 每次状态变化可审计、可重放、可幂等处理。
 
 ### 2.2 Beta 非目标
 
 - 不同时支持 PostgreSQL 和 MySQL 生产部署。
-- 不提供任意代码或第三方 npm 包执行能力。
+- 不提供作者上传代码、第三方 npm 包执行或沙箱插件能力。
+- 不提供声明式游戏 DSL、草稿/发布生命周期与发布期静态校验（2026-10-15 撤除）。
 - 不在首版完成 Steam 式商业市场、创作者分成和复杂支付结算。
-- 不要求首版有完整的拖拽式低代码编辑器；结构化表单、JSON 编辑、校验结果和只读流程图足以发布 Beta。
 - 不保证把进行中的旧 Python 对局无损迁移到新引擎；优先采用排空旧对局的切换方式。
 
 ## 3. 当前基线与主要问题
@@ -63,15 +62,12 @@
 
 ```mermaid
 flowchart LR
-    Browser[Vue 3 + TypeScript] -->|REST / Socket.IO| API[Fastify API]
+    Browser[Vue 3 + TypeScript] -->|REST| API[Fastify API]
     API --> Auth[身份与租户授权]
-    API --> Runtime[GameRuntime 接口]
-    Runtime --> Engine[纯函数工作流引擎]
-    Runtime -. 可选适配器 .-> LangGraph[LangGraph JS]
-    Engine --> DB[(PostgreSQL)]
-    API --> DB
+    API --> Games[游戏模块 packages/games/*]
+    Games --> Engine[中立内核：投影 / 重放 / 转换类型]
+    API --> DB[(PostgreSQL)]
     Worker[TypeScript Worker] --> DB
-    Worker --> AI[模型提供商 SDK]
     DB --> Outbox[Outbox / Scheduled Jobs]
     Outbox --> Worker
     Worker -->|按玩家投影广播| Browser
@@ -82,13 +78,12 @@ flowchart LR
 ```text
 apps/
   web/                 # Vue 3 + TypeScript
-  api/                 # Fastify REST / Socket.IO
-  worker/              # AI、计时器、Outbox 消费者
+  api/                 # Fastify REST
+  worker/              # 定时器、Outbox 消费者
 packages/
-  contracts/           # API、事件、WebSocket 的 Zod/TypeBox 契约
-  workflow-schema/     # DSL schema、版本迁移、发布校验
-  workflow-engine/     # 无数据库、无网络的确定性状态转换
-  game-sdk/            # 游戏包作者工具和测试夹具
+  contracts/           # 运行时契约（状态、事件、参与者、等待点、命令、玩家视图）
+  workflow-engine/     # 无数据库、无网络的中立内核：投影、重放、转换类型
+  games/               # 游戏模块，一个游戏一个包（代码，不是 JSON 定义）
   db/                  # PostgreSQL schema、迁移和仓储实现
 legacy/
   python-backend/      # 切换期保留；也可暂时保持当前 backend/ 位置
@@ -98,54 +93,49 @@ legacy/
 
 - Monorepo：pnpm workspace。
 - Web：Vue 3 + TypeScript，逐个模块迁移，不一次性重写 UI。
-- API：Node.js LTS + Fastify；Socket.IO 可以先保留，降低客户端迁移成本。
-- 契约：Zod 或 TypeBox 选其一，REST、WebSocket、DSL 共用同一份 schema。
-- 数据层：PostgreSQL + Drizzle 或 Kysely 选其一；迁移工具必须支持纯 SQL 审核。
-- 后台任务：先使用 PostgreSQL 表、行锁和 `SKIP LOCKED` 实现，不把 Redis 设为首版硬依赖。
-- AI：优先使用模型提供商官方 SDK；复杂 AI 子流程可接 LangGraph JS。
+- API：Node.js LTS + Fastify。
+- 契约：Zod；REST 与后台任务共用同一份 schema。
+- 数据层：PostgreSQL + Kysely；迁移工具必须支持纯 SQL 审核。
+- 后台任务：使用 PostgreSQL 表、行锁和 `SKIP LOCKED` 实现，不把 Redis 设为首版硬依赖。
+- AI：优先使用模型提供商官方 SDK；游戏代码可以在自己的模块内部使用任意编排库（包括 LangGraph JS），平台不依赖它。
 - 可观测性：结构化日志、OpenTelemetry trace、错误追踪、业务指标。
 
-### 4.1 游戏包的四层模型
+### 4.1 游戏包：代码化封装
 
-每个可发布游戏包包含 manifest 和以下四部分，不能只有节点连线。Manifest 记录稳定游戏标识、版本、作者、许可证、兼容的 DSL/引擎版本、依赖和内容摘要。
+游戏是普通 TypeScript 模块，放在 `packages/games/<slug>`，一个游戏一个包。平台不解释、也不发布作者上传的定义：
 
-| 层 | 负责内容 | 示例 |
-| --- | --- | --- |
-| Workflow | 阶段、等待点、分支、并行与结束 | 天黑 → 狼人行动 → 预言家行动 → 天亮 |
-| Rules | 动作是否合法、如何结算、胜负判断 | 不能投已出局玩家；票数相同时重新投票 |
-| Visibility | 不同玩家能看到的状态投影 | 狼人互相可见；预言家查验结果私密 |
-| Presentation | 表单、文本、资源、布局提示 | 投票选择器、阶段说明、角色卡 |
+| 关注点 | 由谁负责 |
+| --- | --- |
+| 阶段、等待点、分支、结束 | 游戏模块的 `transition` |
+| 动作合法性、结算、胜负 | 游戏模块自己的规则代码 |
+| 不同玩家能看到什么 | 游戏模块声明可见性，内核据此投影 |
+| 表现（表单、文案、资源） | 前端与游戏模块自带的元数据 |
 
-工作流解决“下一步去哪里”，规则函数解决“能不能做、怎样改变状态”，可见性层解决“这个玩家能看到什么”。
+平台只保证四件事：**对局有身份**（`instance_id` + 参与者）、**状态可回放**（事件流 + 快照）、**副作用可重试**（幂等键 + 命令队列）、**信息不越权**（投影 fail-closed）。其余都是游戏代码的事。
 
-### 4.2 核心运行时契约
+2026-10-15 变更：原先"作者用 JSON 描述游戏、平台校验并解释执行"的 DSL 路线已撤除，见 §16 第六轮。撤除的代价要写清楚：不再有发布期静态校验，也不再"作者零代码"。
 
-平台对上层暴露稳定接口，具体执行器可以替换：
+### 4.2 中立内核契约
+
+内核只认接口，不认识任何节点、配置或表达式：
 
 ```ts
-interface GameRuntime {
-  compile(definition: GameDefinition): Promise<CompiledGame>;
-  createInstance(input: CreateInstanceInput): Promise<GameInstance>;
-  dispatch(input: DispatchInput): Promise<DispatchResult>;
-  getView(input: GetViewInput): Promise<PlayerView>;
+interface GameModule {
+  readonly id: string;
+  readonly version: string;
+  initialState(input: CreateInstanceInput): GameState;
+  transition(state: GameState, event: GameEvent): {
+    state: GameState;
+    events: GameEvent[];
+    commands: ExternalCommand[];
+  };
+  visibility?: Record<string, unknown>;
 }
 ```
 
-纯引擎的核心必须保持确定性：
-
-```ts
-function transition(
-  definition: CompiledGame,
-  state: GameState,
-  input: GameEvent,
-): {
-  state: GameState;
-  events: DomainEvent[];
-  commands: ExternalCommand[];
-};
-```
-
 `transition` 内不能访问数据库、网络、系统时间或直接调用 LLM。随机数、当前时间和 AI 结果都必须作为显式输入；产生副作用时只输出命令，由 worker 在事务提交后执行。
+
+当前仓库已落地的内核：`projectPlayerView`（公共/角色/个人三档投影，fail-closed）、`replayEvents`（事件重放）、`EngineError` 与 `TransitionResult` 类型。`GameModule` 接口与游戏注册表是下一步工作。
 
 ### 4.3 单次动作的事务协议
 
@@ -153,7 +143,7 @@ function transition(
 
 1. 从认证信息解析 `actor_id` 和 `tenant_id`，不信任客户端提交的身份字段。
 2. 锁定目标 `game_instance`，校验租户、成员资格、实例状态和动作幂等键。
-3. 读取实例固定引用的游戏版本和当前快照。
+3. 读取实例记录的代码版本与当前快照。
 4. 执行确定性状态转换，直到结束或进入等待点。
 5. 追加领域事件，更新快照，写入待执行命令、定时任务和 Outbox。
 6. 提交同一个数据库事务。
@@ -161,53 +151,14 @@ function transition(
 
 任何重试都必须依靠 `(instance_id, event_id)` 或 `(instance_id, command_id)` 唯一约束避免重复结算。
 
-## 5. 工作流 DSL 范围
+## 5. 游戏封装方式（代码化）
 
-### 5.1 第一版节点
-
-第一批实现足以覆盖狼人杀类回合游戏：
-
-- `start`、`end`
-- `setVariable`
-- `branch`
-- `waitForPlayerInput`
-- `collectInput`
-- `timer`
-- `vote`
-- `random`
-- `loop`
-- `aiGenerate`（必须声明 `agentId` 与席位 `participantId`，上限取自版本内的 agent 定义）
-- `emitEvent`
-- `subflow`
-- `parallel`、`join`
-
-第一版表达式只允许白名单运算：比较、布尔逻辑、集合查询、计数、有限聚合和平台提供的规则函数。禁止动态导入、文件访问、网络访问、反射和无限循环。
-
-### 5.2 发布生命周期
-
-```text
-Draft -> Testing -> Published
-                     |
-                     +-> 新修改必须创建新的 Draft 版本
-```
-
-- Draft 可以反复编辑，不允许创建公开正式对局。
-- Testing 可以创建带调试信息的测试对局。
-- Published 不可变；撤回只影响新对局，不能改变已有实例。
-- 运行实例始终固定 `game_version_id` 和 `engine_version`。
-
-### 5.3 发布前静态校验
-
-编译器至少拒绝以下定义：
-
-- 没有唯一入口、节点不可达或没有任何可达终点。
-- 图里存在不经 `loop` 节点的环：显式循环是唯一合法的环，必须声明循环头（`loop`）、循环体入口（`bodyNodeId`）与上界（`maxIterations`），并把计数器（`counterKey`）交给循环节点独占写入，运行时按 `counterKey` 与 `while` 决定是否再进一轮。
-- 引用不存在的角色、变量、资源、子流程或节点。
-- 玩家输入不符合声明的 schema。
-- `parallel` 没有明确的 `join`、法定人数或超时策略。
-- 私密字段可能进入公共事件、日志、错误信息或其他玩家投影。
-- AI 节点没有超时、重试上限、预算上限和降级分支。
-- 等待节点不能取消，也没有超时或管理员处置方式。
+- 游戏逻辑写在 TypeScript 模块里：类型检查、单元测试、调试器、重构工具都是现成的，不需要平台自造一套 schema 语言。
+- **不提供**：作者上传代码或包、草稿/测试/发布生命周期、发布期静态校验、声明式节点与白名单表达式。
+- **版本固定**：代码里的 `version` 常量 + 对局行记录；对局开始时固定，升级代码不影响进行中的对局。
+- **确定性**：由"`transition` 是纯函数"这条约束 + 内核测试保证；违反它属于代码缺陷，不再是发布期能拦住的问题。
+- **信息隔离**：由内核投影统一执行；游戏模块只声明"哪个变量谁能看"，不能绕过投影直接下发权威状态。
+- **平台内置**：首版游戏由平台自己维护；第三方游戏分发属于后续阶段，需要单独的沙箱与安全设计。
 
 ## 6. 多租户与数据模型
 
@@ -231,10 +182,8 @@ Draft -> Testing -> Published
 | `tenants` | 租户和状态 |
 | `users` | 平台身份 |
 | `tenant_memberships` | 用户、租户和角色关系 |
-| `games` | 游戏稳定身份、所有者、目录元数据 |
-| `game_versions` | 不可变发布版本和状态 |
-| `workflow_definitions` | DSL JSON、schema 版本、编译产物摘要 |
-| `game_instances` | 对局、固定版本、状态、当前序号 |
+| `providers` / `provider_models` | 租户可用的模型供应商与模型目录 |
+| `game_instances` | 对局、记录的代码版本、状态、当前序号 |
 | `game_participants` | 对局参与者、座位、控制方式 |
 | `game_events` | 只追加的领域事件 |
 | `game_snapshots` | 加速恢复的状态快照 |
@@ -243,23 +192,20 @@ Draft -> Testing -> Published
 | `scheduled_jobs` | 超时、回合计时器、重试时间 |
 | `outbox_events` | 事务后可靠广播与异步通知 |
 | `tenant_secrets` | 加密后的租户模型密钥和配置 |
-| `ai_usage_ledger` | 模型、token、费用、归属和预算 |
 | `audit_logs` | 管理、发布、授权和敏感操作审计 |
 
-agent 定义随 `workflow_definitions.definition_json` 一并保存，**不新增会话表**（ADR-006：会话是事件流按席位投影的确定性派生）；`agent_model_bindings` 承担租户侧的"这个 agent 用哪个模型"。
+2026-10-15 撤除 DSL 时删掉了 `games`、`game_versions`、`workflow_definitions`、`ai_usage_ledger` 与 `agent_model_bindings`：游戏身份与版本回到代码里，模型目录留在 `providers`/`provider_models`。`game_instances.game_version_id` 保留为纯文本（对局自报的代码版本），不再有外键。
 
 所有租户资源表都应包含 `tenant_id`，或通过不可绕过的父表关系证明租户归属；`users` 等平台级身份表除外。关键唯一约束至少包括：
 
 ```text
-(tenant_id, game_slug)
-(tenant_id, game_code)
 (instance_id, event_sequence)
 (instance_id, event_id)
 (instance_id, command_id)
 (tenant_id, user_id) on tenant_memberships
 ```
 
-工作流定义和快照使用 `jsonb`；需要筛选、排序、关联和约束的数据使用普通关系列。应用层查询强制租户条件，PostgreSQL Row-Level Security 作为纵深防御，不能代替应用授权。
+状态快照使用 `jsonb`；需要筛选、排序、关联和约束的数据使用普通关系列。应用层查询强制租户条件，PostgreSQL Row-Level Security 作为纵深防御，不能代替应用授权。
 
 ### 6.3 数据库和二进制资源决策
 
@@ -268,37 +214,16 @@ agent 定义随 `workflow_definitions.definition_json` 一并保存，**不新�
 - 本地完整开发通过 Docker Compose 启动 PostgreSQL；CI 同样运行 PostgreSQL 服务。
 - 若“所有存储都进数据库”是硬要求，Beta 可用 `bytea` 保存小型资源，但必须设置单文件和租户总量上限。大文件会放大备份、复制和恢复成本，公开发布前应重新评估 S3 兼容对象存储；对象元数据和权限仍归 PostgreSQL 管理。
 
-## 7. LangGraph 的明确定位与决策门槛
+## 7. 编排库（LangGraph 等）的定位
 
-LangGraph 的 State、Node、Edge、条件分支、Interrupt、Checkpoint、Thread、Streaming 和 Subgraph 与游戏流程高度重合，LangGraph JS 也允许 TypeScript 后端继续使用这套能力。因此迁移到 TypeScript 不等于必须放弃 LangGraph。
+DSL 撤除后，这个问题变简单了：**编排库是游戏代码的内部实现细节，不是平台组件**。
 
-但 LangGraph 是 Agent 编排运行时，不负责以下平台能力：
+- 平台不依赖任何编排框架，数据库、API 和契约里不出现它们的类型。
+- 游戏模块内部可以用任意方式组织逻辑：一个 `switch`、一个状态机库，或 LangGraph JS。这不影响平台能力，因为平台只通过 `GameModule` 接口与游戏交互。
+- 平台的四条保证（对局身份、可回放、副作用可重试、信息不越权）由内核与数据库提供，不由游戏代码自己声明；编排库的 checkpoint 只是它自己的内部状态，永远不能成为业务真相。
+- 多玩家等待：动作先写入 `player_actions`，达到全员、法定人数或超时条件后只恢复一次流程，不能让每个玩家分别恢复同一图。
 
-- 租户、用户、成员和资源授权。
-- 游戏包、草稿、发布、安装、搜索和版本兼容。
-- 玩家私密视图和防作弊投影。
-- 动作幂等、房间并发、计费、审计和运营管理。
-- 面向非开发者的稳定 DSL 和发布校验。
-
-因此采用如下边界：
-
-- 平台数据库、API 和 DSL 不出现 LangGraph 专有类型。
-- `GameRuntime` 可以有 `LangGraphRuntime` 和 `NativeRuntime` 两种实现。
-- LangGraph checkpoint 只是执行器内部状态，业务权威记录仍是平台事件和快照。
-- LangGraph interrupt 恢复时节点可能从头执行；interrupt 前的副作用必须通过幂等命令和 Outbox 处理，不能直接扣费或广播。
-- 多玩家等待先把动作写入 `player_actions`，达到全员、法定人数或超时条件后只恢复一次流程，不能让每个玩家分别恢复同一图。
-
-Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家行动 → 收集全员投票”，并验证：
-
-1. PostgreSQL 恢复后可以从等待点继续。
-2. 并发提交只推进一次状态。
-3. 同一动作重试不重复结算。
-4. 不同玩家只得到各自可见视图。
-5. 旧版本对局不受新版本影响。
-6. AI 超时可以进入降级分支。
-7. 事件可完整重放为同一快照。
-
-若 LangGraph JS 能自然满足上述条件，则保留为第一版适配器，复杂 AI 子流程优先使用它。若为满足幂等、多人等待、版本固定或回放需要大量绕过其 checkpoint/interrupt 模型，则只替换适配器，改用轻量原生解释器；上层 DSL 和数据模型不变。
+Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 撤除，这个决策点不再成立；对照与书面结论见 §16。
 
 ## 8. 分阶段迁移计划
 
@@ -314,7 +239,7 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 - [/] `P0-02`：冻结旧 Python 对外行为；为创建房间、加入、开始、角色分配、夜间行动、投票、胜负和断线恢复生成黄金事件轨迹。 — 核验 2026-10-14：旧引擎规则轨迹 10 条已冻结并通过校验（`docs/fixtures/werewolf-golden-trace-suite.json`）；超时/断线/AI fallback 需从服务层补录，未做。补充：来源已删除，见 §16 第二轮复核第 1 条
 - [x] `P0-03`：给现有测试分类为“有效回归、过时规格、真实缺陷”，先建立可解释的测试基线。 — 核验 2026-10-14：`docs/phase0-test-baseline.md` 已完成前端分类；后端基线已于 2026-10-14 补录（`backend/.venv` 可用，571 测试全绿）
 - [x] `P0-04`：定义 `GameDefinition`、`GameEvent`、`GameState`、`PlayerView` 和 `ExternalCommand` v0 schema。 — 核验 2026-10-14：`packages/contracts/src/domain.ts` 已定义 GameDefinition/GameEvent/GameState/PlayerView/ExternalCommand v0
-- [/] `P0-05`：完成上一节的 LangGraph JS 技术验证，并以相同测试夹具实现最小原生解释器对照。 — 核验 2026-10-14：NativeRuntime 已完成（`packages/workflow-engine` 15 用例）；LangGraph JS 无依赖、无对照结论，书面结论仍待补（见 §16 下一步第 7 条）
+- [x] ~~`P0-05`：完成上一节的 LangGraph JS 技术验证，并以相同测试夹具实现最小原生解释器对照~~ — 已关闭（2026-10-15）：DSL 与运行时适配器概念撤除，编排库成为游戏代码的内部选择（§7、§16 第六轮）。
 - [x] `P0-06`：定义 Beta 负载模型。默认起点为 100 个活跃房间、每房 10 人、峰值每秒 20 次动作；产品数据出现后再调整。 — 核验 2026-10-14：`docs/phase0-load-and-legacy-decision.md` 已记录容量模型与旧数据处置假设
 - [/] `P0-07`：确定旧数据处置：创建默认 `legacy` 租户，保留历史对局，进行中房间切换时排空。 — 核验 2026-10-14：`legacy` 租户处置已决策；回填脚本属 Phase 4，未实现
 
@@ -322,7 +247,7 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 
 出口条件：
 
-- 团队能够明确回答第一版使用 `LangGraphRuntime` 还是 `NativeRuntime`。
+- 团队能够说明平台为何不内置游戏 DSL，以及游戏模块如何满足四条平台保证（见 §16 第六轮）。
 - 至少一条完整简化对局在进程重启、动作重试和并发提交场景中通过。
 - 旧系统关键路径已有机器可读的黄金轨迹，后续迁移可以比较行为。
 
@@ -369,69 +294,69 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 
 回滚：使用 expand/contract 数据库迁移；新表只增不删，旧系统仍使用原表。
 
-### Phase 3：DSL、编译器与确定性运行时（4～6 人周）
+### Phase 3：中立运行时内核与对局底座（4～6 人周）
 
-目标：让一个不依赖具体游戏代码的引擎可靠执行版本化定义。
+目标：让平台能可靠地承载**任意代码化游戏**——对局有身份、状态可回放、副作用可重试、信息不越权；平台不理解任何具体游戏的规则。
+
+任务（2026-10-15 撤除 DSL 后的现状）：
+
+- [x] ~~`P3-01` DSL schema 与版本迁移机制~~ — 撤销：随 DSL 撤除，游戏版本回到代码常量。
+- [x] ~~`P3-02` 发布期静态校验（图结构/引用/循环/可见性/表达式/AI 降级）~~ — 撤销：不再有可发布定义；可见性校验改为运行时投影的 fail-closed 行为。
+- [/] `P3-03`：确定性 `transition`、显式随机种子、事件回放。 — 已实现：`TransitionFn` 类型 + `replayEvents`；确定性由"游戏模块的 transition 是纯函数"这条约束保证，不再有虚拟时钟需求（超时由游戏自己用 `timerExpired` 事件表达）。
+- [x] ~~`P3-04` DSL 节点集（start/end、变量、分支、等待、收集、计时、投票、随机、事件、循环）~~ — 撤销（2.8k 行解释器已删除）。
+- [x] ~~`P3-05` subflow、parallel/join~~ — 撤销：并行与分支合并留给游戏代码自己表达。
+- [/] `P3-06`：快照策略、并发控制、动作幂等与实例级顺序号。 — 幂等键与顺序号约束（`(instance_id, event_id)`、`(instance_id, command_id)`）保留；快照写入策略与并发竞争测试仍待做（`game_snapshots` 表与 `getLatestSnapshot` 已在）。
+- [/] `P3-07`：公共/角色/个人三档投影与防泄漏测试。 — 已实现并保留为内核能力（`projectPlayerView`，fail-closed，8 项单测）；入口从"定义里的 visibility"改为"游戏模块声明的可见性映射"。
+- [x] ~~`P3-08` LangGraph JS 适配器或原生解释器~~ — 撤销：编排库成为游戏代码的内部选择，平台不依赖（见 §7）。
+- [x] ~~`P3-09` AI command 链（超时/重试/预算/用量/降级）~~ — 撤销：随 DSL 的 AI 节点一并删除；AI 能力回到游戏代码内部调用模型，模型目录仍由 `providers`/`provider_models` 与凭据加密（`packages/runtime` 的 secret-box）支撑。
+- [x] ~~`P3-10` 管理员暂停/取消/强制超时/脱敏状态~~ — 撤销：实例 HTTP 路由已删；恢复对局的运维能力随代码化游戏的运行时一起回归。
+
+交付物：中立内核（投影、重放、转换类型）、对局底座（实例、参与者、事件、快照、命令队列、Outbox）、租户隔离与审计。
+
+出口条件：同一初始状态与事件序列总能得到字节级一致的最终状态；进程崩溃不丢失已提交事件；隐藏信息自动化测试无泄漏。
+
+回滚：对局行记录它启动时使用的代码版本；升级游戏代码不影响进行中的对局。
+
+### Phase 4：第一个代码化游戏（狼人杀）（3～4 人周）
+
+目标：用真实复杂游戏证明平台抽象足够——游戏逻辑写在 `packages/games/werewolf`，**平台代码里没有一行狼人杀规则**。
+
+任务（2026-10-15 撤除 DSL 后的现状）：
+
+- [/] `P4-01`：从现有 Python 逻辑提取角色、阶段、动作、胜负、超时和可见性规格。 — 角色/阶段/动作/胜负说明已提取；超时与可见性规格未提取。
+- [ ] `P4-02`：把狼人杀写成代码化游戏模块，而不是在平台里增加狼人杀专用分支。 — 未开始：DSL 版本（多回合夹具）已随 DSL 撤除一并删除；新的验收目标是 `packages/games/werewolf` 模块 + 对局端到端跑通。
+- [x] ~~`P4-03` 让 prompt、模型参数与输出 schema 随游戏版本保存~~ — 撤销：AI 行为现由游戏代码自己组织，平台只提供模型目录与凭据。
+- [ ] `P4-04`：用 Phase 0 黄金轨迹比较旧系统和新游戏模块；差异必须归类为缺陷修复或经批准的规则变更。 — 未实现（旧 Python 引擎已在 `79cf54e` 删除，黄金轨迹 fixture 降级为历史快照）。
+- [ ] `P4-05`：实现旧用户、历史对局和默认 `legacy` 租户的数据回填脚本，并提供 dry-run 报告。 — 未实现。
+- [ ] `P4-06`：让内部测试租户创建新引擎房间，旧生产路径继续服务其他用户。 — 未实现。
+- [ ] `P4-07`：完成断线重连、多设备、并发投票、AI 失败、worker 重启和版本升级 E2E。 — 未实现。
+
+交付物：第一个代码化游戏模块、兼容性报告、数据回填工具、内部灰度环境。
+
+出口条件：对局端到端跑通且无状态丢失、重复结算和秘密泄漏；旧版已发布游戏仍能继续完成。
+
+回滚：停止创建新对局；已创建的对局继续固定在它们启动时的代码版本。
+
+### Phase 5：游戏模块的工程化与内部工具（3～4 人周）
+
+目标：让平台团队能高效地写、测、发布游戏模块——**不再有面向外部作者的工作台**（DSL 撤除后，"作者分发"整体退出首版范围）。
 
 任务：
 
-- [/] `P3-01`：完成 `workflow-schema` v1 和 schema 版本迁移机制。 — 核验 2026-10-14：DSL v1 + `dslVersion`/`engineVersion` + 稳定 definition hash 已实现；schema 版本迁移机制未实现
-- [/] `P3-02`：实现发布前的图结构、引用、循环、可见性、AI 降级和等待点校验。 — 核验 2026-10-15：图结构校验已实现；可见性规则与表达式校验已补齐（未声明变量/角色、非法操作、深度与节点数上限）；循环规则已收口——只有经过 `loop` 节点的环合法，其余环仍报 `IMPLICIT_CYCLE`，且循环计数器不得被其他节点写入；仍有 AI 降级与等待点的显式校验缺失
-- [/] `P3-03`：实现纯 `transition`、显式随机种子、虚拟时钟和事件回放。 — 核验 2026-10-14：纯 `transition`、显式 `randomSeed`、`replayEvents` 已实现；虚拟时钟未实现（timer 依赖 `deadlineMs`）
-- [/] `P3-04`：实现 start/end、变量、分支、等待、收集、计时、投票、随机、事件节点。 — 核验 2026-10-15：start/end、setVariable、branch、waitForPlayerInput、collectInput、timer、vote、aiGenerate、emitEvent、`random`、`loop` 均已实现（`random` 2026-10-14 第二轮；`loop` 2026-10-15：计数器 + `while` 条件 + `maxIterations` 上界，回合制循环的唯一合法形式）
-- [ ] `P3-05`：实现 subflow、parallel/join 和多玩家输入聚合。 — 核验 2026-10-14：未实现，且 validator 现已在发布期拒绝这三类节点（`UNSUPPORTED_NODE_TYPE`）。实现需要调用栈与分支合并的状态模型，而当前没有游戏需要它们；计划本身要求「用真实游戏验证抽象」，因此留到 P4 由游戏驱动。注：多玩家输入聚合（`collectInput`/`vote` 收齐再推进）已可用
-- [/] `P3-06`：实现快照策略、乐观/悲观并发控制、动作幂等和实例级顺序号。 — 核验 2026-10-14：实例行锁 + 顺序号校验 + idempotency key 幂等追加已实现（`services/game-dispatch.ts`）；快照写入策略与并发竞争测试未做
-- [ ] `P3-07`：实现公共视图、角色视图、个人视图的投影器，并加入防泄漏测试。 — 核验 2026-10-14：未实现（`playerViewSchema` 已定义但无投影器与防泄漏测试）
-- [/] `P3-08`：按 Phase 0 决策接入 LangGraph JS 适配器或原生解释器。 — 核验 2026-10-14：已由原生解释器承载；ADR-002 要求先完成对照再定稿，LangGraph 对照与书面结论缺失
-- [/] `P3-09`：实现 AI command、超时、有限重试、预算限制、模型用量记账和 fallback 事件。 — 核验 2026-10-15：命令、超时、有限重试、用量记账、fallback 事件、绑定表与 **token 预算上限**（`BUDGET_EXCEEDED` 走 `fallbackNodeId`，provider 不被调用）已实现；仍缺：模型返回值的 schema 校验、费用上限
-- [/] `P3-10`：实现管理员暂停、取消、强制超时和查看脱敏运行状态的能力。 — 核验 2026-10-14 第二轮：已实现暂停/恢复/取消/强制超时/脱敏状态（`/v1/admin/instances/*`），暂停期间 worker 停止领取该实例的任务、恢复即重新可领取。仍缺：`adminCommandApplied` 事件类型未使用（管理员动作走 `audit_logs` 而非游戏事件流）、玩家输入的等待没有超时处置
+- [ ] `P5-01`：实现游戏模块清单（内置游戏列表、可用版本）与对局创建入口。 — 未实现。
+- [x] ~~`P5-02` 结构化编辑器、JSON schema 补全、只读流程图~~ — 撤销：游戏是代码，用 IDE 与类型系统即可。
+- [ ] `P5-03`：实现测试控制台：注入事件、查看不同玩家投影、重放事件序列。 — 未实现（内核已有 `replayEvents` 与 `projectPlayerView`，缺 HTTP/UI 入口）。
+- [ ] `P5-04`：实现游戏模块的回归夹具：标准对局脚本 + 期望事件序列。 — 未实现。
+- [ ] `P5-05`：游戏自带静态资源（角色卡、文案）的打包与版本校验。 — 未实现。
+- [ ] `P5-06`：实现内部发布流程：代码评审、版本号、变更记录与对局可见性控制。 — 未实现。
+- [ ] `P5-07`：提供游戏模块开发文档与示例模块。 — 未实现。
+- [x] ~~`P5-08` 可移植游戏包格式（导入/导出/许可/署名）~~ — 撤销：首版由平台自己维护游戏代码。
 
-交付物：可复用工作流引擎、运行时适配器、发布校验器、事件回放器、投影器。
+交付物：内置游戏清单、测试控制台、回归夹具、模块开发文档。
 
-出口条件：同一版本、初始状态、事件序列和随机种子总能得到字节级规范化一致的最终状态；进程崩溃不会丢失已提交动作；隐藏信息自动化测试无泄漏。
+出口条件：平台开发者可以在不改动平台代码的前提下新增一个游戏模块，并用回归夹具证明标准对局跑通、信息不漏。
 
-回滚：运行实例记录 `engine_version`；按实例路由到旧适配器，禁止对同一实例混用执行器。
-
-### Phase 4：狼人杀参考游戏迁移与双轨验证（3～4 人周）
-
-目标：用真实复杂游戏证明平台抽象足够，而不是只通过玩具示例。
-
-任务：
-
-- [/] `P4-01`：从现有 Python 逻辑提取角色、阶段、动作、胜负、超时和可见性规格。 — 核验 2026-10-14：角色/阶段/动作/胜负规则已提取为黄金轨迹；超时与可见性规格未提取（可见性改由新的 `visibility` 规则集直接表达）
-- [ ] `P4-02`：把狼人杀表示为游戏包，而不是在引擎中增加狼人杀专用分支。 — 核验 2026-10-15：**第二增量已落地**：`docs/fixtures/werewolf-package.json` 改为多回合（`loop` 回合循环 + 每回合重置票箱 + 由 `winner` 条件退出），两回合剧本与投影隔离测试通过，引擎侧仍无狼人杀专用分支。仍缺：发牌（角色分配由实例创建方提供 participants）、参与者状态变更节点（淘汰目前用计数变量而非 `participants[].status`）
-- [/] `P4-03`：将 AI 行为改为外部 activity；prompt、模型参数和输出 schema 随游戏版本保存。 — 核验 2026-10-15：AI 行为已是外部 activity；prompt 与上限随版本保存——`agents[]`（`roleId`+`systemPrompt`+`limits{timeoutMs,maxAttempts,tokenBudget}`），节点只声明 `agentId`/席位/输入/降级，prompt 由该席位投影生成。仍缺：**输出 schema（返回值的结构校验）** 与事件可见性声明
-- [ ] `P4-04`：用 Phase 0 黄金轨迹比较旧系统和新引擎；差异必须归类为缺陷修复或经批准的规则变更。 — 核验 2026-10-14：未实现
-- [ ] `P4-05`：实现旧用户、历史对局和默认 `legacy` 租户的数据回填脚本，并提供 dry-run 报告。 — 核验 2026-10-14：未实现
-- [ ] `P4-06`：让内部测试租户创建新引擎房间，旧生产路径继续服务其他用户。 — 核验 2026-10-14：未实现（无房间/实例 HTTP 入口）
-- [ ] `P4-07`：完成断线重连、多设备、并发投票、AI 失败、worker 重启和版本升级 E2E。 — 核验 2026-10-14：未实现
-
-交付物：第一个正式游戏包、兼容性报告、数据回填工具、内部灰度环境。
-
-出口条件：黄金轨迹全部通过或差异全部有书面决策；连续灰度期间没有状态丢失、重复结算和秘密泄漏；旧版已发布游戏仍能继续完成。
-
-回滚：停止创建新引擎房间；已创建的新实例继续固定在新引擎，不能降级到 Python；保留新数据供修复后恢复。
-
-### Phase 5：作者工具与游戏分发（3～4 人周）
-
-目标：让非核心开发者能独立创建、验证、发布和安装游戏。
-
-任务：
-
-- [ ] `P5-01`：实现游戏元数据、草稿、测试版本、发布版本、撤回和 fork。 — 核验 2026-10-14：未实现（仅预留 `games`/`game_versions` 表，无 API/UI）
-- [ ] `P5-02`：实现结构化编辑器、JSON schema 自动补全、校验问题定位和只读流程图。 — 核验 2026-10-14：未实现
-- [ ] `P5-03`：实现测试控制台：注入事件、虚拟时间推进、查看不同玩家投影和回放。 — 核验 2026-10-14：未实现
-- [ ] `P5-04`：实现目录、搜索、标签、可见范围、安装和版本更新提示。 — 核验 2026-10-14：未实现
-- [ ] `P5-05`：实现资源上传、类型/大小限制、内容摘要、授权和恶意文件检测。 — 核验 2026-10-14：未实现
-- [ ] `P5-06`：实现发布权限、审计、举报、下架和租户配额。 — 核验 2026-10-14：未实现
-- [ ] `P5-07`：提供游戏包示例、DSL 文档、作者教程和兼容性说明。 — 核验 2026-10-14：未实现
-- [ ] `P5-08`：定义可移植游戏包格式，实现导入、导出、内容摘要、许可证和署名校验；禁止包格式绑定 LangGraph 内部结构。 — 核验 2026-10-14：未实现
-
-交付物：作者工作台、分发目录、发布流程和游戏 SDK 文档。
-
-出口条件：一名没有修改平台代码的测试作者可以复制示例、修改规则、通过校验、发布版本，并让另一租户安装和完成一局游戏。
-
-回滚：可停止发布或下架版本；已开始对局继续使用固定版本。
+回滚：移除新增游戏模块；进行中的对局继续固定在它们启动时的代码版本。
 
 ### Phase 6：生产切换与公开 Beta（2～3 人周）
 
@@ -457,8 +382,8 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 
 ### Phase 7：Beta 后增强
 
-- 可视化拖拽编辑器和更完整的调试器。
-- 经过资源、网络、时间和权限限制的沙箱插件系统。
+- 更完整的对局调试器与可观测面板。
+- 第三方游戏分发：需要单独的沙箱、资源限额与安全评审，属于独立阶段，不在首版承诺内。
 - 创作者商业化、支付、结算、退款和税务流程。
 - 评分、推荐、内容审核工作流和版权申诉。
 - 多区域部署、更严格的 SLO 和大规模队列系统。
@@ -509,7 +434,7 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 - CI 的 lint、类型检查、单元、PostgreSQL 集成、契约、E2E 和构建全部绿色。
 - 迁移在生产数据副本上验证，升级和回滚路径均演练。
 - 容器、CI 和本地支持的 Node/PostgreSQL 版本一致并有明确生命周期。
-- API、事件和 DSL schema 都有版本策略及兼容性测试。
+- API、事件与运行时契约都有版本策略及兼容性测试。
 
 ### 运维与容量
 
@@ -522,13 +447,13 @@ Phase 0 技术验证必须实现“分配角色 → 狼人行动 → 预言家�
 
 | 层级 | 运行数据库 | 重点 |
 | --- | --- | --- |
-| 纯引擎单测 | 无数据库或 SQLite | 节点语义、规则、随机种子、虚拟时间、属性测试 |
-| Schema/编译器测试 | 无数据库 | 非法图、引用、循环、秘密泄漏、版本迁移 |
+| 内核单测 | 无数据库或 SQLite | 投影、重放、确定性、属性测试 |
+| 游戏模块单测 | 无数据库 | 角色、阶段、动作合法性、胜负、隐藏信息 |
 | Repository 合约测试 | PostgreSQL | 约束、事务、锁、隔离、RLS、迁移 |
 | Runtime 集成测试 | PostgreSQL | 幂等、并发、事件/快照、Outbox、定时任务 |
 | API/Socket 契约测试 | PostgreSQL | 身份、租户、错误模型、断线重连、重复消息 |
-| 游戏包黄金测试 | PostgreSQL | 旧行为兼容、胜负、隐藏信息、AI fallback |
-| E2E | 完整 Compose | 作者发布、玩家安装、完整对局、重启恢复 |
+| 对局端到端测试 | PostgreSQL | 完整对局、隐藏信息、断线恢复、AI 席位 |
+| E2E | 完整 Compose | 创建对局、加入、完整对局、重启恢复 |
 | 安全测试 | 完整 Compose | IDOR、跨租户、上传、prompt 注入、权限提升 |
 | 容量与故障测试 | 类生产 PostgreSQL | 峰值动作、worker 崩溃、数据库抖动、AI 超时 |
 
@@ -539,12 +464,11 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 | 风险 | 影响 | 缓解 |
 | --- | --- | --- |
 | 逐行翻译大型 Python 服务 | 把旧耦合复制到 TS | 先定义领域 schema、纯 transition 和黄金轨迹，再重写游戏包 |
-| DSL 过度自由 | 安全、资源耗尽、无法升级 | 首版只允许声明式节点和白名单表达式；发布时静态校验和配额 |
-| DSL 能力不足 | 作者仍需改平台代码 | 以狼人杀和第二个不同类型的小游戏验证抽象；通过版本化新增节点 |
-| LangGraph 语义不适合多人等待 | 重复执行或状态错乱 | 适配器隔离、技术验证、动作聚合、幂等命令；必要时替换为原生解释器 |
+| 游戏代码绕过平台保证（直接写库、泄漏隐藏状态） | 泄漏、脏状态、无法回放 | 游戏模块只拿到状态与事件、只能返回命令；投影由内核统一执行；代码评审与回归夹具 |
+| 游戏代码不确定（时间/随机/网络） | 回放不一致 | `transition` 纯函数约束 + 内核测试；随机种子与时间作为显式事件输入 |
 | SQLite 掩盖生产差异 | CI 绿但 PG 故障 | 所有持久化和并发测试强制真实 PostgreSQL |
 | 隐藏信息泄漏 | 严重作弊和隐私事故 | 权威状态与玩家投影分离；按角色属性测试；日志和 prompt 脱敏 |
-| AI 调用拖垮对局或成本 | 卡局、费用不可控 | 异步 command、超时、重试上限、fallback、租户预算和用量台账 |
+| AI 调用拖垮对局或成本 | 卡局、费用不可控 | 平台只提供模型目录与凭据；游戏代码负责超时与降级，用量与成本指标随后续阶段补齐 |
 | 双写造成状态分叉 | 无法恢复和审计 | 按实例固定执行器；迁移期只路由，不对同一实例跨引擎双写 |
 | 大资源存入 PG | 备份和复制膨胀 | 首版大小/配额限制；公开发布前评估对象存储 |
 | 一次性重写前后端 | 交付周期失控 | 新旧服务并存；前端先迁移契约边界；按租户和新实例灰度 |
@@ -557,18 +481,18 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 - [/] `P0-02` 录制至少 8 条旧系统黄金轨迹，覆盖正常、超时、断线和胜负。
 - [x] `P0-03` 给当前失败测试建立分类清单，确定真正的阻塞测试集。
 - [x] `P0-04` 在 `packages/contracts` 原型中定义 v0 领域事件和状态 schema。
-- [/] `P0-05` 完成 LangGraph JS 与最小解释器对照验证的前半部分。
+- [x] ~~`P0-05` 完成 LangGraph JS 与最小解释器对照验证~~ — 已关闭（2026-10-15）：DSL 与运行时适配器概念撤除，编排库退化为游戏代码内部选择。
 - [x] `P0-06` 评审 Beta 负载、租户角色和旧数据处置假设。
 - [/] `P0-07` 确定旧数据处置：创建默认 `legacy` 租户，保留历史对局，进行中房间切换时排空。
 
-核验 2026-10-14：`P0-01`、`P0-03`、`P0-04`、`P0-06` 已完成；`P0-07` 的处置决策已完成、回填脚本仍属 Phase 4。原迭代进度记录如下：`P0-01`、`P0-03`、`P0-04`、`P0-06` 和 `P0-07` 已完成；`P0-03` 的后端基线需在安装 Python 测试环境后补录。`P0-02` 已生成 10 条旧引擎规则轨迹，但超时、断线和 AI fallback 仍需从服务层补录，因此尚未完成。`P0-05` 的 NativeRuntime 前半部分已完成，LangGraph/持久化对照仍未完成。
+核验 2026-10-14：`P0-01`、`P0-03`、`P0-04`、`P0-06` 已完成；`P0-07` 的处置决策已完成、回填脚本仍属 Phase 4。原迭代进度记录如下：`P0-01`、`P0-03`、`P0-04`、`P0-06` 和 `P0-07` 已完成；`P0-03` 的后端基线需在安装 Python 测试环境后补录。`P0-02` 已生成 10 条旧引擎规则轨迹，但超时、断线和 AI fallback 仍需从服务层补录，因此尚未完成。`P0-05` 已于 2026-10-15 关闭（对照对象消失），书面结论见 §7 与 §16 第六轮。
 
-迭代验收：可以用同一份测试夹具驱动旧 Python 行为记录和至少一个 TS 运行时原型；关键 ADR 已评审，无悬而未决的数据库选择。
+迭代验收：可以用同一份测试夹具驱动旧 Python 行为记录和至少一个 TS 内核原型；关键 ADR 已评审，无悬而未决的数据库选择。
 
 ### Iteration 2（第 3～4 周）
 
-- [ ] 完成 LangGraph JS 技术验证的重启、并发、幂等、投影、版本和 AI fallback 测试。 — 核验 2026-10-14：未开始，无 LangGraph 依赖
-- [ ] 形成保留或放弃 LangGraph 作为第一版运行时的书面结论。 — 核验 2026-10-14：缺失；当前实际由 NativeRuntime 承载
+- [x] ~~完成 LangGraph JS 技术验证的重启、并发、幂等、投影、版本和 AI fallback 测试~~ — 已撤销（2026-10-15）。
+- [x] ~~形成保留或放弃 LangGraph 作为第一版运行时的书面结论~~ — 已关闭：平台不内置编排运行时，游戏代码自行选择（§7）。
 - [x] 建立 pnpm workspace、Fastify API、worker 和共享契约包。
 - [x] 建立 PostgreSQL Compose 与第一条迁移。
 - [/] 建立 CI：lint、typecheck、unit、PG integration、build。 — 核验 2026-10-14：除 lint 外均已落地（`.github/workflows/platform-ci.yml`）
@@ -576,13 +500,13 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 
 核验 2026-10-14：workspace、API、worker、契约、Kysely、Compose、控制面与运行时迁移、租户仓储、Outbox/command/job claim-lease、session/membership 与 RLS 均已落地并通过真实 PostgreSQL 测试；仍缺 lint、刷新 token、跨租户 REST/WebSocket/worker 攻击测试、一键启动脚本和生产 handler。原迭代进度记录如下：已建立 workspace、Fastify API、worker、共享契约包、Kysely PostgreSQL 客户端、PostgreSQL Compose、控制面与游戏运行时核心表迁移、租户作用域仓储、Outbox/command/job claim-lease 基础、签名访问令牌/RBAC 原型、数据库 session/membership 查询接线、RLS 迁移和基础 CI。真实 PostgreSQL 迁移、重复迁移和非 owner RLS 集成测试均已通过；lint、刷新 token、跨租户 REST/WebSocket/worker 攻击测试、前端 TypeScript 边界和一键启动仍未完成。
 
-迭代验收：新 TS 骨架可在全新环境一键启动；CI 全绿；运行时选择已锁定；尚未把生产流量切入新系统。
+迭代验收：新 TS 骨架可在全新环境一键启动；CI 全绿；尚未把生产流量切入新系统。
 
 ## 14. 项目管理约定
 
 - 每项任务进入开发前必须写明输入、输出、测试和数据库影响。
 - 每个数据库变更使用 expand/contract，迁移脚本可重复验证并包含回滚说明。
-- 每个 DSL 变更必须增加 schema 版本、编译器测试和至少一个游戏包兼容测试。
+- 每个游戏模块必须带回归夹具（标准对局 + 期望事件序列），并证明隐藏信息不漏。
 - 每个外部副作用必须经过 command/outbox，不允许从纯引擎直接执行。
 - 每个 WebSocket 事件必须有共享 schema、身份来源、租户检查和幂等策略。
 - 每个阶段结束进行一次出口评审，不以“代码已合并”代替验收结果。
@@ -596,72 +520,64 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 | API 框架 | Fastify | `P0-01` | 已落地（`apps/api`） |
 | Schema 工具 | Zod 或 TypeBox 二选一 | `P0-01` | 已落地：Zod（ADR-003） |
 | 数据访问层 | Drizzle 或 Kysely 二选一 | `P0-01` | 已落地：Kysely（ADR-004） |
-| 首版运行时 | 由 LangGraph JS spike 决定 | `P0-05` | **未决**：实际由 NativeRuntime 承载，缺 LangGraph 对照与书面 ADR |
+| 首版运行时 | ~~由 LangGraph JS spike 决定~~ | `P0-05` | 已关闭：DSL 与适配器概念随 2026-10-15 撤除消失；编排库退化为游戏代码的内部选择（§7） |
 | 二进制资源 | PG `bytea` + 严格上限；发布前复审对象存储 | `P0-01` | 已落地（ADR-005）；发布前复审未做 |
 | 身份方案 | 自建会话还是托管 IdP | `P2-01` 前 | 已落地：自建会话 + 平台账号（`routes/platform-auth.ts`） |
 | 旧进行中对局 | 默认排空，不自动迁移 | `P0-07` | 已决策；greenfield 下旧线不在门槛内，回填工具未实现 |
 | Beta 容量目标 | 默认 100 房间 / 1000 在线 / 20 动作每秒 | `P0-06` | 已记录（`docs/phase0-load-and-legacy-decision.md`）；容量测试未做 |
 
-## 16. 核验结论与下一步（2026-10-14）
+## 16. 核验结论与下一步
 
-核验方式：对照 `apps/`、`packages/` 源码、迁移文件、测试与已提交历史逐项判定，不采信进度报告的自我描述。§8 的 56 项任务当前为 **12 项完成、17 项部分完成、27 项未开始**。
+核验方式：对照 `apps/`、`packages/` 源码、迁移文件、测试与已提交历史逐项判定，不采信进度报告的自我描述。§8 的任务勾选状态随时间变化，以下结论以最新一轮为准。
 
-### 已完成的主干
+### 已完成的主干（截至 2026-10-15）
 
-- 工程骨架与 CI：pnpm workspace、Fastify API、worker、`packages/{contracts,db,workflow-engine}`、真实 PostgreSQL 集成与迁移回滚门禁（`P1-01`、`P1-02`、`P1-04`、`P1-06`、`P1-07`）。
+- 工程骨架与 CI：pnpm workspace、Fastify API、worker、`packages/{contracts,db,runtime,workflow-engine}`、真实 PostgreSQL 集成与迁移回滚门禁（`P1-01`、`P1-02`、`P1-04`、`P1-06`、`P1-07`）。
 - 控制面与认证：平台账号、持久化 session、首登强制改密、管理员建号与重置、Provider/Model 管理、AEAD 凭据加密、审计（`P2-01`、`P2-03`、`P2-05`）。
-- 确定性运行时：DSL v1 编译 + 图结构校验 + 稳定 hash + 纯 `transition` + 事件重放（`P3-01` 至 `P3-04` 的主干部分）。
-- 持久化运行时底座：租户事务内实例行锁、顺序号校验、幂等事件追加与命令落库（`apps/api/src/services/game-dispatch.ts`）。
+- 中立内核：玩家视图投影（fail-closed）、事件重放、转换与错误类型（`packages/workflow-engine`）。
+- 对局底座：`game_instances`/`game_participants`/`game_events`/`game_snapshots`/`player_actions`/`pending_commands`/`scheduled_jobs`/`outbox_events` + 租户 RLS + 队列 claim/lease/重试。
 
 ### 关键断点（比任务勾选更重要）
 
-1. `dispatchGameEvent` 只有集成脚本调用，**没有 HTTP 入口**；已暴露的 `/v1/mvp/runtime/*` 是无状态路由（客户端传 definition + state + event），不落库、不锁实例、不做幂等。
-2. ~~`apps/worker` 以空依赖启动~~ 已修（2026-10-14 第二轮）：worker 现注入 AI command 与计时器 handler。仍剩 `outbox_events` 无 handler——它的 handler 是广播传输层，属实时阶段。
-3. ~~AI 只有 MVP 同步路径~~ 已修（2026-10-14）：worker 消费 `pending_commands`，按 `agent_model_bindings` 解析启用中的 provider/model、用 `secret-box` 解密凭据、写 `ai_usage_ledger`，失败按 `maxAttempts` 重试、用尽后发 `aiFailed` 走 `fallbackNodeId`；MVP 同步 `ai-dispatch` 降为 legacy 线保留。仍缺：agent 定义（prompt/模型参数/输出 schema 随版本保存）、token 预算上限、模型返回值的 schema 校验、事件 payload 的可见性声明。
-4. `playerViewSchema` 已定义但无投影器实现，隐藏信息隔离（`P3-07`）没有任何代码或测试支撑。
+1. **没有游戏运行时**：DSL 撤除后（§16 第六轮），创建与推进对局的 HTTP 入口、游戏模块接口与注册表都不存在，平台目前只能做账号、租户与模型管理。
+2. **worker 空转**：claim/lease/outbox 循环在位，但没有 handler，因为没有生产者。
+3. **AI 能力只剩目录与凭据**：`providers`/`provider_models` 与 `secret-box` 保留，调用链（命令、重试、降级、用量）随 DSL 的 AI 节点一并删除。
+4. **`outbox_events` 无 handler**：它的 handler 是广播传输层，属实时阶段。
+5. **前端只有账号与模型配置页面**（`apps/web` 的 Login/Users/Providers/Lobby），没有对局界面。
 
-### 第二轮复核（2026-10-14）：文档与实现的不一致项
+### 历史复核记录
 
-以可执行证据复核 `docs/` 全部进度文档后，发现并修正以下漂移：
+- **第一轮（2026-10-14）**：逐项核验 §8 任务并标注证据。
+- **第二轮（2026-10-14）**：复核全部进度文档与实现的不一致项——黄金轨迹门禁断链（`werewolf_engine.py` 已删除）、旧后端基线过期（`backend/.venv` 571 测试全绿）、测试数与报告过期、AI 实网验收不可复现（TokenHub+`hy3` 现返 401，可用组合为 `api.deepseek.com`+`deepseek-chat`）、契约未覆盖并存端点、一键启动缺 worker 服务。
+- **第三轮（2026-10-15，已随第六轮撤除）**：显式循环节点（`loop`）与发布期环规则；狼人杀包升级为多回合；修复 worker 领取查询的时钟来源缺陷（`pending_commands.available_at` 改为与数据库时钟比较，该修复保留）。
+- **第四轮（2026-10-15，已随第六轮撤除）**：AI prompt 改为按席位投影（不再序列化权威状态与事件 payload）。其中"prompt 不得泄漏"这条原则仍然成立，代码化游戏沿用同一套投影。
+- **第五轮（2026-10-15，已随第六轮撤除）**：agent 定义随版本保存（`agents[]`）、每席位一个 agent 的会话模型。
 
-1. **黄金轨迹门禁断链**：`docs/fixtures/werewolf-golden-trace-suite.json` 的来源 `backend/src/services/games/werewolf_engine.py` 已在 `79cf54e` 删除，`test:golden:legacy` 与生成脚本均失效。fixture 已降级为历史快照，`P0-02` 的剩余部分不再可复现（详见 `docs/phase0-golden-trace-report.md`）。
-2. **旧后端基线结论过期**：`docs/phase0-test-baseline.md` 声称无 `pytest`、无 Python 环境，实际 `backend/.venv` 可用且 571 个测试全绿。
-3. **测试数与进度报告过期**：`docs/phase3-runtime-report.md` 记录的 API 18/18 现为 102/102；contracts 5 → 18；新增 `apps/web` 7。
-4. **AI 实网验收不可复现**：`docs/mvp-scope.md` 与 `docs/phase3-runtime-report.md` 声称的 TokenHub + `hy3` HTTP 200 已不成立（现返回 provider 401）；当前可用凭据对应 `https://api.deepseek.com/v1` + `deepseek-chat`，同一 demo 可跑通。
-5. **契约未覆盖并存端点**：`docs/api/phase1-openapi.yaml` 的 13 条路径（方法级逐项比对）全部已实现，无多余项；但仓库另有未纳入该契约的端点——legacy bearer 线（`/v1/tenant/me`、`/v1/tenant/management-check`）、MVP 无状态线（`/v1/mvp/runtime/{compile,instances,dispatch,ai-dispatch}`）与运维端点（`/health`、`/ready`）。
-6. **一键启动仍不完整**：`docker-compose.platform.yml` 提供 `platform-postgres`/`platform-migrate`/`platform-api`/`platform-web`，没有 worker 服务。
+### 第六轮（2026-10-15）：撤除 DSL，改为代码化游戏封装
 
-### 第三轮（2026-10-15）：显式循环节点
+**决策**：放弃"作者用 JSON 描述游戏、平台校验并解释执行"的路线。游戏逻辑改为 TypeScript 模块（`packages/games/<slug>`），平台只保留对局底座与中立内核。理由：DSL 的维护面（schema、校验器、表达式、解释器、发布流程）远大于它带来的收益，而代码化游戏直接获得类型检查、单元测试与调试器。
 
-- 新增 `loop` 节点：`bodyNodeId`（循环体入口）、`counterKey`（计数器）、`maxIterations`（上界）、可选 `while`（续轮条件）。循环体最后一个节点以回边指向 `loop`，由 `loop` 决定再进一轮还是走 `next` 出口。
-- 发布期环规则收口：只有经过 `loop` 节点的环合法，其余环仍报 `IMPLICIT_CYCLE`；`counterKey` 禁止被任何其他节点写入，因此自动执行始终有界。运行时的单遍访问守卫改为 10000 步预算（原守卫会把合法回边误判为自动死循环）。
-- 狼人杀包升级为多回合（`docs/fixtures/werewolf-package.json` v0.2.0）：回合循环、每回合重置票箱、由 `winner` 条件退出，引擎侧无狼人杀专用分支；两回合剧本、回合中等待态、回放一致性与投影隔离均有测试覆盖。
-- 修复复现出来的领取缺陷：`pending_commands.available_at` / `scheduled_jobs.run_at` 由数据库默认值（数据库时钟）写入，而领取查询用进程时钟比较；当 Postgres 与 worker 进程时钟相差约 120ms 时，worker 会跳过刚入队的任务（集成脚本报 `claimed 0 !== 2`）。改为与数据库时钟比较（`packages/db/src/repositories.ts`），worker 集成脚本即为回归证据。同类比较：`lease_until` 由进程时钟写入，故仍与进程时钟比较。
+**删除**（提交 `refactor: drop the declarative game DSL, keep the neutral kernel`，60 个文件、-6881 行）：
 
-### 第四轮（2026-10-15）：AI prompt 按席位投影
+- `packages/workflow-engine`：编译、发布期校验、表达式 AST、节点解释器、狼人杀夹具（内核的投影/重放/类型保留）。
+- 契约：游戏定义、节点、agent 定义、实例/事件请求 schema（状态、事件、参与者、等待点、命令、玩家视图保留）。
+- `packages/runtime`：AI 命令链、实例执行、管理员控制（凭据加密与错误类型保留）。
+- `apps/api`：实例、管理员实例、MVP 无状态路由与其脚本、AI provider 配置项。
+- `apps/worker`：游戏 handler 接线（claim/lease 循环保留）。
+- 迁移：`games`、`game_versions`、`workflow_definitions`、`ai_usage_ledger`、`agent_model_bindings` 五张表；`game_instances.game_version_id` 降为纯文本。
+- ADR-002（执行器边界）与 ADR-006（agent 会话）随之下线。
 
-- 修复可复现的信息泄漏：AI prompt 原先直接序列化权威 `state`（含 `victim`、夜间投票等私密字段），并且事件行带 `payload`（玩家的投票值就在里面）。现在 prompt 由该席位的 `projectPlayerView` 结果构造，事件行只保留 `sequence`/`type`/`participantId`。
-- 缺口来源：事件可见性需要游戏自己声明（白天的投票是公开的、夜里的不是），在作者能声明之前一律 fail-closed；这条留给 `P4-03`。
-- 回归证据：`packages/runtime/src/ai.test.ts` 断言 payload 值不出现在 prompt；worker 集成脚本在定义里放一个 role 级隐藏变量作为 canary，断言它没有到达 provider 客户端。仍缺：agent 定义随版本保存、token 预算、模型返回值的 schema 校验。
+**保留**：租户、账号、会话、Provider/Model 与凭据加密、审计、对局底座与队列、投影与重放内核、前端账号与模型页面、CI 门禁。
 
-### 第五轮（2026-10-15）：agent 定义随版本保存（每席位一个 agent）
+**代价（明确记录）**：不再有发布期静态校验；不再"作者零代码"；游戏代码必须自己遵守"`transition` 是纯函数"这条约束；隐藏信息只能通过内核投影保证，游戏代码不得绕过。
 
-- 决策落成 ADR-006：每席位一个 agent、会话键 `(instance, participantId)`、**不新增会话表**（会话 = 事件流按席位投影的确定性派生）、不允许 agent 私有笔记、重试即同一次会话。
-- 契约：`agents[]`（`id`/`roleId`/`systemPrompt`/`limits{timeoutMs,maxAttempts,tokenBudget}`）随游戏版本冻结；`aiGenerate` 只保留 `agentId`/`participantId`/`input`/`resultKey`/`fallbackNodeId`，上限从 agent 定义取（避免两处配置冲突）——这是一处**破坏性 DSL 变更**，节点不再自带 `timeoutMs`/`maxAttempts`。
-- 引擎：AI 节点的席位写入 `state.waiting.participantIds`，运行时以 state 为唯一真相取席位；发布期校验：`aiGenerate` 必须引用已声明 agent 且必须声明席位，agent 的 `roleId` 必须已声明，agent id 不得重复。
-- 运行时：system prompt 来自 agent 定义；`tokenBudget` 作为调用前的闸门（超出即 `BUDGET_EXCEEDED` 降级，不调用 provider、不产生用量）。
-- 回归证据：worker 集成脚本新增"预算不足直接降级"场景、以及"两次重试拿到逐字节相同的上下文"断言（证明重试即同一次会话）。
-- 仍缺：输出 schema 校验、事件 payload 可见性、费用上限、动态席位（"轮到谁替谁行动"）。
+**下一步建议顺序**：
 
-1. **~~Agent 执行链~~ 已落地（2026-10-14/15），余下收尾**：模型返回值的 **输出 schema 校验**（格式待定：JSON Schema 子集还是字段清单）；事件 payload 的可见性由游戏声明；费用上限与实时指标。绑定表继续只负责"该租户用哪个模型"。
-2. **实例与事件 HTTP 入口**：把 `dispatchGameEvent` 接成受租户鉴权保护的实例创建/事件提交端点，与 AI command 入队合并为同一事务路径（`P3-06` 收口）。
-3. **投影器（`P3-07`）**：公共/角色/个人视图 + 防泄漏测试；没有投影就无法验证 AI 结果对玩家可见性与信息隔离。
-4. **worker handler 接入（`P2-07` 收口）**：把 AI command、计时器到期与广播 handler 注入 `createWorker`，并加死信观测。
-5. ~~补齐 `P3-04`/`P3-05`~~：`random` 已实现（2026-10-14 第二轮）；subflow/parallel/join 已改为发布期拒绝，待 P4 由真实游戏驱动再实现。
-6. **DSL 缺口（P4-02 暴露）**：~~显式循环节点~~ 已落地（2026-10-15，`loop` + 发布期环规则收口）；仍缺发牌/洗牌与索引、参与者状态变更节点（把淘汰写回 `participants[].status`）。投票计票的多数决已有（`mode`）。这些应由第二个真实游戏继续驱动，而不是提前发明。
-
-7. **工程门禁**：CI 增加 lint 与格式检查（当前完全缺失，`P1-05` 未收口）；密钥轮换流程（`P2-06`）；处置 `pnpm audit` 的 15 high。
-8. **决策收口**：`P0-05` 的 LangGraph JS 对照与书面结论仍未产出，ADR-002 的定稿条件未满足；鉴于运行时已由原生解释器承载，建议明确写出“第一版采用 NativeRuntime”的结论或正式放弃该 spike。
+1. **游戏模块接口与注册表**：把 §4.2 的 `GameModule` 落成代码（接口 + 加载/校验 + 版本常量），并加一个最小示例模块与内核测试。
+2. **对局 HTTP 入口**：创建对局、提交事件、读取自己的投影，复用已保留的对局底座与幂等约束。
+3. **第一个代码化游戏（狼人杀）**：`packages/games/werewolf` + 回归夹具（标准对局脚本 + 期望事件序列 + 隐藏信息断言）。
+4. **AI 席位**：游戏代码内部调用模型，平台提供模型目录与凭据解析；用量与成本指标随后续阶段补齐。
+5. **工程门禁**：CI 增加 lint 与格式检查（`P1-05` 未收口）；密钥轮换流程（`P2-06`）；处置 `pnpm audit` 的 15 high。
 
 ## 17. 参考资料
 

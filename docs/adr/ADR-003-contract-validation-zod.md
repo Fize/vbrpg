@@ -6,11 +6,11 @@
 
 ## 背景
 
-迁移计划要求前后端共享 API、事件、WebSocket 和 DSL 契约。仅使用 TypeScript 接口无法校验来自网络、数据库或旧系统的运行时数据，也容易重新产生重复 DTO。
+迁移计划要求前后端共享 API、事件与 WebSocket 契约。仅使用 TypeScript 接口无法校验来自网络、数据库或旧系统的运行时数据，也容易重新产生重复 DTO。
 
 ## 决策
 
-共享契约包使用 Zod 定义运行时 schema，并从 schema 推导 TypeScript 类型。API、WebSocket 和 worker 边界先解析未知输入，再将已验证的类型交给领域代码。契约变更必须增加兼容性测试；工作流 DSL 的发布校验仍由独立 `workflow-schema` 包负责。
+共享契约包使用 Zod 定义运行时 schema，并从 schema 推导 TypeScript 类型。API、WebSocket 和 worker 边界先解析未知输入，再将已验证的类型交给领域代码。契约变更必须增加兼容性测试。
 
 v0 契约保持平台中立：只描述身份引用、事件、状态、玩家视图和外部命令，不包含 Fastify、Socket.IO、LangGraph 或数据库 ORM 类型。
 
