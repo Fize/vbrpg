@@ -171,9 +171,9 @@ code-based game runtime.
 
 ## 7. Game instances
 
-The match foundation is still migrated and enforced: `game_instances`, `game_participants`,
-`game_events`, `game_snapshots`, `pending_commands` and `scheduled_jobs`. The worker role claims leases
-from the two queues; there is no outbox table (see ADR-008) and no tenant layer.
+The match foundation is still migrated and enforced: `game_instances`, `game_participants` and
+`game_events`. There are no queue tables and no tenant layer (see ADR-008, ADR-009); the worker role
+scans instances that are `running` or `waiting` and locks one row at a time.
 
 What is gone: the HTTP surface (`POST /instances`, `GET /instances/:id`, the per-seat projection, the
 admin pause/resume/cancel/timeout controls) and the state transition that drove them. They return with

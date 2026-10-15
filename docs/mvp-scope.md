@@ -7,9 +7,8 @@
 
 - 平台账号：登录、持久化 session、CSRF、首登强制改密、管理员建号与重置、审计。
 - 模型配置：Provider / Model 的增删改与连接测试，API key 用 `PLATFORM_CREDENTIAL_KEY` 加密存放。
-- 对局底座：`game_instances` / `game_participants` / `game_events` / `game_snapshots` /
-  `pending_commands` / `scheduled_jobs`；worker 具备 claim / lease / 重试 / 死信循环。
-  2026-10-15 第八轮删除了 `player_actions` 与 `outbox_events`（见 ADR-008）。
+- 对局底座：`game_instances` / `game_participants` / `game_events`。没有队列表，没有快照表：
+  worker 按实例行锁 + 扫描待办推进对局（ADR-009）。
 - 中立内核：玩家视图投影（fail-closed）、事件重放、转换与错误类型。
 
 ## 已撤除（2026-10-15）

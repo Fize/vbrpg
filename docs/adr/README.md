@@ -10,6 +10,7 @@
 | [ADR-005](./ADR-005-resource-storage.md) | Beta 首版小型二进制资源使用 PostgreSQL `bytea` | Accepted |
 | [ADR-007](./ADR-007-single-package-one-image.md) | 单包、单镜像、两种角色 | Accepted |
 | [ADR-008](./ADR-008-single-user-pool.md) | 单用户池：删除租户层与 RLS | Accepted |
+| [ADR-009](./ADR-009-three-match-tables.md) | 对局只留三张表：不设队列与快照 | Accepted |
 
 已撤除：ADR-002（执行器边界）与 ADR-006（agent 会话）随 2026-10-15 的 DSL 撤除一并下线——平台不再内置游戏 DSL 或编排运行时，游戏逻辑是代码化模块（见主计划 §4/§5 与 §16 第六轮）。
 

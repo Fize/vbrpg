@@ -184,26 +184,28 @@ class GameRegistry { get(id); require(id); list(); }   // 启动时注册，重�
 | `providers` / `provider_models` | 模型供应商与模型目录（凭据以 AEAD 密文存列内） |
 | `game_instances` | 对局、记录的代码版本、状态、当前序号 |
 | `game_participants` | 对局参与者、座位、控制方式 |
-| `game_events` | 只追加的领域事件 |
-| `game_snapshots` | 加速恢复的状态快照 |
-| `pending_commands` | AI 等外部副作用命令 |
-| `scheduled_jobs` | 超时、回合计时器、重试时间 |
+| `game_events` | 只追加的事件与交互日志（真相；含 AI 每次交互与用量） |
 | `audit_logs` | 账号、模型目录与对局运维操作审计 |
 
 2026-10-15 撤除 DSL 时删掉了 `games`、`game_versions`、`workflow_definitions`、`ai_usage_ledger` 与 `agent_model_bindings`：游戏身份与版本回到代码里，模型目录留在 `providers`/`provider_models`。`game_instances.game_version_id` 保留为纯文本（对局自报的代码版本），不再有外键。
 
-2026-10-15 第八轮又把租户层整体删掉（ADR-008）：`tenants`、`tenant_memberships`、`tenant_secrets`、`player_actions`、`outbox_events` 五张表与所有 `tenant_id` 列、RLS 策略一并撤除——它们在当时的产品形态下不产生价值（唯一租户是常量 `PLATFORM_TENANT_ID`），却让每个查询、每个唯一键、每张新表都带着恒定成本。删除后仍是 11 张表：账号 2 张、模型目录 2 张、对局 6 张、审计 1 张。
+2026-10-15 第八轮又把租户层整体删掉（ADR-008）：`tenants`、`tenant_memberships`、`tenant_secrets`、`player_actions`、`outbox_events` 五张表与所有 `tenant_id` 列、RLS 策略一并撤除——它们在当时的产品形态下不产生价值（唯一租户是常量 `PLATFORM_TENANT_ID`），却让每个查询、每个唯一键、每张新表都带着恒定成本。删除后剩 11 张表。
+
+2026-10-15 第九轮再删掉三张（ADR-009）：`game_snapshots`（与 `state_json` 重复的历史副本）、`pending_commands` 与 `scheduled_jobs`（唯一消费者是尚未定案的实时推送与延迟副作用），以及它们唯一的生产者契约 `ExternalCommand`。对局只剩三张表：`game_instances`、`game_participants`、`game_events`。合计 8 张表：账号 2、模型目录 2、对局 3、审计 1。
 
 关键唯一约束：
 
 ```text
-(instance_id, sequence) on game_events        -- 顺序号不可重复
+(instance_id, sequence) on game_events        -- 顺序靠序号，不靠时间
 (instance_id, idempotency_key) on game_events -- 幂等重放
-(instance_id, command_id) on pending_commands -- 命令不可重复入队
+(instance_id, participant_key) on game_participants
+(instance_id, seat) on game_participants
 (provider_id, model_id) on provider_models
 ```
 
 状态快照使用 `jsonb`；需要筛选、排序、关联和约束的数据使用普通关系列。对局相关的前缀（`instance_id`）都在每个唯一键里，所以跨对局的撞号不可能发生。
+
+排队与超时不再有表：worker 改为"扫描 `running`/`waiting` 的对局、按实例加行锁、看它现在欠什么（玩家输入超时？AI 席位等回复？）"。代价是失败的退避与上限没有持久化位置，需要由游戏规则定义后果（契约里已有 `aiFailed`），这一条列入第九轮的已知取舍。
 
 ### 6.3 数据库和二进制资源决策
 
@@ -283,12 +285,12 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 - [x] ~~`P2-04`：建立 tenant-scoped repository；代码评审禁止无租户上下文的业务查询。~~ — 撤销（2026-10-15 第八轮）：`withTenantContext` 与租户作用域仓储已删除 — 核验 2026-10-14：`withTenantContext` + `SET LOCAL app.tenant_id` 与租户作用域仓储已实现；无禁止无租户查询的静态门禁
 - [x] ~~`P2-05`：为关键表启用并测试 PostgreSQL RLS。~~ — 撤销（2026-10-15 第八轮）：策略与应用过滤引用同一个常量，等于自证；随租户层一并删除 — 核验 2026-10-14：0004 RLS 已启用，非 owner 角色跨租户隔离在真实 PostgreSQL 验证
 - [/] `P2-06`：实现审计日志、凭据信封加密、密钥轮换接口和日志脱敏。 — 核验 2026-10-14：`audit_logs` 与审计写入、`secret-box` AEAD 信封加密与密钥版本已实现；密钥轮换操作流程未实现
-- [/] `P2-07`：实现 `pending_commands`、`scheduled_jobs` 的 claim、lease、重试和死信状态。 — 核验 2026-10-14：claim/lease/完成/退避失败与死信已实现。2026-10-15 第八轮：`outbox_events` 与它的 handler 一同删除（推送方案未定，空表不是设计）
+- [x] ~~`P2-07`：实现 `pending_commands`、`scheduled_jobs` 的 claim、lease、重试和死信状态。~~ — 撤销（2026-10-15 第九轮）：两张队列表与其 claim/lease/重试/死信实现已删除，改为实例行锁 + 扫描待办（ADR-009）
 - [x] ~~`P2-08`：建立跨租户 REST、WebSocket、worker 和直接对象引用攻击测试。~~ — 撤销（2026-10-15 第八轮）：无租户边界；替身是"非参与者读不到对局"的投影测试 — 核验 2026-10-14：DB 层跨租户隔离测试已通过；REST/WebSocket/worker 攻击测试未做（WebSocket 未实现）
 
-交付物：账号与模型目录控制面、首版数据库 schema、可靠任务底座、安全测试套件。
+交付物：账号与模型目录控制面、首版数据库 schema、安全测试套件。
 
-出口条件：未经认证的请求无法读写任何资源，非参与者读不到对局数据；重复任务不产生重复事件；服务重启后定时任务和待执行命令可继续。
+出口条件：未经认证的请求无法读写任何资源，非参与者读不到对局数据；重复提交不产生重复事件。
 
 回滚：使用 expand/contract 数据库迁移；新表只增不删，旧系统仍使用原表。
 
@@ -607,6 +609,27 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 **代价**：迁移文件重写使已有本地/容器数据库必须重建（无兼容路径）；若将来真的需要多社群或 SaaS 隔离，要重新引入这一层（有数据后成本会显著上升）。这一条作为已知风险记录在此。
 
 **保留**：账号与平台角色、不透明会话与 CSRF、模型目录与凭据 AEAD 加密、审计、6 张对局表与两条队列、投影与重放内核、前端账号与模型页面、CI 门禁。
+
+### 第九轮（2026-10-15）：对局只剩三张表（ADR-009）
+
+**决策**：删除 `game_snapshots`、`pending_commands`、`scheduled_jobs`，以及唯一会给后两张表生产数据的契约 `ExternalCommand`（`transition` 的输出只剩 `events`）。对局侧只留 `game_instances`、`game_participants`、`game_events`；全库 8 张表。
+
+**理由**：快照与 `instances.state_json` 是同一份状态的两次存储；队列表提供的是"刚好执行一次、可以晚点、失败能重试"，而它当前既没有生产者也没有消费者，实时推送本身还被 `docs/mvp-scope.md` 推迟。没有队列之后，外部命令通道没有目的地，留着就是死代码。
+
+**连带改动**：
+
+- worker 不再领取队列，改为"扫描 `running`/`waiting` 的对局 → 按实例取行锁 → 看它现在欠什么"。扫描本身随对局运行时一起落地，当前循环无事可做。
+- 排序只由 `sequence` 决定（`occurred_at` 只用于展示与超时判断）；`unique (instance_id, sequence)` 是并发写入的兜底。
+- 时间只通过等待点表达：`waiting.deadlineMs` 加上一步事件的时间就是截止时刻，平台据此产生 `timerExpired`。
+
+**本轮确认的存储要求**（留给 AI 席位实现时执行）：
+
+- **prompt 不入库**（它可由事件日志重算）。
+- **每次模型交互必须入库**，一次调用一行。
+- **token 用量必须入库**（至少输入/输出/合计），与那次交互同一行。
+- 模型回复原文与 provider 返回的签名字段一并存进该行 payload（带 tools 的请求要求原样回传）。
+
+**已知取舍**（接受并记录）：模型调用的退避与上限没有持久化位置，失败后果由游戏规则定义（契约里已有 `aiFailed`）；需要"任意延迟事件"的游戏不能再表达，只能用等待点加时限；对局规模到数千并发时需要重新引入队列。
 
 ## 17. 参考资料
 
