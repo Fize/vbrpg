@@ -1,6 +1,6 @@
-# VBRPG 迁移期架构决策记录
+# VBRPG 架构决策记录
 
-这些 ADR 只约束迁移后的 TypeScript 平台，不改变旧 Python 服务的当前运行契约。
+这些 ADR 只约束 `apps/platform`（TypeScript + PostgreSQL）。仓库根的旧 Python/Vue 目录不在交付范围内，只作领域参考。
 
 | 编号 | 决策 | 状态 |
 | --- | --- | --- |

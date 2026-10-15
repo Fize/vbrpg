@@ -1,9 +1,9 @@
-# VBRPG 游戏平台迁移与发布计划
+# VBRPG 游戏平台计划与决策日志
 
-> 状态：提案 / 可执行基线
+> 状态：执行中（greenfield）
 > 更新日期：2026-10-15
-> 状态核验：2026-10-15 逐项对照代码、测试与提交核验任务状态；结论与下一步见 §16。
-> 适用范围：将当前 Python + Vue 项目迁移为以 TypeScript 为主的游戏平台（游戏为代码化模块，非声明式 DSL）
+> 结构：§1–§7 设计与约定、§8 任务清单、§10–§11 门槛与测试、§13 下一步、§16 进度核验与决策日志（按轮次，最新一轮为准）。
+> 适用范围：`apps/platform`（TypeScript + PostgreSQL），游戏是代码化模块，平台不解释规则
 
 > 当前执行模式：Greenfield 新项目。旧 Python/Vue 系统、数据迁移、兼容层、双轨切流、旧版本行为兼容和历史黄金轨迹不属于当前交付门槛；旧实现仅作为可选领域参考。后续验收以新 TypeScript 平台、PostgreSQL、中立运行时内核与代码化游戏模块为准（DSL 路线已于 2026-10-15 撤除，见 §16 第六轮）。
 
@@ -13,15 +13,13 @@
 
 本计划采用以下结论：
 
-1. 后端迁移到 TypeScript 是合理的，但应按领域边界重构，不能逐行翻译现有 Python 服务。
+1. 旧 Python/Vue 系统只作领域参考：不逐行翻译，也不做兼容层（见开头的 greenfield 口径）。
 2. **游戏逻辑是代码，不是平台解释的 JSON**：一个游戏一个 TypeScript 模块（`apps/platform/src/server/games/<slug>.ts`），平台只提供对局底座与中立内核。原先的声明式 DSL 路线已于 2026-10-15 撤除，见 §16 第六轮。
 3. 编排库（LangGraph JS 等）是游戏代码的内部选择，平台不依赖、也不暴露它们（见 §7）。
-4. 生产环境只支持 PostgreSQL，避免第一版同时承担 MySQL、PostgreSQL、SQLite 三套语义差异。SQLite 只运行纯内核单元测试和轻量本地演示；所有集成测试与 CI 必须运行真实 PostgreSQL。
+4. 生产环境只支持 PostgreSQL。内核单测不需要数据库；所有持久化、并发与迁移测试必须运行真实 PostgreSQL。
 5. 对局在创建时固定它使用的代码版本；升级游戏代码不影响进行中的对局。
-6. 所有权威状态都进入 PostgreSQL：事件、快照、待处理输入、定时任务、命令、审计。进程内存只允许作缓存，不能作为权威存储。
+6. 所有权威数据都进入 PostgreSQL：对局状态、席位、事件记录、账号、模型目录、审计。进程内存只允许作缓存。
 7. 首版由平台自己维护游戏代码，不提供作者上传代码或包的通道；第三方分发需要单独的沙箱与安全设计。
-
-达到可邀请外部作者和玩家参与的 Beta，预计需要 **19～27 人周**；2 名全职工程师并行时约 **10～14 个日历周**，单人串行约 **5～7 个月**。该估算不含高级可视化编辑器、商业结算、移动客户端和任意代码插件沙箱。
 
 ## 2. 产品目标与非目标
 
@@ -43,20 +41,11 @@
 - 不在首版完成 Steam 式商业市场、创作者分成和复杂支付结算。
 - 不保证把进行中的旧 Python 对局无损迁移到新引擎；优先采用排空旧对局的切换方式。
 
-## 3. 当前基线与主要问题
+## 3. 基线
 
-当前项目已经具备可复用的产品原型，包括 Vue 3 UI、Socket.IO 实时通信、房间流程、AI 玩家接入和一批测试。但它还不是多租户工作流平台：
+旧 Python/FastAPI + Vue 3 系统仍在仓库根目录（`backend/`、`frontend/`），**只作领域参考**：不迁移它的数据、不复刻它的接口、不保留它的运行契约。新平台是 greenfield，`apps/platform` 是唯一在维护的代码（ADR-007）。
 
-- 当前后端是 Python/FastAPI/SQLAlchemy，并使用 LangChain；仓库中没有实际使用 LangGraph。
-- 核心游戏行为集中在大型服务和 WebSocket 处理器中，迁移难点来自领域逻辑耦合，而不是 Python 语言本身。
-- 对局服务和状态存在进程内映射，无法保证多实例部署、重启恢复和后台任务可靠性。
-- 数据模型没有完整的 `tenant_id`、成员关系、租户角色和租户级唯一约束。
-- 客户端可提交玩家标识；身份与租户上下文还没有成为服务端可信边界。
-- 前端主要是 JavaScript/Vue SFC，尚未形成前后端共享 TypeScript 契约。
-- 既有测试和工程工具存在基线债务：部分前端测试失败、ESLint 配置与版本不匹配、后端静态检查遗留较多、容器 Node 版本与当前 Vite 要求不一致，且缺少完整 CI 门禁。
-- 现有文档对单人、多人、房间和游戏类型的描述有漂移，需要以新的领域术语统一。
-
-这些问题决定了迁移必须先建立行为基线、持久化协议和可信身份边界，然后再迁移具体游戏。
+当前实现到什么程度、还缺什么，见 §16。
 
 ## 4. 目标架构
 
@@ -67,10 +56,7 @@ flowchart LR
     API --> Games[游戏模块 apps/platform/src/server/games/*]
     Games --> Engine[中立内核：投影 / 转换类型]
     API --> DB[(PostgreSQL)]
-    Worker[TypeScript Worker] --> DB
-    DB --> Outbox[Outbox / Scheduled Jobs]
-    Outbox --> Worker
-    Worker -->|按玩家投影广播| Browser
+    Worker[TypeScript Worker] -->|扫描待办的 running/waiting 对局| DB
 ```
 
 实际结构（2026-10-15 起）：**一个包、一个镜像、两种角色**。
@@ -78,16 +64,16 @@ flowchart LR
 ```text
 apps/platform/
   src/shared/          # 契约：Zod schema + 类型（浏览器安全，不许 import node 内建）
-  src/server/          # 进程侧：Fastify 路由、鉴权、存储、worker 轮询、游戏内核
+  src/server/          # 进程侧：Fastify 路由、鉴权、存储、worker 扫描、游戏内核
     game/              # 中立内核：GameModule 接口、注册表、投影
     db/                # Kysely 类型、仓储、迁移读取
     runtime/           # 凭据加密、错误形状
   src/browser/         # Vue 3 控制台（构建成静态资源，由同一进程提供）
   migrations/          # SQL 迁移
   scripts/             # migrate / bootstrap-admin / db-integration / provider check
-legacy/
-  python-backend/      # 切换期保留；也可暂时保持当前 backend/ 位置
 ```
+
+仓库根的 `backend/`、`frontend/` 是旧系统，不在交付门槛内。
 
 三种角色、同一个镜像：`--role=api`（HTTP + 静态资源）、`--role=worker`（队列消费者）、`--role=both`（本地开发）。
 浏览器产物由 api 角色同源提供，因此不再需要 nginx、跨域配置或第二个服务。
@@ -99,7 +85,7 @@ legacy/
 - API：Node.js LTS + Fastify。
 - 契约：Zod；REST 与后台任务共用同一份 schema。
 - 数据层：PostgreSQL + Kysely；迁移工具必须支持纯 SQL 审核。
-- 后台任务：使用 PostgreSQL 表、行锁和 `SKIP LOCKED` 实现，不把 Redis 设为首版硬依赖。
+- 后台任务：不引入队列中间件与 Redis；worker 扫描 `running`/`waiting` 的对局、按实例加行锁推进（ADR-009）。
 - AI：优先使用模型提供商官方 SDK；游戏代码可以在自己的模块内部使用任意编排库（包括 LangGraph JS），平台不依赖它。
 - 可观测性：结构化日志、OpenTelemetry trace、错误追踪、业务指标。
 
@@ -143,15 +129,16 @@ class GameRegistry { get(id); require(id); list(); }   // 启动时注册，重�
 
 每次玩家动作采用固定顺序：
 
-1. 从认证会话解析 `actor_id`，不信任客户端提交的身份字段。
-2. 锁定目标 `game_instance`，校验席位归属、实例状态和动作幂等键。
-3. 读取实例记录的代码版本与当前快照。
+1. 从认证会话解析调用者身份，不信任客户端提交的身份字段。
+2. 校验席位归属与实例状态；按实例取行锁，串行化同一对局的写入。
+3. 读取 `state_json` 与 `current_sequence`。
 4. 执行确定性状态转换，直到结束或进入等待点。
-5. 追加领域事件，更新快照，写入待执行命令、定时任务和 Outbox。
-6. 提交同一个数据库事务。
-7. worker 消费 Outbox，按不同玩家生成状态投影并广播。
+5. 在同一事务里追加记录行、推进 `current_sequence` 与 `state_json`。
+6. 提交事务。提交之后才做外部动作（调模型、推送）。
+7. 读路径没有第二步：按 `sequence` 读记录，或按投影规则读状态。
 
-任何重试都必须依靠 `(instance_id, event_id)` 或 `(instance_id, command_id)` 唯一约束避免重复结算。
+任何重试都必须依靠 `(instance_id, sequence)` 与 `(instance_id, idempotency_key)` 唯一约束避免重复结算；
+`update ... where current_sequence = N-1` 影响零行就说明别人先推进了。
 
 ## 5. 游戏封装方式（代码化）
 
@@ -225,8 +212,8 @@ DSL 撤除后，这个问题变简单了：**编排库是游戏代码的内部�
 
 - 平台不依赖任何编排框架，数据库、API 和契约里不出现它们的类型。
 - 游戏模块内部可以用任意方式组织逻辑：一个 `switch`、一个状态机库，或 LangGraph JS。这不影响平台能力，因为平台只通过 `GameModule` 接口与游戏交互。
-- 平台的四条保证（对局身份、可回放、副作用可重试、信息不越权）由内核与数据库提供，不由游戏代码自己声明；编排库的 checkpoint 只是它自己的内部状态，永远不能成为业务真相。
-- 多玩家等待：动作先写入 `player_actions`，达到全员、法定人数或超时条件后只恢复一次流程，不能让每个玩家分别恢复同一图。
+- 平台的四条保证（对局身份、记录可查、写入幂等、信息不越权）由内核与数据库提供，不由游戏代码自己声明；编排库的 checkpoint 只是它自己的内部状态，永远不能成为业务真相。
+- 多玩家等待：每个玩家的动作各写一行记录；达到全员、法定人数或超时条件后只推进一步，不能让每个玩家分别推进一步。
 
 Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 撤除，这个决策点不再成立；对照与书面结论见 §16。
 
@@ -241,20 +228,19 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 任务：
 
 - [x] `P0-01`：编写 ADR，确认 PostgreSQL、Fastify、schema 工具、查询构建器和 Node LTS 版本。 — 核验 2026-10-14：`docs/adr/` 5 份 ADR 已提交
-- [/] `P0-02`：冻结旧 Python 对外行为；为创建房间、加入、开始、角色分配、夜间行动、投票、胜负和断线恢复生成黄金事件轨迹。 — 核验 2026-10-14：旧引擎规则轨迹 10 条已冻结并通过校验（`docs/fixtures/werewolf-golden-trace-suite.json`）；超时/断线/AI fallback 需从服务层补录，未做。补充：来源已删除，见 §16 第二轮复核第 1 条
-- [x] `P0-03`：给现有测试分类为“有效回归、过时规格、真实缺陷”，先建立可解释的测试基线。 — 核验 2026-10-14：`docs/phase0-test-baseline.md` 已完成前端分类；后端基线已于 2026-10-14 补录（`backend/.venv` 可用，571 测试全绿）
-- [x] `P0-04`：定义 `GameDefinition`、`GameEvent`、`GameState`、`PlayerView` 和 `ExternalCommand` v0 schema。 — 核验 2026-10-14：`packages/contracts/src/domain.ts` 已定义 GameDefinition/GameEvent/GameState/PlayerView/ExternalCommand v0
+- [x] ~~`P0-02`：冻结旧 Python 对外行为并生成黄金事件轨迹。~~ — 已关闭（2026-10-15）：旧引擎与夹具已删除，greenfield 口径下不与旧行为比对。
+- [x] ~~`P0-03`：为旧系统测试建立基线分类。~~ — 已关闭（2026-10-15）：旧测试基线不再有效，新平台以自身测试门禁为准。
+- [x] ~~`P0-04`：定义领域 schema v0。~~ — 已被取代：`GameDefinition` 与 `ExternalCommand` 随 DSL 撤除删除，现契约见 §4.2 与 §6（`GameModule`、`GameState`、`GameEvent`、`PlayerView`）。
 - [x] ~~`P0-05`：完成上一节的 LangGraph JS 技术验证，并以相同测试夹具实现最小原生解释器对照~~ — 已关闭（2026-10-15）：DSL 与运行时适配器概念撤除，编排库成为游戏代码的内部选择（§7、§16 第六轮）。
-- [x] `P0-06`：定义 Beta 负载模型。默认起点为 100 个活跃房间、每房 10 人、峰值每秒 20 次动作；产品数据出现后再调整。 — 核验 2026-10-14：`docs/phase0-load-and-legacy-decision.md` 已记录容量模型与旧数据处置假设
+- [x] `P0-06`：定义 Beta 负载模型。默认起点为 100 个活跃房间、每房 10 人、峰值每秒 20 次动作；产品数据出现后再调整。 — 容量目标保留（见 §10），旧数据处置部分随 greenfield 作废。
 - [x] ~~`P0-07`：确定旧数据处置：创建默认 `legacy` 租户，保留历史对局，进行中房间切换时排空。~~ — 已关闭（2026-10-15）：greenfield 口径取消旧数据迁移，"legacy 租户"这一处置方式随租户层删除一并作废
 
-交付物：ADR、领域 schema v0、黄金轨迹、技术验证报告、测试债务清单、负载与数据迁移决策。
+交付物：ADR、领域 schema v0、负载模型。
 
-出口条件：
+出口条件（2026-10-15 重新表述）：
 
 - 团队能够说明平台为何不内置游戏 DSL，以及游戏模块如何满足四条平台保证（见 §16 第六轮）。
 - 至少一条完整简化对局在进程重启、动作重试和并发提交场景中通过。
-- 旧系统关键路径已有机器可读的黄金轨迹，后续迁移可以比较行为。
 
 回滚：此阶段不改生产路径，删除实验代码即可。
 
@@ -264,19 +250,19 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 
 任务：
 
-- [x] `P1-01`：建立 pnpm workspace 和 `apps/api`、`apps/worker`、`packages/contracts`、`packages/db`。 — 核验 2026-10-14：workspace 含 `apps/api`、`apps/web`、`apps/worker`、`packages/contracts`、`packages/db`、`packages/workflow-engine`
+- [x] `P1-01`：建立 pnpm workspace 与共享契约。 — 核验 2026-10-14：workspace 曾含 `apps/{api,web,worker}` 与四个共享包；2026-10-15 第七轮收敛为单包 `apps/platform`（ADR-007）。
 - [x] `P1-02`：创建 Fastify 健康检查、统一错误模型、请求 ID、结构化日志和配置校验。 — 核验 2026-10-14：`app.ts` 提供 request id、结构化日志入口、统一错误响应、`/health`、`/ready`；`config.ts` 用 Zod 校验配置
-- [/] `P1-03`：把前端构建逐步切到 TypeScript；先迁移 API、Socket.IO、Pinia store 边界，再迁移组件。 — 核验 2026-10-14：`apps/web` 已全 TypeScript（Vue 3 + Vite + vue-tsc 通过）；旧 `frontend/` 的 Pinia store 与 Socket.IO 仍是 JS，按 greenfield 决策不迁
+- [x] ~~`P1-03`：把旧前端逐步切到 TypeScript。~~ — 已关闭：不迁移旧前端，控制台在 `src/browser` 用 Vue 3 + TypeScript 重写（vue-tsc 进 typecheck 门禁）。
 - [x] `P1-04`：建立 PostgreSQL Compose、迁移命令、测试数据库隔离和种子数据。 — 核验 2026-10-14：`docker-compose.platform.yml` Compose + 迁移 up/down + 独立集成库 `vbrpg_db_integration_clean` + `bootstrap-admin` 种子脚本
 - [/] `P1-05`：配置格式化、lint、单元测试、集成测试、构建和依赖审计 CI。 — 核验 2026-10-14：`platform-ci.yml` 已含 build/typecheck/unit/契约/真实 PG 集成/迁移回滚/`pnpm audit`；缺 lint、格式检查与 E2E
 - [x] `P1-06`：统一 Node 开发版、CI 版和容器版，消除 Vite 与 Node 版本冲突。 — 核验 2026-10-14：`.nvmrc` 24、CI `node-version-file`、pnpm 11.22.0、Docker `node:24-alpine` 已一致
 - [x] `P1-07`：从共享 schema 生成或推导前后端类型，禁止手写重复 DTO。 — 核验 2026-10-14：契约由 Zod 定义并导出 `z.infer` 类型，前后端共用 `src/shared`
 
-交付物：可独立部署的新 API/worker 空壳、共享契约、PostgreSQL 开发环境和绿色 CI。
+交付物：一个镜像两种角色的服务骨架、共享契约、PostgreSQL 开发环境和 CI 门禁。
 
-出口条件：全新检出可用一条命令启动 Web、API、worker 和 PostgreSQL；CI 中 lint、类型检查、单测、PG 集成测试和构建全部通过。
+出口条件：CI 的类型检查、单测、真实 PostgreSQL 集成、迁移回滚与构建全部通过。
 
-回滚：新服务保持无业务流量，旧 Python 服务不变。
+回滚：无。greenfield 之前没有需要回退的在跑服务。
 
 ### Phase 2：身份与持久化底座（3～4 人周）
 
@@ -297,11 +283,11 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 
 出口条件：未经认证的请求无法读写任何资源，非参与者读不到对局数据；重复提交不产生重复事件。
 
-回滚：使用 expand/contract 数据库迁移；新表只增不删，旧系统仍使用原表。
+回滚：greenfield 阶段直接重写迁移；库中无数据时重建即可（ADR-008/009）。
 
 ### Phase 3：中立运行时内核与对局底座（4～6 人周）
 
-目标：让平台能可靠地承载**任意代码化游戏**——对局有身份、状态可回放、副作用可重试、信息不越权；平台不理解任何具体游戏的规则。
+目标：让平台能可靠地承载**任意代码化游戏**——对局有身份、记录可查、写入幂等、信息不越权；平台不理解任何具体游戏的规则。
 
 任务（2026-10-15 撤除 DSL 后的现状）：
 
@@ -310,15 +296,15 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 - [/] `P3-03`：确定性 `transition`、显式随机种子。 — 确定性由"游戏模块的 `transition` 是纯函数"这条约束保证（随机与时间都作为输入进来，不再有虚拟时钟需求）；`replayEvents` 已删除。
 - [x] ~~`P3-04` DSL 节点集（start/end、变量、分支、等待、收集、计时、投票、随机、事件、循环）~~ — 撤销（2.8k 行解释器已删除）。
 - [x] ~~`P3-05` subflow、parallel/join~~ — 撤销：并行与分支合并留给游戏代码自己表达。
-- [/] `P3-06`：快照策略、并发控制、动作幂等与实例级顺序号。 — 幂等键与顺序号约束（`(instance_id, event_id)`、`(instance_id, command_id)`）保留；快照写入策略与并发竞争测试仍待做（`game_snapshots` 表与 `getLatestSnapshot` 已在）。
-- [/] `P3-07`：公共/角色/个人三档投影与防泄漏测试。 — 已实现并保留为内核能力（`projectPlayerView`，fail-closed，8 项单测）；入口从"定义里的 visibility"改为"游戏模块声明的可见性映射"。
+- [/] `P3-06`：并发控制、动作幂等与实例级顺序号。 — 约束已在（`(instance_id, sequence)`、`(instance_id, idempotency_key)`）并按实例行锁串行化；并发竞争测试仍待做。快照已删除（ADR-009）。
+- [x] `P3-07`：公共/角色/个人三档投影与防泄漏测试。 — 已实现并保留为内核能力（`projectPlayerView`，fail-closed，单测覆盖）；可见性由游戏模块声明，未声明即不可见。
 - [x] ~~`P3-08` LangGraph JS 适配器或原生解释器~~ — 撤销：编排库成为游戏代码的内部选择，平台不依赖（见 §7）。
-- [x] ~~`P3-09` AI command 链（超时/重试/预算/用量/降级）~~ — 撤销：随 DSL 的 AI 节点一并删除；AI 能力回到游戏代码内部调用模型，模型目录仍由 `providers`/`provider_models` 与凭据加密（`packages/runtime` 的 secret-box）支撑。
+- [x] ~~`P3-09` AI command 链（超时/重试/预算/用量/降级）~~ — 撤销：平台不再替游戏调度模型调用；模型目录与凭据在 `providers`/`provider_models` 与 `src/server/runtime/secret-box`，用量随交互写入记录行（ADR-010）。
 - [x] ~~`P3-10` 管理员暂停/取消/强制超时/脱敏状态~~ — 撤销：实例 HTTP 路由已删；恢复对局的运维能力随代码化游戏的运行时一起回归。
 
 交付物：中立内核（投影、转换类型）、对局底座（实例、席位、事件记录）、审计。
 
-出口条件：同一初始状态与事件序列总能得到字节级一致的最终状态；进程崩溃不丢失已提交事件；隐藏信息自动化测试无泄漏。
+出口条件：`transition` 对同一输入总是产出同一状态（纯函数约束）；进程崩溃不丢失已提交写入；隐藏信息自动化测试无泄漏。
 
 回滚：对局行记录它启动时使用的代码版本；升级游戏代码不影响进行中的对局。
 
@@ -331,14 +317,14 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 - [/] `P4-01`：从现有 Python 逻辑提取角色、阶段、动作、胜负、超时和可见性规格。 — 角色/阶段/动作/胜负说明已提取；超时与可见性规格未提取。
 - [ ] `P4-02`：把狼人杀写成代码化游戏模块，而不是在平台里增加狼人杀专用分支。 — 未开始：DSL 版本（多回合夹具）已随 DSL 撤除一并删除；新的验收目标是 `apps/platform/src/server/games/werewolf.ts` 模块 + 对局端到端跑通。
 - [x] ~~`P4-03` 让 prompt、模型参数与输出 schema 随游戏版本保存~~ — 撤销：AI 行为现由游戏代码自己组织，平台只提供模型目录与凭据。
-- [ ] `P4-04`：用 Phase 0 黄金轨迹比较旧系统和新游戏模块；差异必须归类为缺陷修复或经批准的规则变更。 — 未实现（旧 Python 引擎已在 `79cf54e` 删除，黄金轨迹 fixture 降级为历史快照）。
+- [x] ~~`P4-04`：用黄金轨迹比较旧系统和新游戏模块。~~ — 已关闭（2026-10-15）：旧引擎与其夹具已删除，greenfield 下不与旧行为比对。
 - [x] ~~`P4-05`：实现旧用户、历史对局和默认 `legacy` 租户的数据回填脚本，并提供 dry-run 报告。~~ — 撤销（2026-10-15）：greenfield 不迁移旧数据。
 - [x] ~~`P4-06`：让内部测试租户创建新引擎房间，旧生产路径继续服务其他用户。~~ — 撤销（2026-10-15）：没有租户，也没有双轨切流；新平台直接对外。
 - [ ] `P4-07`：完成断线重连、多设备、并发投票、AI 失败、worker 重启和版本升级 E2E。 — 未实现。
 
-交付物：第一个代码化游戏模块、兼容性报告、数据回填工具、内部灰度环境。
+交付物：第一个代码化游戏模块与它的回归夹具。
 
-出口条件：对局端到端跑通且无状态丢失、重复结算和秘密泄漏；旧版已发布游戏仍能继续完成。
+出口条件：对局端到端跑通且无状态丢失、重复结算和秘密泄漏。
 
 回滚：停止创建新对局；已创建的对局继续固定在它们启动时的代码版本。
 
@@ -365,25 +351,23 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 
 ### Phase 6：生产切换与公开 Beta（2～3 人周）
 
-目标：在可观测、可恢复、可回退的条件下结束 Python 主路径。
+目标：在可观测、可恢复的条件下把新平台交付给真实用户。
 
 任务：
 
 - [ ] `P6-01`：完成容量测试、长时间稳定性测试、并发动作测试和故障注入。 — 核验 2026-10-14：未开始
-- [ ] `P6-02`：建立 API、worker、队列积压、动作延迟、AI 成功率/成本、对局卡住率和未授权访问拒绝指标。 — 核验 2026-10-14：未开始
+- [ ] `P6-02`：建立 API 延迟与错误率、动作延迟、AI 成功率与 token 用量、对局卡住率和未授权访问拒绝指标。 — 核验 2026-10-14：未开始
 - [ ] `P6-03`：验证备份、时间点恢复、迁移回滚、密钥轮换和灾难恢复手册。 — 核验 2026-10-14：未开始
 - [ ] `P6-04`：执行安全评审：认证、授权、提示词注入、文件上传、日志隐私和供应链。 — 核验 2026-10-14：未开始
 - [ ] `P6-05`：先按内部测试账号、小比例新对局逐级放量。 — 核验 2026-10-14：未开始
-- [ ] `P6-06`：冻结 Python 新房间创建，等待短期对局自然结束；长期历史数据保持只读。 — 核验 2026-10-14：未开始
 - [ ] `P6-07`：更新部署、用户、作者、运维、故障处理和数据保留文档。 — 核验 2026-10-14：未开始
-- [ ] `P6-08`：达到发布门槛后删除流量依赖，但至少保留一个发布周期的 Python 镜像和只读数据访问能力。 — 核验 2026-10-14：未开始
 - [ ] `P6-09`：完成服务条款、隐私说明、内容许可、数据导出/删除和侵权/举报处理流程的发布评审。 — 核验 2026-10-14：未开始
 
 交付物：公开 Beta、监控面板、告警、备份恢复证据、切换记录和运行手册。
 
 出口条件：满足第 10 节全部发布门槛，并完成一次真实备份恢复演练和一次应用回滚演练。
 
-回滚：只回滚“新对局路由”，不把新引擎实例转换为 Python 实例；数据库使用向后兼容迁移，保留新事件和审计记录。
+回滚：回滚应用镜像版本即可；数据库迁移在此之前必须演练过，且不能丢失已写入的记录与审计。
 
 ### Phase 7：Beta 后增强
 
@@ -394,25 +378,11 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 - 多区域部署、更严格的 SLO 和大规模队列系统。
 - 在有真实需求时评估 MySQL 适配；在此之前不承诺兼容。
 
-## 9. 数据迁移与切流方案
+## 9. 旧数据与切流（不适用）
 
-采用 Strangler 方式，新旧后端并存，按对局实例路由，避免对同一实例双写两个引擎。
+Greenfield：**不迁移旧数据、不做双轨切流、不引入兼容层**（2026-10-15 决定）。旧系统（`backend/`、`frontend/`）只作领域参考，新平台直接对外提供。
 
-### 9.1 数据迁移步骤
-
-1. 新 schema 先以新增表和可空列上线，不删除旧列。
-2. ~~创建 `legacy` 租户，把现有用户、游戏和历史记录映射到该租户。~~ 已在 2026-10-15 作废：greenfield 不迁移旧数据。
-3. 回填脚本必须支持 dry-run、分批、断点续传、校验摘要和重复执行。
-4. 比较迁移前后行数、外键、关键聚合、事件序列和抽样玩家历史。
-5. 新写入切到 TypeScript 后，进入观察期；确认无回退需要再执行 contract migration。
-6. 删除旧表或旧列属于 Beta 稳定后的独立变更，不能与首次切流同时执行。
-
-### 9.2 对局切流
-
-- 网关或 API 根据 `game_instances.engine_version` 路由，不能根据当前部署版本猜测。
-- ~~新租户先使用新引擎，旧租户逐批开启。~~ 已作废：新平台直接对外。
-- 短生命周期旧对局自然排空；只有确有业务价值的长期对局才编写显式导入器。
-- 切换期禁止跨引擎继续同一个实例，也禁止没有事件一致性协议的双写。
+若将来确有必须保留的历史数据，那是一次独立的数据导入任务，不是平台架构的一部分。
 
 ## 10. 发布门槛（Definition of Release Ready）
 
@@ -420,9 +390,8 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 
 ### 正确性与恢复
 
-- 所有有效旧行为黄金轨迹通过；规则差异有版本化说明。
-- 重复动作、重复 WebSocket 包和 worker 重试不会重复结算。
-- 任意服务进程重启后，已提交动作不丢失，等待和计时器可恢复。
+- 重复提交与重试不会重复结算（幂等键与顺序号唯一约束承担）。
+- 任意服务进程重启后，已提交的写入不丢失；进程重启只影响正在进行的模型调用。
 - 任何时刻都能按 `sequence` 读到该对局的完整记录。
 - AI 超时、结构化输出错误和供应商不可用不会让实例永久卡住。
 
@@ -454,101 +423,78 @@ Phase 0 原本用 LangGraph JS 的对照来决定"首版执行器"，随着 DSL 
 | --- | --- | --- |
 | 内核单测 | 无数据库 | 投影、转换、确定性 |
 | 游戏模块单测 | 无数据库 | 角色、阶段、动作合法性、胜负、隐藏信息 |
-| Repository 合约测试 | PostgreSQL | 约束、事务、锁、队列 claim/lease、迁移与回滚 |
-| Runtime 集成测试 | PostgreSQL | 幂等、并发、事件/快照、Outbox、定时任务 |
+| Repository 合约测试 | PostgreSQL | 约束、事务、行锁、迁移与回滚 |
+| 对局写入集成测试 | PostgreSQL | 幂等、并发、乐观推进、记录顺序 |
 | API 契约测试 | PostgreSQL | 身份、错误模型、幂等与重复提交 |
-| 对局端到端测试 | PostgreSQL | 完整对局、隐藏信息、断线恢复、AI 席位 |
-| E2E | 完整 Compose | 创建对局、加入、完整对局、重启恢复 |
+| 对局端到端测试 | PostgreSQL | 完整对局、隐藏信息、AI 席位 |
+| E2E | 完整 Compose | 登录、建 provider/model、创建并跑完一局 |
 | 安全测试 | 完整 Compose | IDOR、未授权读写、prompt 注入、权限提升 |
 | 容量与故障测试 | 类生产 PostgreSQL | 峰值动作、worker 崩溃、数据库抖动、AI 超时 |
 
-SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
+集成测试必须运行真实 PostgreSQL；内存或内存库通过不算过关。
 
 ## 12. 风险与缓解措施
 
 | 风险 | 影响 | 缓解 |
 | --- | --- | --- |
-| 逐行翻译大型 Python 服务 | 把旧耦合复制到 TS | 先定义领域 schema、纯 transition 和黄金轨迹，再重写游戏包 |
-| 游戏代码绕过平台保证（直接写库、泄漏隐藏状态） | 泄漏、脏状态、无法回放 | 游戏模块只拿到状态与事件、只能返回命令；投影由内核统一执行；代码评审与回归夹具 |
-| 游戏代码不确定（时间/随机/网络） | 回放不一致 | `transition` 纯函数约束 + 内核测试；随机种子与时间作为显式事件输入 |
+| 游戏代码绕过平台保证（直接写库、泄漏隐藏状态） | 泄漏、脏状态 | 游戏模块只拿到状态与事件、只能返回状态与事件；投影由内核统一执行（fail-closed）；代码评审与隐藏信息断言 |
+| 游戏代码不确定（时间/随机/网络） | 同一事件序列得到不同状态，记录与状态对不上 | `transition` 纯函数约束 + 内核测试；随机种子与时间作为显式事件输入 |
 | SQLite 掩盖生产差异 | CI 绿但 PG 故障 | 所有持久化和并发测试强制真实 PostgreSQL |
 | 隐藏信息泄漏 | 严重作弊和隐私事故 | 权威状态与玩家投影分离；按角色属性测试；日志和 prompt 脱敏 |
-| AI 调用拖垮对局或成本 | 卡局、费用不可控 | 平台只提供模型目录与凭据；游戏代码负责超时与降级，用量与成本指标随后续阶段补齐 |
-| 双写造成状态分叉 | 无法恢复和审计 | 按实例固定执行器；迁移期只路由，不对同一实例跨引擎双写 |
+| AI 调用拖垮对局或成本 | 卡局、费用不可控 | 平台提供模型目录与凭据；失败后果由游戏规则定义（`aiFailed`）；每次调用的用量随行入库（ADR-010），成本报表待做 |
 | 大资源存入 PG | 备份和复制膨胀 | 首版大小/配额限制；公开发布前评估对象存储 |
 | 一次性重写前后端 | 交付周期失控 | 按新实例灰度 |
 
-## 13. 前两个迭代的具体安排
+## 13. 下一步的具体安排
 
-### Iteration 1（第 1～2 周）
+按依赖顺序，一步一个可验证的闭环：
 
-- [x] `P0-01` 提交 5 份 ADR：数据库、运行时边界、schema 工具、数据访问层、资源存储。
-- [/] `P0-02` 录制至少 8 条旧系统黄金轨迹，覆盖正常、超时、断线和胜负。
-- [x] `P0-03` 给当前失败测试建立分类清单，确定真正的阻塞测试集。
-- [x] `P0-04` 在 `packages/contracts` 原型中定义 v0 领域事件和状态 schema。
-- [x] ~~`P0-05` 完成 LangGraph JS 与最小解释器对照验证~~ — 已关闭（2026-10-15）：DSL 与运行时适配器概念撤除，编排库退化为游戏代码内部选择。
-- [x] `P0-06` 评审 Beta 负载、租户角色和旧数据处置假设。
-- [/] `P0-07` 确定旧数据处置：创建默认 `legacy` 租户，保留历史对局，进行中房间切换时排空。
-
-核验 2026-10-14：`P0-01`、`P0-03`、`P0-04`、`P0-06` 已完成；`P0-07` 的处置决策已完成、回填脚本仍属 Phase 4。原迭代进度记录如下：`P0-01`、`P0-03`、`P0-04`、`P0-06` 和 `P0-07` 已完成；`P0-03` 的后端基线需在安装 Python 测试环境后补录。`P0-02` 已生成 10 条旧引擎规则轨迹，但超时、断线和 AI fallback 仍需从服务层补录，因此尚未完成。`P0-05` 已于 2026-10-15 关闭（对照对象消失），书面结论见 §7 与 §16 第六轮。
-
-迭代验收：可以用同一份测试夹具驱动旧 Python 行为记录和至少一个 TS 内核原型；关键 ADR 已评审，无悬而未决的数据库选择。
-
-### Iteration 2（第 3～4 周）
-
-- [x] ~~完成 LangGraph JS 技术验证的重启、并发、幂等、投影、版本和 AI fallback 测试~~ — 已撤销（2026-10-15）。
-- [x] ~~形成保留或放弃 LangGraph 作为第一版运行时的书面结论~~ — 已关闭：平台不内置编排运行时，游戏代码自行选择（§7）。
-- [x] 建立 pnpm workspace、Fastify API、worker 和共享契约包。
-- [x] 建立 PostgreSQL Compose 与第一条迁移。
-- [/] 建立 CI：lint、typecheck、unit、PG integration、build。 — 核验 2026-10-14：除 lint 外均已落地（`.github/workflows/platform-ci.yml`）
-- [/] 修正 Node/Vite/ESLint 基线，使新骨架全绿。 — 核验 2026-10-14：Node/pnpm 已统一；仓库无 ESLint 配置，lint 门禁仍缺
-
-核验 2026-10-14：workspace、API、worker、契约、Kysely、Compose、控制面与运行时迁移、租户仓储、Outbox/command/job claim-lease、session/membership 与 RLS 均已落地并通过真实 PostgreSQL 测试；仍缺 lint、刷新 token、跨租户 REST/WebSocket/worker 攻击测试、一键启动脚本和生产 handler。原迭代进度记录如下：已建立 workspace、Fastify API、worker、共享契约包、Kysely PostgreSQL 客户端、PostgreSQL Compose、控制面与游戏运行时核心表迁移、租户作用域仓储、Outbox/command/job claim-lease 基础、签名访问令牌/RBAC 原型、数据库 session/membership 查询接线、RLS 迁移和基础 CI。真实 PostgreSQL 迁移、重复迁移和非 owner RLS 集成测试均已通过；lint、刷新 token、跨租户 REST/WebSocket/worker 攻击测试、前端 TypeScript 边界和一键启动仍未完成。
-
-迭代验收：新 TS 骨架可在全新环境一键启动；CI 全绿；尚未把生产流量切入新系统。
+1. **对局 HTTP 入口**：创建对局（写 `game_instances` + `game_participants` + 首条记录行）、提交事件（校验幂等键、跑 `transition`、在同一事务里追加记录行并推进 `current_sequence`）、读自己的投影与完整记录（按 `sequence`）。
+2. **worker 的实例扫描**：找出 `running`/`waiting` 的对局，按实例取行锁，处理它当前欠的事（玩家输入超时、AI 席位等回复），推进完提交。
+3. **第一个代码化游戏**：`apps/platform/src/server/games/<slug>.ts` + 回归夹具（标准对局脚本、期望记录序列、隐藏信息断言）。
+4. **AI 席位**：每次模型调用写一行（`aiCall`，带用量、思考与签名字段），回合结果写一行；prompt 由 harness 按席位过滤组装。
 
 ## 14. 项目管理约定
 
 - 每项任务进入开发前必须写明输入、输出、测试和数据库影响。
-- 每个数据库变更使用 expand/contract，迁移脚本可重复验证并包含回滚说明。
-- 每个游戏模块必须带回归夹具（标准对局 + 期望事件序列），并证明隐藏信息不漏。
-- 每个外部副作用必须经过 command/outbox，不允许从纯引擎直接执行。
-- 每个实时事件必须有共享 schema、身份来源和幂等策略。
+- 每个数据库变更必须可重复执行并带 `.down.sql` 回滚体；greenfield 阶段允许直接重写迁移，不留兼容路径。
+- 每个游戏模块必须带回归夹具（标准对局 + 期望记录序列），并证明隐藏信息不漏。
+- 每个写入必须能回答三件事：谁触发的、幂等键是什么、失败重试会不会重复。
 - 每个阶段结束进行一次出口评审，不以“代码已合并”代替验收结果。
 - 工作看板建议使用任务编号 `P{phase}-{sequence}`，缺陷使用 `BUG-{sequence}`，架构决策使用 `ADR-{sequence}`。
 
-## 15. 需要在 Phase 0 最终确认的决策
+## 15. 技术决策与当前状态
 
-| 决策 | 当前建议 | 截止点 | 2026-10-14 状态 |
+| 决策 | 结论 | 依据 | 当前状态 |
 | --- | --- | --- | --- |
 | 生产数据库 | PostgreSQL only | `P0-01` | 已落地（ADR-001） |
-| API 框架 | Fastify | `P0-01` | 已落地（`apps/api`） |
+| API 框架 | Fastify | `P0-01` | 已落地（`apps/platform`） |
 | Schema 工具 | Zod 或 TypeBox 二选一 | `P0-01` | 已落地：Zod（ADR-003） |
 | 数据访问层 | Drizzle 或 Kysely 二选一 | `P0-01` | 已落地：Kysely（ADR-004） |
-| 首版运行时 | ~~由 LangGraph JS spike 决定~~ | `P0-05` | 已关闭：DSL 与适配器概念随 2026-10-15 撤除消失；编排库退化为游戏代码的内部选择（§7） |
-| 二进制资源 | PG `bytea` + 严格上限；发布前复审对象存储 | `P0-01` | 已落地（ADR-005）；发布前复审未做 |
-| 身份方案 | 自建会话还是托管 IdP | `P2-01` 前 | 已落地：自建会话 + 平台账号（`routes/platform-auth.ts`） |
-| 旧进行中对局 | 默认排空，不自动迁移 | `P0-07` | 已决策；greenfield 下旧线不在门槛内，回填工具未实现 |
-| Beta 容量目标 | 默认 100 房间 / 1000 在线 / 20 动作每秒 | `P0-06` | 已记录（`docs/phase0-load-and-legacy-decision.md`）；容量测试未做 |
+| 首版运行时 | 无编排运行时 | `P0-05` | 已关闭：编排库是游戏代码的内部选择（§7） |
+| 二进制资源 | PG `bytea` + 严格上限；发布前复审对象存储 | ADR-005 | 决策保留；尚无使用点 |
+| 身份方案 | 自建账号 + 不透明会话 | `P2-01` 前 | 已落地（`routes/platform-auth.ts`） |
+| 旧数据与切流 | 不迁移、不双轨 | 2026-10-15 | 已作废（见 §9） |
+| Beta 容量目标 | 默认 100 房间 / 1000 在线 / 20 动作每秒 | `P0-06` | 目标保留；容量测试未做 |
 
 ## 16. 核验结论与下一步
 
-核验方式：对照 `apps/`、`packages/` 源码、迁移文件、测试与已提交历史逐项判定，不采信进度报告的自我描述。§8 的任务勾选状态随时间变化，以下结论以最新一轮为准。
+核验方式：对照 `apps/platform` 源码、迁移文件、测试与已提交历史逐项判定，不采信文档的自我描述。§8 的任务勾选状态随时间变化，以下结论以最新一轮为准。
 
 ### 已完成的主干（截至 2026-10-15）
 
-- 工程骨架与 CI：pnpm workspace、Fastify API、worker、`packages/{contracts,db,runtime,workflow-engine}`、真实 PostgreSQL 集成与迁移回滚门禁（`P1-01`、`P1-02`、`P1-04`、`P1-06`、`P1-07`）。
-- 控制面与认证：平台账号、持久化 session、首登强制改密、管理员建号与重置、Provider/Model 管理、AEAD 凭据加密、审计（`P2-01`、`P2-03`、`P2-05`）。
-- 中立内核：玩家视图投影（fail-closed）、事件重放、转换与错误类型（`packages/workflow-engine`）。
-- 对局底座：`game_instances`/`game_participants`/`game_events`/`game_snapshots`/`player_actions`/`pending_commands`/`scheduled_jobs`/`outbox_events` + 租户 RLS + 队列 claim/lease/重试。
+- 工程骨架：单包 `apps/platform`（shared/server/browser 三个 tsconfig project）、一个镜像两种角色、真实 PostgreSQL 集成与迁移回滚门禁。
+- 控制面与认证：管理员建号与重置、首登强制改密、不透明会话 + CSRF、Provider/Model 管理与 AEAD 凭据加密、审计。
+- 中立内核：`GameModule` + `GameRegistry` + `createBaseState` + `projectPlayerView`（fail-closed）+ `EngineError`/`TransitionResult`。
+- 数据底座：8 张表——账号 2、模型目录 2、对局 3（`game_instances`/`game_participants`/`game_events`）、审计 1。
 
 ### 关键断点（比任务勾选更重要）
 
-1. **没有游戏运行时**：DSL 撤除后（§16 第六轮），创建与推进对局的 HTTP 入口、游戏模块接口与注册表都不存在，平台目前只能做账号、租户与模型管理。
-2. **worker 空转**：claim/lease/outbox 循环在位，但没有 handler，因为没有生产者。
-3. **AI 能力只剩目录与凭据**：`providers`/`provider_models` 与 `secret-box` 保留，调用链（命令、重试、降级、用量）随 DSL 的 AI 节点一并删除。
-4. **`outbox_events` 无 handler**：它的 handler 是广播传输层，属实时阶段。
-5. **前端只有账号与模型配置页面**（`apps/web` 的 Login/Users/Providers/Lobby），没有对局界面。
+1. **没有对局运行时**：创建/推进对局的 HTTP 入口还不存在，`GameRegistry` 没有消费者（运行时注册表是空的，`games/` 目录也还没建），平台目前只能做账号与模型目录管理。
+2. **worker 无事可做**：实例扫描随对局运行时落地，当前循环只打日志。
+3. **`game_participants` 与 `game_events` 零代码引用**：连仓储函数都还没有（追加事件、乐观推进、席位写入）。
+4. **AI 能力只剩目录与凭据**：没有调用链，没有用量记录；席位实现时要落 `aiCall` 行。
+5. **前端只有账号与模型配置页面**：`src/browser` 的 Login/ChangePassword/Lobby/Users/Providers，没有对局界面。
 
 ### 历史复核记录
 
@@ -654,8 +600,6 @@ SQLite 测试通过不能替代 PostgreSQL 集成测试通过。
 
 ## 17. 参考资料
 
-- [LangGraph JS Overview](https://docs.langchain.com/oss/javascript/langgraph/overview)
-- [LangGraph JS Persistence](https://docs.langchain.com/oss/javascript/langgraph/persistence)
-- [LangGraph JS Interrupts](https://docs.langchain.com/oss/javascript/langgraph/interrupts)
-- [PostgreSQL Row Security Policies](https://www.postgresql.org/docs/current/ddl-rowsecurity.html)
 - [PostgreSQL JSON Types](https://www.postgresql.org/docs/current/datatype-json.html)
+- [PostgreSQL Explicit Locking](https://www.postgresql.org/docs/current/explicit-locking.html)
+- [Zod](https://zod.dev/)、[Kysely](https://kysely.dev/)

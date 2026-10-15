@@ -2,17 +2,17 @@
 
 - 状态：Accepted
 - 日期：2026-08-23
-- 范围：REST、Socket.IO、工作流定义和 worker 消息
+- 范围：REST 请求与响应、事件记录与状态契约
 
 ## 背景
 
-迁移计划要求前后端共享 API、事件与 WebSocket 契约。仅使用 TypeScript 接口无法校验来自网络、数据库或旧系统的运行时数据，也容易重新产生重复 DTO。
+前后端需要共享 API、事件与状态契约。仅使用 TypeScript 接口无法校验来自网络或数据库的运行时数据，也容易重新产生重复 DTO。
 
 ## 决策
 
-共享契约包使用 Zod 定义运行时 schema，并从 schema 推导 TypeScript 类型。API、WebSocket 和 worker 边界先解析未知输入，再将已验证的类型交给领域代码。契约变更必须增加兼容性测试。
+共享契约（`src/shared`）使用 Zod 定义运行时 schema，并从 schema 推导 TypeScript 类型。API 边界先解析未知输入，再把已验证的类型交给领域代码。契约变更必须增加兼容性测试。
 
-v0 契约保持平台中立：只描述身份引用、事件、状态、玩家视图和外部命令，不包含 Fastify、Socket.IO、LangGraph 或数据库 ORM 类型。
+契约保持平台中立：只描述事件记录、状态、玩家视图与参与者，不包含 Fastify、数据库 ORM 或任何编排库的类型。游戏自己的事件类型是自由字符串，词表属于游戏。
 
 ## 后果
 

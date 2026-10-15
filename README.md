@@ -1,349 +1,72 @@
-# AI-Powered Tabletop Game Platform
+# VBRPG 游戏平台
 
-A multiplayer web-based platform for playing Crime Scene tabletop games with friends, powered by AI agents to fill empty player slots.
+多人桌游平台：真人与 AI 席位同桌。**游戏规则写成 TypeScript 模块**（`apps/platform/src/server/games/<slug>.ts`），平台只管承载对局——身份、存储、投影、记录与调度，不解释任何游戏规则。
 
-## Features
+## 现状（截至 2026-10-15）
 
-- **Guest Mode**: Play immediately without account registration
-- **AI-Powered**: Intelligent AI agents fill empty player slots using LLMs
-- **Real-Time Multiplayer**: WebSocket-based game state synchronization
-- **Responsive Web UI**: Works on desktop and mobile browsers
-- **Simple Room System**: Create or join games with 6-character room codes
-- **Player Accounts**: Optional registration to track stats and history
+已交付：
 
-## Tech Stack
+- **账号与会话**：管理员建号与重置、首登强制改密、不透明会话（HttpOnly Cookie + 滑动/绝对过期）、CSRF、限流、审计。
+- **模型目录**：Provider / Model 的增删改与连接测试（含 SSRF 防护），API Key 用 AES-256-GCM 加密存列内，任何接口都不回读密文。
+- **中立内核**：`GameModule` 接口 + `GameRegistry` + `createBaseState` + `projectPlayerView`（三档投影，fail-closed）+ `EngineError`/`TransitionResult`。
+- **数据底座**：8 张表——账号 2、模型目录 2、对局 3（`game_instances`/`game_participants`/`game_events`）、审计 1。
 
-### Backend
-- **Python 3.11+**: Core backend language
-- **FastAPI**: Modern async web framework
-- **python-socketio**: WebSocket communication (Socket.IO protocol)
-- **LangChain**: LLM integration framework
-- **SQLAlchemy**: Async ORM for database access
-- **SQLite**: Embedded database (WAL mode for concurrency)
+未实现：对局 HTTP 入口、worker 的实例扫描、第一个游戏模块、AI 席位、任何对局界面。缺口的完整清单见 `docs/platform-migration-plan.md` §16。
 
-### Frontend
-- **Vue 3**: Progressive JavaScript framework (Composition API)
-- **Element-Plus**: Vue 3 UI component library
-- **Vite**: Fast build tool and dev server
-- **Pinia**: State management
-- **Vue Router**: Client-side routing
-- **socket.io-client**: WebSocket client library
+## 结构
 
-## Quick Start
-
-### Prerequisites
-
-- **Python 3.11+**: [Download Python](https://www.python.org/downloads/)
-- **Node.js 18+**: [Download Node.js](https://nodejs.org/)
-- **Git**: [Download Git](https://git-scm.com/)
-
-### Installation
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/yourusername/vbrpg.git
-   cd vbrpg
-   ```
-
-2. **Set up the backend**:
-   ```bash
-   cd backend
-   
-   # Create virtual environment
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   
-   # Install dependencies
-   pip install -r requirements.txt
-   
-   # Create .env file
-   cp .env.example .env
-   # Edit .env and add your LLM API keys (OpenAI, Anthropic, etc.)
-   
-   # Initialize database
-   python -m alembic upgrade head
-   ```
-
-3. **Set up the frontend**:
-   ```bash
-   cd ../frontend
-   
-   # Install dependencies
-   npm install
-   
-   # Create .env file
-   cp .env.example .env.local
-   # Edit .env.local if needed (API URL defaults to http://localhost:8000)
-   ```
-
-### Running the Application
-
-1. **Start the backend** (from `backend/` directory):
-   ```bash
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
-   ```
-
-2. **Start the frontend** (from `frontend/` directory, in a new terminal):
-   ```bash
-   npm run dev
-   ```
-
-3. **Access the application**:
-   - Frontend: http://localhost:5173
-   - Backend API: http://localhost:8000
-   - API Documentation: http://localhost:8000/docs
-
-## Usage
-
-### Creating a Game
-
-1. Open the application in your browser
-2. Click "Create Room"
-3. Configure game settings:
-   - Number of players (2-6)
-   - Difficulty level (Easy/Medium/Hard)
-   - Turn time limit (30-300 seconds)
-   - Enable/disable AI narrator
-4. Click "Create" - you'll receive a 6-character room code
-5. Share the room code with friends
-
-### Joining a Game
-
-1. Click "Join Room"
-2. Enter the 6-character room code
-3. Wait in the lobby until the room creator starts the game
-4. When the game starts, AI agents will fill any empty slots
-
-### Playing the Game
-
-- **Your Turn**: Take actions when it's your turn (investigate, question, move, examine, etc.)
-- **Turn Timer**: Watch the countdown - you have limited time per turn
-- **Chat**: Communicate with other players using the in-game chat
-- **Reconnection**: If disconnected, rejoin within 5 minutes to resume your game
-
-### Player Accounts (Optional)
-
-- Create an account to track your game statistics
-- View game history and win rates
-- Upgrade from guest to registered account
-- Guest accounts are retained for 30 days
-
-## Development
-
-### Project Structure
-
+```text
+apps/platform/
+  src/shared/     # 契约：Zod schema + 类型（浏览器安全，不许 import node 内建）
+  src/server/     # Fastify 路由、鉴权、存储、worker、游戏内核
+    game/         # 中立内核：GameModule、注册表、投影
+    db/           # Kysely 类型、仓储、迁移读取
+    runtime/      # 凭据加密、错误形状
+  src/browser/    # Vue 3 控制台（构建成静态资源，由同一进程同源提供）
+  migrations/     # SQL 迁移（0001 账号与模型目录、0002 对局运行时）
+  scripts/        # migrate / bootstrap-admin / db-integration / provider check
+  e2e/            # Playwright
 ```
 
-### Quick connectivity test (Deepseek / OpenAI-compatible providers)
+一个镜像两种角色：`node dist/server/main.js --role=api|worker|both`。
 
-From the `backend/` directory you can run a quick connectivity check to verify your configured API key and base URL:
+## 快速开始
 
 ```bash
-# set (or export) these in your environment / .env
-export AI_API_KEY="sk-your-deepseek-key"
-export AI_API_BASE_URL="https://api.deepseek.example"
+pnpm install
+docker compose -f docker-compose.platform.yml up -d platform-postgres
+export DATABASE_URL="postgres://vbrpg:vbrpgpassword@localhost:5433/vbrpg_platform"
+export PLATFORM_CREDENTIAL_KEY="$(openssl rand -base64 32)"   # 生产必填
 
-# run the connectivity test script
-python3 scripts/test_deepseek_llm.py
+pnpm migrate
+pnpm bootstrap-admin -- --username admin --password 'ChangeMe-123456'
+
+pnpm dev          # api + 静态控制台（3000）
+pnpm dev:worker   # worker 角色
+pnpm dev:web      # 前端热更新（5173，代理 /v1 到 3000）
 ```
 
-The script will send a trivial prompt and print the response. If it fails, check your `AI_API_KEY` and `AI_API_BASE_URL` values.
-vbrpg/
-├── backend/
-│   ├── src/
-│   │   ├── api/           # REST API endpoints
-│   │   ├── database.py    # Database setup and session management
-│   │   ├── models/        # SQLAlchemy models
-│   │   ├── services/      # Business logic services
-│   │   ├── websocket/     # WebSocket event handlers
-│   │   ├── utils/         # Utility functions
-│   │   └── main.py        # FastAPI application entry point
-│   ├── tests/             # Backend tests
-│   │   ├── unit/          # Unit tests
-│   │   └── integration/   # Integration tests
-│   ├── alembic/           # Database migrations
-│   ├── requirements.txt   # Python dependencies
-│   └── Dockerfile         # Backend container
-├── frontend/
-│   ├── src/
-│   │   ├── components/    # Vue components
-│   │   ├── views/         # Page views
-│   │   ├── stores/        # Pinia state stores
-│   │   ├── services/      # API and WebSocket services
-│   │   ├── utils/         # Utility functions
-│   │   └── main.js        # Vue application entry point
-│   ├── tests/             # Frontend tests
-│   ├── package.json       # Node dependencies
-│   └── Dockerfile         # Frontend container
-├── specs/                 # Feature specifications
-└── README.md             # This file
-```
+## 验证
 
-### Running Tests
-
-**Backend tests**:
 ```bash
-cd backend
-source .venv/bin/activate
-pytest                    # Run all tests
-pytest tests/unit/        # Run unit tests only
-pytest tests/integration/ # Run integration tests only
-pytest --cov=src          # Run with coverage
+pnpm build        # tsc + vite build
+pnpm typecheck    # shared / server / browser 三个 project
+pnpm test         # 单元与契约测试
+pnpm test:db      # 真实 PostgreSQL 集成测试（需要 DATABASE_URL）
+pnpm test:e2e     # Playwright
 ```
 
-**Frontend tests**:
-```bash
-cd frontend
-npm run test              # Run unit tests
-npm run test:e2e          # Run E2E tests (requires app running)
-```
+## 文档
 
-### Database Migrations
+| 文档 | 内容 |
+| --- | --- |
+| `docs/platform-migration-plan.md` | 计划、当前进度、决策日志（§16 按轮次记录） |
+| `docs/adr/` | 架构决策记录（001 起，008/009/010 是最近的收敛） |
+| `docs/mvp-scope.md` | MVP 范围与下一步 |
+| `docs/operations/phase1-platform.md` | 运维手册：环境变量、迁移、回滚、排障 |
+| `docs/api/phase1-openapi.yaml` | 控制面 API 契约 |
+| `docs/design/`、`docs/security/` | 认证与凭据的安全设计、威胁模型 |
 
-**Create a new migration**:
-```bash
-cd backend
-alembic revision --autogenerate -m "Description of changes"
-```
+## 旧系统
 
-**Apply migrations**:
-```bash
-alembic upgrade head
-```
-
-**Rollback**:
-```bash
-alembic downgrade -1
-```
-
-### Code Quality
-
-**Backend linting**:
-```bash
-cd backend
-ruff check .              # Check for issues
-ruff check . --fix        # Auto-fix issues
-```
-
-**Frontend linting**:
-```bash
-cd frontend
-npm run lint              # Check for issues
-npm run lint:fix          # Auto-fix issues
-```
-
-## Deployment
-
-See [docs/deployment.md](docs/deployment.md) for detailed deployment instructions including:
-- Docker Compose setup
-- Environment variable configuration
-- Production considerations
-- Scaling strategies
-- Backup procedures
-
-## API Documentation
-
-- **Interactive API Docs**: http://localhost:8000/docs (Swagger UI)
-- **ReDoc**: http://localhost:8000/redoc
-- **Detailed API Documentation**: [docs/api.md](docs/api.md)
-
-## Configuration
-
-### Backend Environment Variables
-
-Create `backend/.env`:
-
-```env
-# LLM Configuration
-# Preferred (new) settings for AI provider: use AI_API_KEY and AI_API_BASE_URL
-# AI_API_KEY is the primary key used by the backend; it falls back to OPENAI_API_KEY for compatibility.
-AI_API_KEY=your_openai_or_deepseek_api_key_here
-AI_API_BASE_URL=            # Optional: custom API base URL for OpenAI-compatible providers (e.g. Deepseek)
-OPENAI_API_KEY=your_openai_api_key_here  # optional fallback for backward compatibility
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-LLM_PROVIDER=openai  # or "anthropic"
-LLM_MODEL=gpt-4      # or "claude-3-opus-20240229"
-
-# Database
-DATABASE_URL=sqlite+aiosqlite:///./game_platform.db
-
-# Security
-SECRET_KEY=your_secret_key_here_change_in_production
-SESSION_COOKIE_SECURE=false  # Set to true in production with HTTPS
-
-# Server
-CORS_ORIGINS=http://localhost:5173,http://localhost:3000
-LOG_LEVEL=INFO
-
-# Game Settings
-TURN_TIMEOUT_SECONDS=60
-RECONNECTION_GRACE_PERIOD_MINUTES=5
-GUEST_RETENTION_DAYS=30
-```
-
-### Frontend Environment Variables
-
-Create `frontend/.env.local`:
-
-```env
-VITE_API_URL=http://localhost:8000
-VITE_WS_URL=ws://localhost:8000
-```
-
-## Performance
-
-The platform is designed to support:
-- **50 concurrent game sessions**
-- **200 simultaneous players**
-- **AI responses within 10 seconds** (95th percentile)
-- **Game state sync within 1 second**
-- **99% uptime availability**
-
-## Security Considerations
-
-- Input validation on all user inputs
-- SQL injection prevention via SQLAlchemy ORM
-- XSS protection via content sanitization
-- Rate limiting on API endpoints
-- Secure session cookies
-- CORS configuration
-
-**Note**: This is a proof-of-concept platform with basic security. For production use, consider:
-- Implement authentication (JWT, OAuth)
-- Add HTTPS/TLS encryption
-- Enhanced rate limiting
-- DDoS protection
-- Security audit and penetration testing
-
-## Limitations
-
-- **Single-session games**: No save/resume functionality
-- **LLM dependency**: Game terminates if LLM service fails
-- **Reconnection window**: 5 minutes before AI replacement
-- **Guest data retention**: 30 days
-- **One game type**: Crime Scene (framework ready for more)
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## License
-
-[MIT License](LICENSE)
-
-## Support
-
-For issues, questions, or contributions:
-- **Issues**: [GitHub Issues](https://github.com/yourusername/vbrpg/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/vbrpg/discussions)
-
-## Acknowledgments
-
-- Crime Scene game mechanics inspired by classic tabletop mystery games
-- AI integration powered by OpenAI and Anthropic language models
-- Built with modern web technologies and best practices
+仓库根的 `backend/`（Python/FastAPI + Socket.IO）与 `frontend/`（Vue 2）是旧实现，**只作领域参考**：不迁移它的数据、不复刻它的接口、不维护它的运行契约。新平台是 greenfield，`apps/platform` 是唯一在维护的代码。

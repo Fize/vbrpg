@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-08-23
-- 范围：迁移后的 `packages/db` 和 repository 实现
+- 范围：`apps/platform/src/server/db` 与 repository 实现
 
 ## 背景
 
@@ -16,6 +16,6 @@
 
 ## 后果
 
-- Kysely 类型只存在于 `packages/db`，不能进入领域契约和纯引擎。
+- Kysely 类型只存在于 `src/server/db`，不进入 `src/shared` 的契约，也不进入 `src/server/game` 的内核。
 - 数据库迁移需要同时提供升级和回滚说明，并在 PostgreSQL 上验证。
-- 新代码不复用旧 SQLAlchemy model；旧数据回填使用单独的可重试脚本。
+- 不复用旧 SQLAlchemy model，也不迁移旧数据（greenfield）。

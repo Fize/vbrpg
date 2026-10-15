@@ -8,7 +8,7 @@ This design implements the confirmed threat model in `docs/security/phase1-auth-
 ## Decisions
 
 - Login identifier: normalized username, matching the existing `users.username` model. No public registration or email delivery.
-- Roles: platform `admin` and `user`. Existing tenant/RLS context remains an internal database isolation mechanism; users do not manage tenants.
+- Roles: platform `admin` and `user` only. There is no tenant layer and no RLS (ADR-008).
 - Browser authentication: opaque server-side sessions in PostgreSQL; no bearer token or session identifier in localStorage.
 - Password hash: Node.js built-in `crypto.scrypt` with a unique 16-byte random salt, 32-byte derived key and explicit parameters `N=32768, r=8, p=1`; store a versioned encoding. Constant-time derived-key comparison. This avoids a new native password-hashing dependency; parameters must be re-evaluated against production memory/latency before release.
 - Provider secret encryption: AES-256-GCM using a 32-byte deployment master key supplied by a secret manager, 12-byte random nonce, 16-byte tag, and a key-version field. Associated data binds ciphertext to provider ID and secret purpose. Never persist plaintext; secret write/replace only, no read-back route.
@@ -73,7 +73,7 @@ Connection tests make privileged outbound requests and are the highest-risk feat
 
 ## Input Validation and Error Handling
 
-- Define Zod schemas for all request/response payloads in `packages/contracts`; reject unknown or malformed fields and cap username/password/provider/model/URL lengths.
+- Define Zod schemas for all request/response payloads in `src/shared`; reject unknown or malformed fields and cap username/password/provider/model/URL lengths.
 - Validate provider URL on create/update and again at connection-test time. Do not accept credential fields in URL.
 - Use Kysely parameterized queries only. Apply FK/unique/check constraints in Postgres, not only application validation.
 - Return generic authentication errors and stable application error codes. Internal logs may contain stack traces only for non-sensitive failures after redaction; never log raw request, cookies, passwords, decrypted keys or provider response bodies.
@@ -81,11 +81,11 @@ Connection tests make privileged outbound requests and are the highest-risk feat
 
 ## Database and Migrations
 
-- Add account password hash/status/role columns or an equivalent normalized table; retain the current internal user/tenant model only where necessary for current middleware and RLS.
+- Add account password hash/status/role columns to `users`; there is no tenant model to retain (ADR-008).
 - Add/extend `auth_sessions` for `token_hash`, CSRF token hash, `last_seen_at`, absolute expiry, revoked time and indexes. Remove or stop using any bearer-token-only auth path for the browser.
 - Add providers, provider_models and audit records with foreign keys, uniqueness and enabled-state constraints. Store encrypted credential material only.
-- RLS-protected tables require repository operations to establish tenant/system context in the transaction before access. Admin role checks remain mandatory in application code.
-- Each migration documents a down path; down migrations refuse destructive drops when populated unless an explicit operator backup/confirmation process is used.
+- Authorization is enforced in application code: every protected route re-reads the role from the database. There is no RLS layer (ADR-008).
+- Each migration ships a `.down.sql` sidecar. During greenfield the schema is rewritten in place rather than migrated forward, so a stale local database is rebuilt instead of upgraded.
 
 ## Security Tests / Release Gates
 
