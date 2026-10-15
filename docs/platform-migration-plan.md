@@ -157,9 +157,11 @@ class GameRegistry { get(id); require(id); list(); }   // 启动时注册，重�
 
 **动作即事件**：
 
-- `GameModule.actions`（静态目录）：`{ name, description, args }`，其中 `name` 就是事件类型，`args` 是 payload 的字段与说明。
+- `GameModule.actions`（静态目录）：`{ name, description, args, audience }`，其中 `name` 就是事件类型，`args` 是 payload 的字段与说明，`audience` 决定该动作的内容是进公共转录（`room`，默认）还是只留给席位自己（`seat`，例如秘密投票）。
 - `waiting.actions`：当前这一步**允许的名字子集**。
 - 平台执行一次工具调用 = 用 `{ type: name, payload: args }` 走 M1 的写入路径。真人与 AI 从同一个口子进，没有第二条通道。
+- `GameModule.briefing(state, participantId)`：游戏用自己的话写规则；平台再补上该席位的私有状态。两者都是对局内不变的，因此都进 `system`。
+- `aiCall` 行的 payload 形状进契约（`aiCallPayloadSchema`）：回复原文、思考、provider 签名字段、`finishReason`、工具调用。带 `tools` 的 provider 要求把自己的思考原样回传，所以它是**逐字重放**的字段，不是给人看的备注。
 
 **prompt 布局为"前缀稳定"**（缓存按前缀命中，工具表一动，后面整段转录都要重算）：
 
@@ -301,9 +303,9 @@ DSL 撤除后，这个问题变简单了：**编排库是游戏代码的内部�
 
 目标：AI 坐进席位，和真人走**同一条写入路径**，并且 prompt 前缀在对局内保持稳定。
 
-- [ ] `M2-01` **动作契约**：`waiting.actions`（允许的名字子集）+ `GameModule.actions`（静态目录）；删掉 `waiting.kind` 的 `'ai'`；`undercover` 填目录（`seatMessage` / `vote`）并在每个等待点声明子集。
-- [ ] `M2-02` **模型客户端**：OpenAI 兼容的 `chat/completions`（支持 `tools`），复用 SSRF 防护与超时/体积上限，解析 `content` / `tool_calls` / `usage`；传输层可注入，便于测试。
-- [ ] `M2-03` **prompt 组装（前缀稳定）**：`tools` 全量目录、`system` 规则 + 人格 + 私有状态、尾部指令写当前回合与允许动作；跨回合逐字保持稳定部分不变。
+- [x] `M2-01` **动作契约**：`waiting.actions`（允许的名字子集）+ `GameModule.actions`（静态目录）；删掉 `waiting.kind` 的 `'ai'`；`undercover` 填目录（`seatMessage` / `vote`）并在每个等待点声明子集。
+- [x] `M2-02` **模型客户端**：OpenAI 兼容的 `chat/completions`（支持 `tools`），复用 SSRF 防护与超时/体积上限，解析 `content` / `tool_calls` / `usage`；传输层可注入，便于测试。
+- [x] `M2-03` **prompt 组装（前缀稳定）**：`tools` 全量目录、`system` 规则 + 人格 + 私有状态、尾部指令写当前回合与允许动作；跨回合逐字保持稳定部分不变。
 - [ ] `M2-04` **worker 扫描 + 席位执行器**（并入原 `M1-04`）：扫 `running`/`waiting` 的对局 → 按实例取行锁 → 待办席位里是 AI 的就替它走一步：组装 prompt → 调模型 → 按允许集校验工具调用 → 拒绝以工具结果回灌 → 走 `submit` 写入路径 → 写 `aiCall` 行（一次调用一行）。
 - [ ] `M2-05` **失败与上限**：单次调用超时、每回合迭代上限、模型不可用 → `aiFailed`，后果由游戏规则定义。
 

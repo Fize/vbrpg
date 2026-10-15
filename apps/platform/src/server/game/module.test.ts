@@ -17,7 +17,7 @@ const greeting: GameModule = {
           sequence: event.sequence,
           status: "waiting",
           stepId: "ask",
-          waiting: { kind: "playerInput", stepId: "ask", participantIds: ["p1"] },
+          waiting: { kind: "playerInput", stepId: "ask", participantIds: ["p1"], actions: ["answer"] },
         },
       events: [event],
     };

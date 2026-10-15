@@ -22,9 +22,11 @@ export const participantSchema = z.object({
 });
 
 export const waitingSchema = z.object({
-  kind: z.enum(["playerInput", "collectInput", "timer", "ai"]),
+  kind: z.enum(["playerInput", "collectInput", "timer"]),
   stepId: idSchema,
   participantIds: z.array(idSchema).default([]),
+  /** Action names this step accepts. The game's catalogue defines what each one means. */
+  actions: z.array(idSchema).default([]),
   deadlineMs: z.number().int().nonnegative().optional(),
 });
 
@@ -88,6 +90,18 @@ export const gameEventSchema = z.object({
   usage: eventUsageSchema.nullable(),
 });
 
+/** What an `aiCall` row carries: the reply, the provider's reasoning and the tool calls. */
+export const aiCallPayloadSchema = z.object({
+  content: z.string().nullish(),
+  reasoning: z.string().nullish(),
+  /** Provider-bound opaque field that must be replayed verbatim (e.g. a thinking signature). */
+  reasoningSignature: z.string().nullish(),
+  finishReason: z.string().nullish(),
+  toolCalls: z
+    .array(z.object({ id: z.string(), name: z.string(), arguments: z.string() }))
+    .default([]),
+});
+
 export const seatRequestSchema = z
   .object({
     key: z.string().min(1).max(64),
@@ -133,6 +147,7 @@ export type GameEvent = z.infer<typeof gameEventSchema>;
 export type GameState = z.infer<typeof gameStateSchema>;
 export type Participant = z.infer<typeof participantSchema>;
 export type SeatRequest = z.infer<typeof seatRequestSchema>;
+export type AiCallPayload = z.infer<typeof aiCallPayloadSchema>;
 export type CreateMatchRequest = z.infer<typeof createMatchRequestSchema>;
 export type SubmitEventRequest = z.infer<typeof submitEventRequestSchema>;
 export type PlayerView = z.infer<typeof playerViewSchema>;
@@ -147,6 +162,10 @@ export function parseGameState(input: unknown): GameState {
 
 export function parsePlayerView(input: unknown): PlayerView {
   return playerViewSchema.parse(input);
+}
+
+export function parseAiCallPayload(input: unknown): AiCallPayload {
+  return aiCallPayloadSchema.parse(input);
 }
 
 export function parseCreateMatchRequest(input: unknown): CreateMatchRequest {

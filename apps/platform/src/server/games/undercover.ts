@@ -1,7 +1,7 @@
 import type { GameEvent, GameState, Participant } from "../../shared/index.js";
 import { platformEventTypes } from "../../shared/index.js";
 import { EngineError, type TransitionResult } from "../game/errors.js";
-import { createBaseState, type CreateInstanceInput, type GameModule } from "../game/module.js";
+import { createBaseState, type ActionDefinition, type CreateInstanceInput, type GameModule } from "../game/module.js";
 import type { Visibility } from "../game/projector.js";
 
 /**
@@ -47,8 +47,28 @@ function hash(input: string): number {
   return Math.abs(value);
 }
 
+const ACTIONS: readonly ActionDefinition[] = [
+  {
+    name: platformEventTypes.seatMessage,
+    description: "用一句话描述你拿到的词，不要直接说出它。",
+    args: { text: "你要说的话" },
+    audience: "room",
+  },
+  {
+    name: "vote",
+    description: "投出你认为最像卧底的席位。",
+    args: { target: "目标的 participantId" },
+    audience: "seat",
+  },
+];
+
 function waitingFor(stepId: "describe" | "vote", seats: string[]): GameState["waiting"] {
-  return { kind: "collectInput", stepId, participantIds: seats };
+  return {
+    kind: "collectInput",
+    stepId,
+    participantIds: seats,
+    actions: stepId === "describe" ? [platformEventTypes.seatMessage] : ["vote"],
+  };
 }
 
 function withStatus(participants: Participant[], eliminated: string | null): Participant[] {
@@ -93,6 +113,20 @@ export const undercover: GameModule = {
   id: "undercover",
   version: "1.0.0",
   engineVersion: "core-1",
+  actions: ACTIONS,
+
+  /** The rules, in the game's own words. Stable for the match, so it can sit in the prompt head. */
+  briefing(state: GameState, participantId: string): string {
+    const seat = state.participants.find((candidate) => candidate.participantId === participantId);
+    if (!seat) throw new EngineError("UNKNOWN_SEAT", "That seat is not in this match");
+    return [
+      "你在玩「谁是卧底」。大多数席位拿到同一个词，只有一名卧底拿到近义词。",
+      "每回合先由所有在世席位轮流用一句话描述自己的词，然后全体投票，得票最多的席位出局。",
+      "卧底出局则平民获胜；卧底留到最后两人则卧底获胜。平票时不淘汰，直接进入下一回合。",
+      `你在这局里的角色是 ${seat.roleId === "undercover" ? "卧底" : "平民"}。`,
+      "不要直接说出你的词，用一句话让别人猜不出又让同伴认得出。",
+    ].join("\n");
+  },
 
   /**
    * Rules are computed from the state because a seat's secret is only addressable once the seats

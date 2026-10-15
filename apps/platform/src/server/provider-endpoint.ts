@@ -320,53 +320,66 @@ function pinnedLookup(pinned: PinnedAddress) {
   };
 }
 
-function performPinnedRequest(
-  endpoint: ProviderEndpoint,
-  pinned: PinnedAddress,
-  apiKey: string,
-): Promise<number> {
-  return new Promise<number>((resolve, reject) => {
+/** One pinned JSON request; the connection test and the model client share it. */
+export interface PinnedJsonRequest {
+  endpoint: ProviderEndpoint;
+  pinned: { address: string; family: 4 | 6 };
+  method: "GET" | "POST";
+  path: string;
+  headers: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export function performPinnedJsonRequest(
+  options: PinnedJsonRequest,
+): Promise<{ status: number; body: string }> {
+  const timeoutMs = options.timeoutMs ?? TOTAL_TIMEOUT_MS;
+  const maxBytes = options.maxBytes ?? MAX_RESPONSE_BYTES;
+
+  return new Promise((resolve, reject) => {
     // The socket destination is the address that was validated: no second DNS
     // lookup happens, so a rebinding record cannot redirect the connection.
     const request = httpsRequest(
       {
         protocol: "https:",
-        hostname: endpoint.hostname,
-        port: endpoint.url.port === "" ? 443 : Number(endpoint.url.port),
-        path: modelsPath(endpoint.url),
-        method: "GET",
-        servername: endpoint.hostname,
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-          accept: "application/json",
-          "user-agent": "vbrpg-connection-test/1",
-        },
-        timeout: CONNECT_TIMEOUT_MS,
-        lookup: pinnedLookup(pinned) as never,
+        hostname: options.endpoint.hostname,
+        port: options.endpoint.url.port === "" ? 443 : Number(options.endpoint.url.port),
+        path: options.path,
+        method: options.method,
+        servername: options.endpoint.hostname,
+        headers: options.headers,
+        timeout: timeoutMs,
+        lookup: pinnedLookup(options.pinned) as never,
       },
       (response) => {
-        let received = 0;
-        const status = response.statusCode ?? 0;
+       let received = 0;
+        const chunks: Buffer[] = [];
         response.on("data", (chunk: Buffer) => {
           received += chunk.length;
-          if (received > MAX_RESPONSE_BYTES) {
+          if (received > maxBytes) {
             const error: NodeJS.ErrnoException = new Error("Provider response exceeded the size limit");
             error.code = "ERR_RESPONSE_BODY_TOO_LARGE";
             request.destroy();
             reject(error);
+            return;
           }
+          chunks.push(chunk);
         });
-        response.on("end", () => resolve(status));
+        response.on("end", () =>
+          resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }),
+        );
         response.on("error", reject);
       },
     );
 
     const totalTimer = setTimeout(() => {
-      const error: NodeJS.ErrnoException = new Error("Provider connection test timed out");
+      const error: NodeJS.ErrnoException = new Error("Provider request timed out");
       error.code = "ETIMEDOUT";
       request.destroy(error);
       reject(error);
-    }, TOTAL_TIMEOUT_MS);
+    }, timeoutMs);
 
     const finish = () => clearTimeout(totalTimer);
     request.on("timeout", () => {
@@ -379,6 +392,25 @@ function performPinnedRequest(
       finish();
       reject(error);
     });
+    if (options.body !== undefined) request.write(options.body);
     request.end();
   });
+}
+
+function performPinnedRequest(
+  endpoint: ProviderEndpoint,
+  pinned: PinnedAddress,
+  apiKey: string,
+): Promise<number> {
+  return performPinnedJsonRequest({
+    endpoint,
+    pinned,
+    method: "GET",
+    path: modelsPath(endpoint.url),
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      accept: "application/json",
+      "user-agent": "vbrpg-connection-test/1",
+    },
+  }).then((response) => response.status);
 }

@@ -28,9 +28,11 @@ export type {
 } from "./auth.js";
 
 export {
+  aiCallPayloadSchema,
   createMatchRequestSchema,
   gameEventSchema,
   gameStateSchema,
+  parseAiCallPayload,
   parseCreateMatchRequest,
   parseGameEvent,
   parseGameState,
@@ -45,6 +47,7 @@ export {
 } from "./domain.js";
 
 export type {
+  AiCallPayload,
   CreateMatchRequest,
   GameEvent,
   GameState,

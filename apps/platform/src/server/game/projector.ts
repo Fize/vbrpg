@@ -101,10 +101,10 @@ export function projectPlayerView(
 
 function projectAvailableActions(state: GameState, viewer: Viewer): PlayerView["availableActions"] {
   const waiting = state.waiting;
-  if (!waiting || (waiting.kind !== "playerInput" && waiting.kind !== "collectInput")) return [];
-  if (viewer.kind === "spectator") return [];
+  if (!waiting || viewer.kind === "spectator") return [];
   if (waiting.participantIds.length > 0 && !waiting.participantIds.includes(viewer.participantId)) {
     return [];
   }
-  return [{ actionId: waiting.stepId, input: { participantId: viewer.participantId } }];
+  // Human and AI see the same vocabulary: the action names the game allows at this step.
+  return waiting.actions.map((name) => ({ actionId: name, input: { participantId: viewer.participantId } }));
 }

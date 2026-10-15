@@ -52,6 +52,22 @@ export function resolveVisibility(source: VisibilitySource | undefined, state: G
   return typeof source === "function" ? source(state) : source;
 }
 
+/**
+ * One thing a seat can do. The name is the event type it produces and `args` names the payload
+ * fields, so a tool call and a human submission are the same thing on the wire.
+ */
+export interface ActionDefinition {
+  readonly name: string;
+  readonly description: string;
+  /** Argument name to a short description. Everything is a string: ids and free text. */
+  readonly args?: Readonly<Record<string, string>>;
+  /**
+   * `room` content is part of the shared transcript every seat may read; `seat` content stays
+   * with its owner (a secret ballot, a private note).
+   */
+  readonly audience?: "room" | "seat";
+}
+
 export interface GameModule {
   readonly id: string;
   readonly version: string;
@@ -59,8 +75,26 @@ export interface GameModule {
   /** Which variables each viewer may see. Absent means nobody sees them (fail-closed). */
   readonly visibility?: VisibilitySource;
   /** Roles, dealt cards and per-game variables are the game's business, so creation is its hook. */
+  /** Everything a seat may ever do. Fixed for the match so the prompt prefix never moves. */
+  readonly actions?: readonly ActionDefinition[];
+  /** The rules, in the game's own words. Stable for the match; the seat's private state is added by the platform. */
+  briefing?(state: GameState, participantId: string): string;
   initialState(input: CreateInstanceInput): GameState;
   transition(state: GameState, event: GameEvent): TransitionResult;
+}
+
+/** The catalogue entries the current waiting point allows, in catalogue order. */
+export function allowedActions(game: GameModule, state: GameState): ActionDefinition[] {
+  const catalogue = game.actions ?? [];
+  const allowed = state.waiting?.actions ?? [];
+  return catalogue.filter((action) => allowed.includes(action.name));
+}
+
+/** Action names whose content belongs to the shared transcript. */
+export function roomAudienceActions(game: GameModule): string[] {
+  return (game.actions ?? [])
+    .filter((action) => (action.audience ?? "room") === "room")
+    .map((action) => action.name);
 }
 
 /** Games are registered at startup; the registry is the only place that knows their ids. */
