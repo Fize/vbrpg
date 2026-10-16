@@ -3,7 +3,8 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createBuiltInRegistry } from "../src/server/games/index.js";
 import { createMatchService } from "../src/server/match/service.js";
 import { createAiSeatRunner } from "../src/server/match/ai-seat.js";
-import { parseCredentialKey, sealCredential } from "../src/server/runtime/secret-box.js";
+import { openCredential, parseCredentialKey, sealCredential } from "../src/server/runtime/secret-box.js";
+import { rotateProviderCredentials } from "../src/server/credential-rotation.js";
 import type { ModelCallOutput } from "../src/server/llm/client.js";
 import {
   bootstrapPlatformAdmin,
@@ -214,10 +215,7 @@ try {
     role: "admin",
   });
   assert.equal(platformUser.role, "admin");
-  assert.equal(
-    (await findPlatformUserByUsername(db, platformUser.username))?.id,
-    platformUserId,
-  );
+  assert.equal((await findPlatformUserByUsername(db, platformUser.username))?.id, platformUserId);
   assert.equal(await countActiveAdmins(db), adminsBefore + 1);
 
   // Bootstrap refuses once an active administrator exists.
@@ -295,6 +293,76 @@ try {
   assert.equal(stored.credential_ciphertext.length, 32);
   assert.equal(stored.credential_tag.length, 16);
 
+  // ─── Credential rotation: both keys available once, then only the new one ───
+  const OLD_KEY = parseCredentialKey(INTEGRATION_KEY, 1);
+  const NEW_KEY = parseCredentialKey(Buffer.alloc(32, 7).toString("base64"), 2);
+
+  const rotated = await rotateProviderCredentials({ db, from: OLD_KEY, to: NEW_KEY });
+  assert.deepEqual(rotated, { rotated: 1, current: 0 }, "the sealed credential must move to v2");
+
+  const afterRotation = await db
+    .selectFrom("providers")
+    .select(["credential_ciphertext", "credential_nonce", "credential_tag", "credential_key_version"])
+    .where("id", "=", providerId)
+    .executeTakeFirstOrThrow();
+  assert.equal(afterRotation.credential_key_version, 2);
+  assert.notDeepEqual(afterRotation.credential_ciphertext, stored.credential_ciphertext);
+  assert.equal(
+    openCredential(
+      {
+        credential_ciphertext: afterRotation.credential_ciphertext,
+        credential_nonce: afterRotation.credential_nonce,
+        credential_tag: afterRotation.credential_tag,
+        credential_key_version: afterRotation.credential_key_version,
+      },
+      providerId,
+      NEW_KEY,
+    ),
+    "s".repeat(32),
+    "the plaintext must survive the rotation",
+  );
+
+  // The old key is dead from here on, which is the whole point of rotating.
+  let oldKeyDead = false;
+  try {
+    openCredential(
+      {
+        credential_ciphertext: afterRotation.credential_ciphertext,
+        credential_nonce: afterRotation.credential_nonce,
+        credential_tag: afterRotation.credential_tag,
+        credential_key_version: afterRotation.credential_key_version,
+      },
+      providerId,
+      OLD_KEY,
+    );
+  } catch (error) {
+    oldKeyDead = error instanceof Error && error.message.includes("different key version");
+  }
+  assert.equal(oldKeyDead, true, "the old key must no longer open the credential");
+
+  // Running it again is a no-op, and a version nobody declared stops the run.
+  assert.deepEqual(await rotateProviderCredentials({ db, from: OLD_KEY, to: NEW_KEY }), {
+    rotated: 0,
+    current: 1,
+  });
+  let undeclaredVersion = false;
+  try {
+    await rotateProviderCredentials({
+      db,
+      from: parseCredentialKey(INTEGRATION_KEY, 3),
+      to: parseCredentialKey(Buffer.alloc(32, 9).toString("base64"), 4),
+    });
+  } catch (error) {
+    undeclaredVersion = error instanceof Error && error.message.includes("neither 3 nor 4");
+  }
+  assert.equal(undeclaredVersion, true, "an undeclared version must stop the rotation");
+
+  // Rotating back is the rollback path, and it leaves the fixture on v1 for the checks below.
+  assert.deepEqual(await rotateProviderCredentials({ db, from: NEW_KEY, to: OLD_KEY }), {
+    rotated: 1,
+    current: 0,
+  });
+
   // ─── The match write path: one transaction, one record, one order ─────────
   const matchService = createMatchService({ db, registry: createBuiltInRegistry() });
   const actor = { userId: platformUserId, isAdmin: true };
@@ -321,7 +389,11 @@ try {
   assert.equal(opened.record.length, 1);
   assert.equal(opened.record[0]?.type, "instanceCreated");
   assert.equal(opened.view?.publicState["phase"], "describe");
-  assert.equal(Object.keys(opened.view?.privateState ?? {}).length, 1, "a seat sees its own word only");
+  assert.equal(
+    Object.keys(opened.view?.privateState ?? {}).length,
+    1,
+    "a seat sees its own word only",
+  );
 
   const first = await matchService.submit({
     actor,
@@ -366,8 +438,16 @@ try {
   });
   assert.deepEqual(watcher.summary.mySeatKeys, [], "a watcher holds no seat here");
   assert.equal(watcher.view.availableActions.length, 0);
-  assert.equal(Object.keys(watcher.view.privateState).length, 0, "no seat's secret reaches a watcher");
-  assert.deepEqual(watcher.view.publicState, holder.view.publicState, "the public state is the same");
+  assert.equal(
+    Object.keys(watcher.view.privateState).length,
+    0,
+    "no seat's secret reaches a watcher",
+  );
+  assert.deepEqual(
+    watcher.view.publicState,
+    holder.view.publicState,
+    "the public state is the same",
+  );
   assert.equal(watcher.briefing, null, "the rules belong to the seats playing");
   assert.equal(watcher.record.length, holder.record.length, "the record is the match's history");
 
@@ -428,7 +508,6 @@ try {
     .execute();
   assert.equal(eliminated.length, 3);
   assert.ok(eliminated.every((seat) => seat.status === "active"));
-
 
   // ─── AI seats: one call per row, refusals fed back, no action means failure ─────────
   // Finished matches are never scanned, so the one above must be closed before the scan runs.
@@ -498,7 +577,9 @@ try {
   // 1) A refusal is fed back and the seat recovers inside the same turn.
   const refusing = scriptedClient([
     answer({ toolCalls: [{ id: "c1", name: "vote", arguments: '{"target":"p2"}' }] }),
-    answer({ toolCalls: [{ id: "c2", name: "seatMessage", arguments: '{"text":"我这东西冬天常见"}' }] }),
+    answer({
+      toolCalls: [{ id: "c2", name: "seatMessage", arguments: '{"text":"我这东西冬天常见"}' }],
+    }),
   ]);
   const aiTurn = await runnerWith(refusing.client).runOnce({ limit: 1 });
   assert.equal(aiTurn.turns, 1, "the seat must recover and act");
@@ -575,13 +656,21 @@ try {
 
   let notAdmin = false;
   try {
-    await matchService.setStatus({ actor: seatHolder, instanceId: lifecycleMatchId, status: "paused" });
+    await matchService.setStatus({
+      actor: seatHolder,
+      instanceId: lifecycleMatchId,
+      status: "paused",
+    });
   } catch (error) {
     notAdmin = error instanceof Error && "code" in error && error.code === "ADMIN_REQUIRED";
   }
   assert.equal(notAdmin, true, "a lifecycle change is administrator-only");
 
-  const paused = await matchService.setStatus({ actor, instanceId: lifecycleMatchId, status: "paused" });
+  const paused = await matchService.setStatus({
+    actor,
+    instanceId: lifecycleMatchId,
+    status: "paused",
+  });
   assert.equal(paused.status, "paused");
   // Suspended means suspended: the scan skips it and the write path refuses input.
   assert.ok(
@@ -602,16 +691,22 @@ try {
   assert.equal(refused, true, "a paused match takes no input");
 
   // Resume restores the status the game itself chose, not one the platform guessed.
-  const resumed = await matchService.setStatus({ actor, instanceId: lifecycleMatchId, status: "running" });
+  const resumed = await matchService.setStatus({
+    actor,
+    instanceId: lifecycleMatchId,
+    status: "running",
+  });
   assert.equal(resumed.status, "waiting");
   assert.ok(
     (await findReadyAiSeats(db, 50)).some((seat) => seat.instanceId === lifecycleMatchId),
     "a resumed match is offered again",
   );
 
-  const rowsBefore = (await matchService.read({ actor, instanceId: lifecycleMatchId })).record.length;
+  const rowsBefore = (await matchService.read({ actor, instanceId: lifecycleMatchId })).record
+    .length;
   assert.equal(
-    (await matchService.setStatus({ actor, instanceId: lifecycleMatchId, status: "cancelled" })).status,
+    (await matchService.setStatus({ actor, instanceId: lifecycleMatchId, status: "cancelled" }))
+      .status,
     "cancelled",
   );
   assert.equal(
@@ -641,7 +736,6 @@ try {
   }
   assert.equal(await deleteProvider(db, providerId), true);
   assert.equal(await deleteProvider(db, providerId), false, "a second delete must report nothing");
-
 
   console.log("Database integration test passed");
 } finally {

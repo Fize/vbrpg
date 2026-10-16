@@ -13,6 +13,10 @@
     "start:api": "node dist/server/main.js --role=api",
     "start:worker": "node dist/server/main.js --role=worker",
     "typecheck": "tsc -p tsconfig.shared.json --noEmit && tsc -p tsconfig.server.json --noEmit && vue-tsc -p tsconfig.browser.json --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --ignore-path ../../.prettierignore --write \"src/**/*.{ts,vue}\" \"scripts/**/*.ts\" \"e2e/**/*.ts\" \"*.{json,js,ts}\" \"../../README.md\" \"../../.github/**/*.yml\" \"../../package.json\" \"../../pnpm-workspace.yaml\" \"../../docker-compose*.yml\"",
+    "format:check": "prettier --ignore-path ../../.prettierignore --check \"src/**/*.{ts,vue}\" \"scripts/**/*.ts\" \"e2e/**/*.ts\" \"*.{json,js,ts}\" \"../../README.md\" \"../../.github/**/*.yml\" \"../../package.json\" \"../../pnpm-workspace.yaml\" \"../../docker-compose*.yml\"",
     "test": "vitest run",
     "migrate": "tsx scripts/migrate.ts",
     "migrate:down": "tsx scripts/migrate.ts --down",
@@ -20,12 +24,13 @@
     "check:provider-endpoint": "tsx scripts/provider-connection-check.ts",
     "test:db": "tsx scripts/db-integration.ts",
     "test:e2e": "playwright test",
-    "check:model-call": "tsx scripts/model-call-check.ts"
+    "check:model-call": "tsx scripts/model-call-check.ts",
+    "rotate-credential-key": "tsx scripts/rotate-credential-key.ts"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
     "element-plus": "^2.14.7",
-    "fastify": "^5.6.1",
+    "fastify": "^5.12.7",
     "kysely": "^0.28.2",
     "pg": "^8.16.3",
     "vue": "3.5.43",
@@ -33,14 +38,21 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.64.0",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.15.5",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vue/test-utils": "^2.5.1",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.11.1",
+    "globals": "^17.13.0",
     "happy-dom": "^21.0.1",
+    "prettier": "^3.9.10",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.2",
     "vite": "^8.2.2",
     "vitest": "^4.1.10",
     "vue-tsc": "^3.3.13"

@@ -16,6 +16,7 @@ export {
   getPlatformUser,
   getProvider,
   listPlatformUsers,
+  listProviderCredentials,
   listProvidersWithModels,
   recordAuditLog,
   revokeAuthSession,

@@ -366,6 +366,23 @@ export async function updateProvider(
     .executeTakeFirst();
 }
 
+/** Every sealed credential in the database, with the id it is bound to. Rotation reads these. */
+export async function listProviderCredentials(
+  db: DbExecutor,
+): Promise<Array<{ id: string } & ProviderCredentialColumns>> {
+  return db
+    .selectFrom("providers")
+    .select([
+      "id",
+      "credential_ciphertext",
+      "credential_nonce",
+      "credential_tag",
+      "credential_key_version",
+    ])
+    .orderBy("created_at", "asc")
+    .execute();
+}
+
 export async function createProviderModel(
   db: DbExecutor,
   input: {
