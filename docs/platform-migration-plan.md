@@ -297,7 +297,7 @@ DSL 撤除后，这个问题变简单了：**编排库是游戏代码的内部�
 - [x] `M1-01` **写入路径**（`src/server/match/service.ts`）：按实例取行锁 → 跑 `transition` → 追加记录行（平台分配 `sequence`，游戏产出派生事件）→ 收敛固定席位状态 → 按 `current_sequence` 乐观推进，全部在同一事务内。创建对局同路：先落实例与席位，再把 `instanceCreated` 当一次普通写入应用。
 - [x] `M1-02` **三个 HTTP 接口**（`src/server/routes/matches.ts`）：`POST /v1/instances`、`POST /v1/instances/:id/events`（要求 `Idempotency-Key`）、`GET /v1/instances/:id`（自己席位的投影 + 完整记录；管理员可读但无投影）。
 - [x] `M1-03` **第一个游戏模块**：`src/server/games/undercover.ts`（「谁是卧底」，4 席起步，轮流描述 + 投票淘汰）+ 回归夹具（`undercover.test.ts`：确定性发牌、阶段推进、隐藏信息断言、非法动作、未知事件类型被忽略）。狼人杀随后。
-- [ ] `M1-04` **worker 的实例扫描**：等待点还没有时限时不需要它；与 M2 的 AI 席位一起做（那时才有"平台要替某席位动手"）。
+- [x] `M1-04` **worker 的实例扫描**：当时判断「等待点还没有时限时不需要它」，并入 `M2-04` 交付 —— 扫描 `running`/`waiting`、按实例取行锁、替待办席位里的 AI 走一步（`src/server/worker.ts` + `match/ai-seat.ts`）。
 - [x] `M1-05` **并发与幂等测试**：同键重复提交（单元 + 集成 + 实机）、两个请求同时提交（行锁串行化、`sequence` 不重不漏）、同一 key 并发只落一行。
 
 验收（已通过）：创建一局 → 席位轮流提交 → 跑到结束；重复提交不产生重复记录；隐藏信息断言通过；两个并发提交被行锁串行化、`sequence` 不重不漏；同一 `Idempotency-Key` 并发只落一行。
