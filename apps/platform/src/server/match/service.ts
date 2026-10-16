@@ -21,9 +21,11 @@ import {
   resolveVisibility,
   type GameModule,
   type GameRegistry,
+  type SetupField,
 } from "../game/index.js";
 import { AppError } from "../runtime/index.js";
 import { dealPersonas, readPersona, visiblePersona } from "./persona.js";
+import { seededIndex } from "../game/seeded.js";
 import {
   advanceGameInstance,
   createGameInstance,
@@ -135,34 +137,72 @@ export function createMatchService(options: {
 }): MatchService {
   const { db, registry } = options;
 
-  /**
-   * A game may ask for a category and two derived words. The creator never types or sees the words:
-   * the platform's model produces them here, so nobody at the table knows the answer in advance.
-   * Words the caller supplied explicitly are kept, which is what the tests and replays use.
-   */
-  async function withDerivedWords(
-    game: GameModule,
-    supplied: Record<string, unknown> | undefined,
-  ): Promise<Record<string, unknown> | undefined> {
-    const variables = supplied ?? {};
-    const setup = game.setup ?? [];
-    const categoryField = setup.find((field) => field.kind === "category");
-    const derived = setup.filter((field) => field.from !== undefined);
-    if (categoryField === undefined || derived.length === 0) return supplied;
-    if (derived.every((field) => typeof variables[field.name] === "string")) return supplied;
+  /** What a game's setup says about where its word pair comes from, if it asks for one at all. */
+  interface PairSetup {
+    category: SetupField | undefined;
+    words: SetupField[];
+    derived: SetupField[];
+  }
 
-    const category = variables[categoryField.name];
-    if (typeof category !== "string" || category.trim() === "" || options.wordPairs === undefined) {
-      // No pair to make: the game's own validation refuses the round and says what it is missing.
-      return supplied;
+  function pairSetupOf(game: GameModule): PairSetup {
+    const setup = game.setup ?? [];
+    return {
+      category: setup.find((field) => field.kind === "category"),
+      words: setup.filter((field) => field.kind === "word"),
+      derived: setup.filter((field) => field.from !== undefined),
+    };
+  }
+
+  /**
+   * Two ways to get the words, and the creator's part differs between them: a category is a prompt
+   * (the model's pair is unseen, so they may play), while words they typed themselves are known to
+   * them — so they may only watch, and which of the two the undercover gets is left to the seed.
+   */
+  async function resolvePair(
+    game: GameModule,
+    input: {
+      variables: Record<string, unknown> | undefined;
+      randomSeed: string;
+    },
+  ): Promise<{ variables: Record<string, unknown> | undefined; suppliedWords: boolean }> {
+    const { category, words, derived } = pairSetupOf(game);
+    const variables = input.variables ?? {};
+    if (derived.length === 0 || (category === undefined && words.length === 0)) {
+      return { variables: input.variables, suppliedWords: false };
+    }
+    if (derived.every((field) => typeof variables[field.name] === "string")) {
+      return { variables: input.variables, suppliedWords: false };
     }
 
-    const pair = await options.wordPairs(category.trim());
+    const typed = words
+      .map((field) => variables[field.name])
+      .filter((value): value is string => typeof value === "string" && value.trim() !== "");
+    const categoryText =
+      typeof variables[category?.name ?? ""] === "string"
+        ? String(variables[category?.name ?? ""]).trim()
+        : "";
+
+    let pair: WordPair | null = null;
+    let suppliedWords = false;
+    if (typed.length === words.length && words.length > 0) {
+      const [first, second] = typed as [string, string];
+      // The creator does not choose roles: the seed decides which word the undercover gets.
+      pair =
+        seededIndex(input.randomSeed, "pair", 2) === 0
+          ? { civilian: first, undercover: second }
+          : { civilian: second, undercover: first };
+      suppliedWords = true;
+    } else if (categoryText !== "" && options.wordPairs !== undefined) {
+      pair = await options.wordPairs(categoryText);
+    }
+
+    if (pair === null) return { variables: input.variables, suppliedWords };
+
     const filled: Record<string, unknown> = { ...variables };
     for (const field of derived) {
       filled[field.name] = field.from === "pair.civilian" ? pair.civilian : pair.undercover;
     }
-    return filled;
+    return { variables: filled, suppliedWords };
   }
 
   function requireGame(gameId: string): GameModule {
@@ -309,7 +349,11 @@ export function createMatchService(options: {
       const randomSeed = request.randomSeed ?? randomUUID();
       // Dealt from the seed and independent of roles, so publishing personas cannot hint at who is what.
       const personas = dealPersonas(randomSeed, request.seats.length);
-      const variables = await withDerivedWords(game, request.variables);
+      const resolved = await resolvePair(game, {
+        variables: request.variables,
+        randomSeed,
+      });
+      const variables = resolved.variables;
 
       return db.transaction().execute(async (transaction) => {
         const planned = await Promise.all(

@@ -78,7 +78,7 @@ export interface SetupField {
   readonly name: string;
   readonly label: string;
   readonly description: string;
-  readonly kind?: "text" | "category";
+  readonly kind?: "text" | "category" | "word";
   readonly from?: "pair.civilian" | "pair.undercover";
 }
 

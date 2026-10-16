@@ -173,10 +173,11 @@ export const setupFieldSchema = z.object({
   description: z.string().min(1),
   /**
    * How the field is produced. `text` is typed by the creator; `category` is typed too, but it is
-   * the prompt the platform's own model turns into a pair; a field with `from` is not asked for at
-   * all — the platform fills it from that pair, so nobody at the table ever sees the words early.
+   * the prompt the platform's own model turns into a pair; `word` is one half of a pair the creator
+   * types themselves (and then may only watch); a field with `from` is not asked for at all — the
+   * platform fills it from the pair, so nobody at the table sees the words before they are dealt.
    */
-  kind: z.enum(["text", "category"]).optional(),
+  kind: z.enum(["text", "category", "word"]).optional(),
   /**
    * When the field is one half of a generated word pair, which half. The platform defines the pair
    * shape (`{civilian, undercover}`); the game says where each half goes in its own parameters.

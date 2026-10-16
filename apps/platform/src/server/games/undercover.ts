@@ -1,6 +1,7 @@
 import type { GameEvent, GameState, Participant } from "../../shared/index.js";
 import { platformEventTypes } from "../../shared/index.js";
 import { EngineError, type TransitionResult } from "../game/errors.js";
+import { seededIndex } from "../game/seeded.js";
 import {
   createBaseState,
   type ActionDefinition,
@@ -31,6 +32,10 @@ const SETUP: readonly SetupField[] = [
     description: "例如 水果、动物、三国人物",
     kind: "category",
   },
+  // The other way in: the creator types both words, and then may only watch. Which of the two the
+  // undercover gets is a coin flip from the seed, so knowing the words is not knowing the roles.
+  { name: "wordA", label: "词一", description: "与词二相近", kind: "word" },
+  { name: "wordB", label: "词二", description: "与词一相近", kind: "word" },
   { name: "civilianWord", label: "平民的词", description: "由分类生成", from: "pair.civilian" },
   { name: "undercoverWord", label: "卧底的词", description: "由分类生成", from: "pair.undercover" },
 ];
@@ -60,16 +65,6 @@ type UndercoverVariables = {
 
 function variablesOf(state: GameState): UndercoverVariables {
   return state.variables as unknown as UndercoverVariables;
-}
-
-/** Deterministic from the seed: `initialState` must not read a clock or a random source. */
-function hash(input: string): number {
-  let value = 2166136261;
-  for (let index = 0; index < input.length; index += 1) {
-    value ^= input.charCodeAt(index);
-    value = Math.imul(value, 16777619);
-  }
-  return Math.abs(value);
 }
 
 const ACTIONS: readonly ActionDefinition[] = [
@@ -220,7 +215,7 @@ export const undercover: GameModule = {
     if (civilianWord === undercoverWord) {
       throw new EngineError("WORDS_IDENTICAL", "The two words must differ");
     }
-    const undercoverIndex = hash(`${input.randomSeed}#u`) % input.participants.length;
+    const undercoverIndex = seededIndex(input.randomSeed, "u", input.participants.length);
     const alive = input.participants.map((seat) => seat.participantId);
 
     const category = input.variables?.["category"];

@@ -1,3 +1,5 @@
+import { seededIndex } from "../game/seeded.js";
+
 /**
  * Seat personas are platform flavour, not game rules: they give an AI seat a way of speaking and a
  * human seat a character to play. Two rules make them safe to show:
@@ -126,18 +128,9 @@ export const STYLE_POOL: readonly string[] = [
   "爱用顺口溜和口头禅",
 ];
 
-function hash(input: string): number {
-  let value = 2166136261;
-  for (let index = 0; index < input.length; index += 1) {
-    value ^= input.charCodeAt(index);
-    value = Math.imul(value, 16777619);
-  }
-  return Math.abs(value);
-}
-
 /** One independent pick per dimension, so the same MBTI can arrive with any job or manner. */
 function pick(pool: readonly string[], seed: string, dimension: string, seat: number): string {
-  return pool[hash(`${seed}#persona#${dimension}#${seat}`) % pool.length] as string;
+  return pool[seededIndex(seed, `persona#${dimension}#${seat}`, pool.length)] as string;
 }
 
 /**

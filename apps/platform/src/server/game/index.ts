@@ -1,6 +1,7 @@
 export { EngineError } from "./errors.js";
 export type { TransitionResult } from "./errors.js";
 export { createGameRegistry, GameRegistry } from "./module.js";
+export { hashSeed, seededIndex } from "./seeded.js";
 export type {
   ActionDefinition,
   CreateInstanceInput,
