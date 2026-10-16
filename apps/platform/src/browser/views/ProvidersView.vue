@@ -169,7 +169,7 @@ async function createProvider(): Promise<void> {
     return;
   }
   if (newBaseUrl.value.trim().length === 0) {
-    createError.value = "请填写 Base URL。";
+    createError.value = "请填写接口地址。";
     return;
   }
   if (newApiKey.value.length === 0) {
@@ -310,13 +310,13 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
     <header class="page-head">
       <h1>模型服务</h1>
       <p class="page-sub">
-        平台统一维护 Provider 凭据：密钥只写不读，不会出现在接口响应、页面或日志中。
+        平台统一维护供应商凭据：密钥只写不读，不会出现在接口响应、页面或日志中。
       </p>
     </header>
 
     <el-card class="panel" shadow="never">
       <template #header>
-        <span class="panel-title">新增 Provider</span>
+        <span class="panel-title">新增供应商</span>
       </template>
 
       <el-form label-position="top" novalidate @submit.prevent="createProvider">
@@ -324,7 +324,7 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
           <el-form-item label="名称">
             <el-input v-model="newName" autocomplete="off" placeholder="例如 primary" />
           </el-form-item>
-          <el-form-item label="Base URL">
+          <el-form-item label="接口地址">
             <el-input v-model="newBaseUrl" autocomplete="off" placeholder="https://api.example.com/v1" />
           </el-form-item>
           <el-form-item label="API 密钥">
@@ -348,7 +348,7 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
         </div>
       </el-form>
 
-      <p class="hint">Base URL 必须是 https 端点；仅允许公网地址，内网与回环地址会被拒绝。</p>
+      <p class="hint">接口地址必须是 https 端点；仅允许公网地址，内网与回环地址会被拒绝。</p>
       <el-alert
         v-if="createError"
         class="stack-sm"
@@ -371,7 +371,7 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
     </el-card>
 
     <div class="list-toolbar">
-      <span class="panel-title">已配置的 Provider</span>
+      <span class="panel-title">已配置的供应商</span>
       <el-button text :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
     </div>
 
@@ -401,7 +401,7 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
 
       <div class="field-grid">
         <label class="field">
-          <span class="field-label">Base URL</span>
+          <span class="field-label">接口地址</span>
           <el-input v-model="draft.baseUrl" autocomplete="off" />
         </label>
         <label class="field">

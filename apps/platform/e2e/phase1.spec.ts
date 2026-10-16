@@ -35,7 +35,7 @@ test.describe.serial("Phase 1 browser acceptance", () => {
 
     await page.goto("/admin/providers");
     await page.getByLabel("名称").fill("e2e-provider");
-    await page.getByLabel("Base URL").first().fill("https://api.openai.com/v1");
+    await page.getByLabel("接口地址").first().fill("https://api.openai.com/v1");
     await page.getByLabel("API 密钥").first().fill(providerApiKey);
     await page.getByRole("button", { name: "创建" }).click();
     await expect(page.getByText("e2e-provider")).toBeVisible();
