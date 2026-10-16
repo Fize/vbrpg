@@ -5,6 +5,8 @@ import { createBaseState, createGameRegistry, type GameModule } from "./module.j
 /** A two-event game: one seat answers, and the answer ends it. */
 const greeting: GameModule = {
   id: "greeting",
+  minSeats: 1,
+  maxSeats: 4,
   version: "1.0.0",
   engineVersion: "core-1",
   visibility: { answer: { participant: "p1" } },

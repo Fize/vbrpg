@@ -6,6 +6,7 @@ export type {
   ActionDefinition,
   CreateInstanceInput,
   GameModule,
+  SetupField,
   VisibilitySource,
 } from "./module.js";
 export { allowedActions, resolveVisibility, roomAudienceActions } from "./module.js";

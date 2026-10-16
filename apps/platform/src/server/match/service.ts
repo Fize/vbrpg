@@ -164,14 +164,14 @@ export function createMatchService(options: {
       variables: Record<string, unknown> | undefined;
       randomSeed: string;
     },
-  ): Promise<{ variables: Record<string, unknown> | undefined; suppliedWords: boolean }> {
+  ): Promise<Record<string, unknown> | undefined> {
     const { category, words, derived } = pairSetupOf(game);
     const variables = input.variables ?? {};
     if (derived.length === 0 || (category === undefined && words.length === 0)) {
-      return { variables: input.variables, suppliedWords: false };
+      return input.variables;
     }
     if (derived.every((field) => typeof variables[field.name] === "string")) {
-      return { variables: input.variables, suppliedWords: false };
+      return input.variables;
     }
 
     const typed = words
@@ -183,7 +183,6 @@ export function createMatchService(options: {
         : "";
 
     let pair: WordPair | null = null;
-    let suppliedWords = false;
     if (typed.length === words.length && words.length > 0) {
       const [first, second] = typed as [string, string];
       // The creator does not choose roles: the seed decides which word the undercover gets.
@@ -191,18 +190,17 @@ export function createMatchService(options: {
         seededIndex(input.randomSeed, "pair", 2) === 0
           ? { civilian: first, undercover: second }
           : { civilian: second, undercover: first };
-      suppliedWords = true;
     } else if (categoryText !== "" && options.wordPairs !== undefined) {
       pair = await options.wordPairs(categoryText);
     }
 
-    if (pair === null) return { variables: input.variables, suppliedWords };
+    if (pair === null) return input.variables;
 
     const filled: Record<string, unknown> = { ...variables };
     for (const field of derived) {
       filled[field.name] = field.from === "pair.civilian" ? pair.civilian : pair.undercover;
     }
-    return { variables: filled, suppliedWords };
+    return filled;
   }
 
   function requireGame(gameId: string): GameModule {
@@ -349,11 +347,10 @@ export function createMatchService(options: {
       const randomSeed = request.randomSeed ?? randomUUID();
       // Dealt from the seed and independent of roles, so publishing personas cannot hint at who is what.
       const personas = dealPersonas(randomSeed, request.seats.length);
-      const resolved = await resolvePair(game, {
+      const variables = await resolvePair(game, {
         variables: request.variables,
         randomSeed,
       });
-      const variables = resolved.variables;
 
       return db.transaction().execute(async (transaction) => {
         const planned = await Promise.all(
@@ -480,6 +477,7 @@ export function createMatchService(options: {
         engineVersion: game.engineVersion,
         steps: { ...(game.steps ?? {}) },
         setup: (game.setup ?? []).map((field) => ({ ...field })),
+        seats: { min: game.minSeats, max: game.maxSeats },
       }));
     },
 

@@ -9,10 +9,10 @@
 | | 房间 room | 对局 match |
 | --- | --- | --- |
 | 是什么 | 一张桌子：玩哪个游戏、几个席、谁在、谁准备好 | 这一局的运行态与记录 |
-| 存在时间 | 从建房到开局（开局后房间只留一个指向对局的引用） | 从开局到结束 |
+| 存在时间 | 长期存在：可以连开多局，**同一时间只有一局**在跑 | 从开局到结束 |
 | 席位 | 真人成员（带准备状态）+ **AI 占位** | 真人席位（绑定账号）+ **真实生成的 AI 席位** |
 | 游戏状态 | 没有 | `initialState` 发牌之后的完整状态 |
-| 记录 | 没有 | `game_events` |
+| 记录 | 只有这一桌的历届对局引用 | `game_events` |
 
 关键点：**AI 在房间里只是占位，只有真的开局才生成**。房间里不存在 AI 的 participant，也没有人格、
 没有 prompt、不会消耗任何模型调用。
@@ -25,15 +25,21 @@ create table rooms (
   game_id text not null,            -- 建房间时就定死，之后不能改
   game_version text not null,
   owner_user_id text not null references users (id),
-  status text not null check (status in ('open', 'started', 'closed', 'cancelled')),
-  seat_plan jsonb not null,          -- [{key, control}]，真人席位与 AI 占位的顺序
+  -- 房间自己的生命周期。「有没有对局在跑」不存这里：它由 current_instance_id 的状态派生，
+  -- 否则两处会各说各话。
+  status text not null check (status in ('open', 'closed', 'cancelled')),
+  seat_plan jsonb not null,          -- [{key, control}]，真人席位与 AI 占位的顺序；空闲时可改
   persona_public boolean not null default false,
-  variables jsonb not null default '{}'::jsonb,  -- 建房时给的创建参数（如分类）
-  instance_id text references game_instances (id), -- 开局后指向这一局
+  variables jsonb not null default '{}'::jsonb,  -- 创建参数（如分类）
+  current_instance_id text references game_instances (id), -- 最近一局；终局后只作历史
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   closed_at timestamptz
 );
+
+-- 历届对局靠这一列反查：一间房可以开多局，每局都记得自己属于哪张桌子。
+alter table game_instances add column room_id text references rooms (id);
+create index game_instances_room_idx on game_instances (room_id, created_at desc);
 
 create table room_members (
   id text primary key,
@@ -66,11 +72,30 @@ create table room_members (
 | `POST` | `/v1/rooms/:id/join` | 占一个空着的真人席位 |
 | `POST` | `/v1/rooms/:id/ready` | `{ready: boolean}`，只对自己有效 |
 | `POST` | `/v1/rooms/:id/leave` | 离开并空出席位；房主离开则移交给下一个真人，没有别人就关闭房间 |
-| `POST` | `/v1/rooms/:id/start` | 房主开局：校验 → 生成词对（若游戏要）→ 建实例与席位 → 房间转 `started` |
-| `POST` | `/v1/rooms/:id/cancel` | 房主取消房间 |
+| `PATCH` | `/v1/rooms/:id` | 房主改席位布局 / 是否公开人格 / 创建参数；**只在没有对局在跑时允许**，否则 409 |
+| `POST` | `/v1/rooms/:id/start` | 房主开局：校验 → 生成词对（若游戏要）→ 建实例与席位 → 记为 `current_instance_id` |
+| `POST` | `/v1/rooms/:id/cancel` | 房主关闭房间（不是取消某一局） |
+| `GET` | `/v1/rooms/:id/matches` | 这一桌打过的每一局（按时间倒序） |
 
 开局校验：所有真人席位都有人、且**全部已准备**；AI 占位不参与准备。允许「只有房主一人 + AI 占位」开局，
 这是 AI 陪玩的主场景。开局成功的一次调用才可能花模型调用（词对生成），因此**限流挂在开局上**（而非建房）。
+
+## 4.1 四条已定的规则与它们的后果
+
+1. **可以连开多局，同一时间只有一局在跑。**
+   - 「有没有对局在跑」= `current_instance_id` 指向的那一局状态不是 `completed`/`cancelled`。房间表不存这个，
+     读的时候派生（一次 join），避免两处状态打架。
+   - 一局结束后房间自动回到「可开局」：成员与席位都不变，**准备状态在开局时清零**（准备是对"下一局"的表态，
+     打完一局再点一次更诚实；也顺手处理了有人离开没人在意的情况）。
+   - 每局都是独立的对局记录，靠 `game_instances.room_id` 反查；`GET /v1/rooms/:id/matches` 给出历届。
+2. **没有对局在跑时可以随意改布局。** 席位增删、真人/AI 占位互换、公开人格、创建参数都能改，
+   唯一约束是落在游戏的 `minSeats`–`maxSeats` 内。被删掉的真人席位上的成员会**被移出房间**（可以再占别的空位）；
+   新增的席位是空位。有对局在跑时任何修改都 409 `ROOM_BUSY`。
+3. **房主离开 → 移交给下一个在座真人**；没有其他真人就关闭房间。移交只影响房间，不影响正在跑的对局。
+4. **允许单人开局**（房主 + AI 占位）。
+
+对局进行中有人离开：**允许**（房间成员变了），但那一局里他的席位不动——现在没有缺席处理机制（计时、
+代为行动都还没有），这一局会停在等他。这是已知边界，等计时那件事做的时候一起解决。
 
 ## 5. 界面
 
@@ -93,16 +118,21 @@ create table room_members (
 
 ## 7. 需要人来定的规则
 
-1. **一间房只开一局**（开局后房间即结束，想再来一局就再建房）——建议如此，符合聚会玩法。
-2. **席位布局建房时定死**（几个真人、几个 AI 占位），之后只能占空位、不能改布局——建议如此。
-3. **房主离开**：移交给下一个在座真人；没有别人则关闭房间——建议如此。
-4. **允许单人开局**（房主 + AI 占位）——建议允许。
+已定（2026-10-16）：
+
+1. **可以连开多局，同一时间只有一局**；一局结束后房间回到可开局状态。
+2. **没有对局时可以随意改**（席位布局、公开人格、创建参数），有对局在跑时不允许改。
+3. **房主离开移交给下一个在座真人**；没有别人则关闭房间。
+4. **允许单人开局**（房主 + AI 占位）。
 
 ## 8. 任务
 
-- [ ] `R-01` 迁移：`rooms` + `room_members`（含状态与唯一约束）。
-- [ ] `R-02` 契约：`GameModule.minSeats/minSeats` + 建房时校验 + `seats` 声明进游戏目录（界面据此限制）。
-- [ ] `R-03` 房间服务与接口：建房 / 列表 / 详情 / 加入 / 准备 / 离开 / 开局 / 取消，含权限（房主、在座）。
+- [x] `R-01` 迁移：`rooms`（含 `current_instance_id`）+ `room_members` + `game_instances.room_id`。
+- [x] `R-02` 契约：`GameModule.minSeats/minSeats` + 建房时校验 + `seats` 声明进游戏目录（界面据此限制）。
+- [ ] `R-03` 房间服务与接口：建房 / 列表 / 详情 / 改布局 / 加入 / 准备 / 离开 / 开局 / 关闭 / 历届对局，
+  含权限（房主、在座）与「有对局在跑」的派生判断。
 - [ ] `R-04` 开局：校验 → 生成词对 → 建实例与席位（真人绑账号、AI 生成）→ 房间转 `started`；限流挪到开局。
-- [ ] `R-05` 界面：`/rooms/:id` 两形态、大厅的房间列表、建房对话框只定游戏与席位。
-- [ ] `R-06` 测试：真库用例（占位不生成、准备门槛、单人开局、房主移交、席位越界）、路由用例、e2e（建房→加入→准备→开局→对局）。
+- [ ] `R-05` 界面：`/rooms/:id` 两形态（未开局 = 席位表与准备 + 房主的布局编辑；局间 = 上一局结果与「再来一局」）、
+  大厅的房间列表、建房对话框只定游戏与席位。
+- [ ] `R-06` 测试：真库用例（占位不生成、准备门槛、单人开局、房主移交、席位越界、**连开两局**、跑局中改布局被拒）、
+  路由用例、e2e（建房 → 加入 → 准备 → 开局 → 打完 → 再来一局）。

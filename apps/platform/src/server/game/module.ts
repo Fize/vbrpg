@@ -88,6 +88,9 @@ export interface GameModule {
   readonly title: string;
   readonly version: string;
   readonly engineVersion: string;
+  /** How many seats this game can be played with. A room may not hold a table outside this range. */
+  readonly minSeats: number;
+  readonly maxSeats: number;
   /** Step id to the name the table reads. Anything absent is shown as the game wrote it. */
   readonly steps?: Readonly<Record<string, string>>;
   /** Every other word the game uses — variables, roles, outcomes, its own event types. */

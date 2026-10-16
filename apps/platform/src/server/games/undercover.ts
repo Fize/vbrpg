@@ -20,6 +20,7 @@ import type { Visibility } from "../game/projector.js";
  */
 
 const MIN_SEATS = 3;
+const MAX_SEATS = 12;
 
 /**
  * The words are not the game's: the creator gives a category, the platform's model turns it into a
@@ -168,6 +169,8 @@ export const undercover: GameModule = {
   title: "谁是卧底",
   version: "1.0.0",
   engineVersion: "core-1",
+  minSeats: MIN_SEATS,
+  maxSeats: MAX_SEATS,
   actions: ACTIONS,
   steps: STEP_NAMES,
   setup: SETUP,
@@ -208,6 +211,9 @@ export const undercover: GameModule = {
   initialState(input: CreateInstanceInput): GameState {
     if (input.participants.length < MIN_SEATS) {
       throw new EngineError("TOO_FEW_SEATS", `At least ${MIN_SEATS} seats are required`);
+    }
+    if (input.participants.length > MAX_SEATS) {
+      throw new EngineError("TOO_MANY_SEATS", `At most ${MAX_SEATS} seats are supported`);
     }
 
     const civilianWord = requiredWord(input.variables ?? {}, "civilianWord");

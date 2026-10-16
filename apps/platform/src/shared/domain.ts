@@ -241,6 +241,8 @@ export const gameCatalogueEntrySchema = z.object({
   steps: z.record(z.string().min(1)),
   /** What this game asks for at creation, in the game's own words. */
   setup: z.array(setupFieldSchema),
+  /** The tables this game can be played at. A room's seat plan must stay inside this range. */
+  seats: z.object({ min: z.number().int().positive(), max: z.number().int().positive() }),
 });
 
 /**
