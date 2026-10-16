@@ -245,7 +245,12 @@ export function createMatchService(options: {
         (candidate) => candidate.participantId === seat.participantId,
       );
       if (before !== undefined && before.status !== seat.status) {
-        await updateGameParticipantStatus(transaction, input.instanceId, seat.participantId, seat.status);
+        await updateGameParticipantStatus(
+          transaction,
+          input.instanceId,
+          seat.participantId,
+          seat.status,
+        );
       }
     }
 
@@ -279,7 +284,11 @@ export function createMatchService(options: {
                   seat.username.trim().toLowerCase(),
                 );
                 if (!account || !account.active) {
-                  throw new AppError(404, "ACCOUNT_NOT_FOUND", `No active account named ${seat.username}`);
+                  throw new AppError(
+                    404,
+                    "ACCOUNT_NOT_FOUND",
+                    `No active account named ${seat.username}`,
+                  );
                 }
                 actorUserId = account.id;
               }
@@ -317,7 +326,9 @@ export function createMatchService(options: {
         await insertGameParticipants(
           transaction,
           planned.map((seat) => {
-            const dealt = state.participants.find((candidate) => candidate.participantId === seat.id);
+            const dealt = state.participants.find(
+              (candidate) => candidate.participantId === seat.id,
+            );
             return {
               id: seat.id,
               instance_id: instanceId,
@@ -354,7 +365,8 @@ export function createMatchService(options: {
         });
 
         const stored = await getGameInstance(transaction, instanceId);
-        if (!stored) throw new AppError(500, "INSTANCE_MISSING", "The match vanished during creation");
+        if (!stored)
+          throw new AppError(500, "INSTANCE_MISSING", "The match vanished during creation");
         return summarize(stored);
       });
     },
@@ -391,7 +403,11 @@ export function createMatchService(options: {
      */
     async setStatus({ actor, instanceId, status }) {
       if (!actor.isAdmin) {
-        throw new AppError(403, "ADMIN_REQUIRED", "Only administrators may change a match lifecycle");
+        throw new AppError(
+          403,
+          "ADMIN_REQUIRED",
+          "Only administrators may change a match lifecycle",
+        );
       }
       return db.transaction().execute(async (transaction) => {
         const instance = await lockGameInstance(transaction, instanceId);
@@ -402,7 +418,11 @@ export function createMatchService(options: {
             throw new AppError(409, "MATCH_NOT_PAUSED", "Only a paused match can be resumed");
           }
         } else if (!isActive && instance.status !== "paused") {
-          throw new AppError(409, "MATCH_ENDED", `A match in status ${instance.status} cannot change`);
+          throw new AppError(
+            409,
+            "MATCH_ENDED",
+            `A match in status ${instance.status} cannot change`,
+          );
         } else if (instance.status === status) {
           throw new AppError(409, "MATCH_STATUS_UNCHANGED", `This match is already ${status}`);
         }
@@ -410,8 +430,7 @@ export function createMatchService(options: {
         // Resuming hands the match back the status the game itself last chose.
         const previous = stateOf(instance).status;
         const resuming = instance.status === "paused" && status === "running";
-        const next =
-          resuming && ACTIVE_STATUSES.includes(previous) ? previous : status;
+        const next = resuming && ACTIVE_STATUSES.includes(previous) ? previous : status;
         await setInstanceStatus(transaction, instanceId, next);
         await recordAuditLog(transaction, {
           id: randomUUID(),
@@ -464,7 +483,8 @@ export function createMatchService(options: {
         const action = input.action;
         if (action === undefined) {
           const stored = await getGameInstance(transaction, input.instanceId);
-          if (!stored) throw new AppError(500, "INSTANCE_MISSING", "The match vanished during the write");
+          if (!stored)
+            throw new AppError(500, "INSTANCE_MISSING", "The match vanished during the write");
           return { accepted: true, summary: summarize(stored) };
         }
 
@@ -472,7 +492,8 @@ export function createMatchService(options: {
         const replayed = await findEventByIdempotencyKey(transaction, input.instanceId, actionKey);
         if (replayed) {
           const stored = await getGameInstance(transaction, input.instanceId);
-          if (!stored) throw new AppError(500, "INSTANCE_MISSING", "The match vanished during the write");
+          if (!stored)
+            throw new AppError(500, "INSTANCE_MISSING", "The match vanished during the write");
           return { accepted: true, summary: summarize(stored) };
         }
 
@@ -548,7 +569,11 @@ export function createMatchService(options: {
             usage: null,
           },
         });
-        return { ...summarize(instance), status: applied.state.status, sequence: applied.lastSequence };
+        return {
+          ...summarize(instance),
+          status: applied.state.status,
+          sequence: applied.lastSequence,
+        };
       });
     },
 
@@ -562,8 +587,11 @@ export function createMatchService(options: {
         if (!instance) throw new AppError(404, "MATCH_NOT_FOUND", "No such match");
         const game = requireGame(instance.game_id);
         const seats = await listGameParticipants(transaction, instanceId);
-        const seat = seats.find((candidate) => candidate.participant_key === request.participantKey);
-        if (!seat) throw new AppError(404, "SEAT_NOT_FOUND", `No seat named ${request.participantKey}`);
+        const seat = seats.find(
+          (candidate) => candidate.participant_key === request.participantKey,
+        );
+        if (!seat)
+          throw new AppError(404, "SEAT_NOT_FOUND", `No seat named ${request.participantKey}`);
         if (seat.actor_user_id !== actor.userId) {
           throw new AppError(403, "NOT_YOUR_SEAT", "That seat belongs to another account");
         }
@@ -583,7 +611,11 @@ export function createMatchService(options: {
         }
 
         if (!["created", "running", "waiting"].includes(instance.status)) {
-          throw new AppError(409, "MATCH_NOT_RUNNING", `A match in status ${instance.status} takes no input`);
+          throw new AppError(
+            409,
+            "MATCH_NOT_RUNNING",
+            `A match in status ${instance.status} takes no input`,
+          );
         }
 
         const applied = await applyEvent(transaction, {
@@ -629,7 +661,10 @@ export function createMatchService(options: {
       const rows = await listGameEvents(db, instanceId);
       const state = stateOf(instance);
       return {
-        summary: summarize(instance, seats.filter((seat) => seat.actor_user_id === actor.userId)),
+        summary: summarize(
+          instance,
+          seats.filter((seat) => seat.actor_user_id === actor.userId),
+        ),
         game: {
           title: game.title,
           steps: { ...(game.steps ?? {}) },
@@ -693,11 +728,11 @@ function toRecordRow(row: {
       row.provider_id === null || row.model_id === null
         ? null
         : {
-          providerId: row.provider_id,
-          modelId: row.model_id,
-          promptTokens: row.prompt_tokens ?? 0,
-          completionTokens: row.completion_tokens ?? 0,
-          totalTokens: row.total_tokens ?? 0,
-        },
+            providerId: row.provider_id,
+            modelId: row.model_id,
+            promptTokens: row.prompt_tokens ?? 0,
+            completionTokens: row.completion_tokens ?? 0,
+            totalTokens: row.total_tokens ?? 0,
+          },
   };
 }

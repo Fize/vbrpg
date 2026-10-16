@@ -17,11 +17,19 @@ describe("worker foundation", () => {
 
   it("reports what the injected tick did", async () => {
     const logs: Array<Record<string, unknown>> = [];
-    const logger: WorkerLogger = { info(fields) { logs.push(fields); } };
-    const worker = createWorker({ workerId: "test-worker", pollIntervalMs: 1000 }, logger, async () => ({
-      turns: 2,
-      failures: 1,
-    }));
+    const logger: WorkerLogger = {
+      info(fields) {
+        logs.push(fields);
+      },
+    };
+    const worker = createWorker(
+      { workerId: "test-worker", pollIntervalMs: 1000 },
+      logger,
+      async () => ({
+        turns: 2,
+        failures: 1,
+      }),
+    );
 
     await expect(worker.runOnce()).resolves.toEqual({ processed: 2 });
     expect(logs).toEqual([{ workerId: "test-worker", turns: 2, failures: 1 }]);

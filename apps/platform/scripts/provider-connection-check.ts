@@ -8,7 +8,8 @@ import { parseProviderEndpoint, testProviderConnection } from "../src/server/pro
  * Usage: pnpm check:provider-endpoint [baseUrl]
  */
 const targets = process.argv.slice(2);
-const baseUrls = targets.length > 0 ? targets : ["https://api.openai.com/v1", "https://example.com"];
+const baseUrls =
+  targets.length > 0 ? targets : ["https://api.openai.com/v1", "https://example.com"];
 
 let failures = 0;
 for (const baseUrl of baseUrls) {
@@ -23,6 +24,8 @@ for (const baseUrl of baseUrls) {
 
 // A `dns_rejected` or `tls_error` here means the request never reached the provider.
 if (failures > 0) {
-  console.error(`${failures} of ${baseUrls.length} endpoints were not reachable through the pinned path`);
+  console.error(
+    `${failures} of ${baseUrls.length} endpoints were not reachable through the pinned path`,
+  );
   process.exitCode = 1;
 }

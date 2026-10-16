@@ -20,7 +20,10 @@ export function csrfTokenMatches(token: string, storedHash: Buffer | null): bool
  * Origin is rejected because browsers always send it on cross-origin and
  * same-origin `fetch`/form submissions that carry a cookie.
  */
-export function assertTrustedOrigin(origin: string | undefined, trustedOrigins: readonly string[]): void {
+export function assertTrustedOrigin(
+  origin: string | undefined,
+  trustedOrigins: readonly string[],
+): void {
   if (!origin) {
     throw new AppError(403, "ORIGIN_REQUIRED", "The Origin header is required for this request");
   }

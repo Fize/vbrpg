@@ -80,7 +80,12 @@ watch(
     <div ref="body" class="body" @scroll="onScroll">
       <el-empty v-if="entries.length === 0" :image-size="60" description="还没有记录" />
 
-      <article v-for="entry in entries" :key="entry.eventId" class="entry" :class="`kind-${entry.kind}`">
+      <article
+        v-for="entry in entries"
+        :key="entry.eventId"
+        class="entry"
+        :class="`kind-${entry.kind}`"
+      >
         <div v-if="entry.kind === 'phase' || entry.kind === 'system'" class="marker">
           <span class="marker-label">{{ entry.label }}</span>
           <span class="marker-seq mono">#{{ entry.sequence }}</span>
@@ -120,7 +125,14 @@ watch(
       </article>
     </div>
 
-    <el-button v-if="!pinned" class="to-bottom" text size="small" :icon="Bottom" @click="scrollToBottom">
+    <el-button
+      v-if="!pinned"
+      class="to-bottom"
+      text
+      size="small"
+      :icon="Bottom"
+      @click="scrollToBottom"
+    >
       到底部
     </el-button>
   </section>

@@ -31,7 +31,12 @@ const statusLabel = computed(() => {
   <div
     class="seat"
     data-testid="seat"
-    :class="{ 'is-mine': isMine, 'is-waiting': isWaiting, 'is-out': out, 'is-ai': seat.control === 'ai' }"
+    :class="{
+      'is-mine': isMine,
+      'is-waiting': isWaiting,
+      'is-out': out,
+      'is-ai': seat.control === 'ai',
+    }"
   >
     <div class="node">
       <div class="face">

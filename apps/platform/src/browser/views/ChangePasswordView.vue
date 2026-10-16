@@ -22,7 +22,8 @@ const submitting = ref(false);
 function validate(): boolean {
   currentError.value = currentPassword.value.length === 0 ? "请输入当前密码" : null;
   newError.value = newPassword.value.length < 12 ? "新密码至少 12 位" : null;
-  confirmError.value = confirmPassword.value !== newPassword.value ? "两次输入的新密码不一致" : null;
+  confirmError.value =
+    confirmPassword.value !== newPassword.value ? "两次输入的新密码不一致" : null;
   return currentError.value === null && newError.value === null && confirmError.value === null;
 }
 

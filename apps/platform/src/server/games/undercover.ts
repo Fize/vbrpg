@@ -1,7 +1,12 @@
 import type { GameEvent, GameState, Participant } from "../../shared/index.js";
 import { platformEventTypes } from "../../shared/index.js";
 import { EngineError, type TransitionResult } from "../game/errors.js";
-import { createBaseState, type ActionDefinition, type CreateInstanceInput, type GameModule } from "../game/module.js";
+import {
+  createBaseState,
+  type ActionDefinition,
+  type CreateInstanceInput,
+  type GameModule,
+} from "../game/module.js";
 import type { Visibility } from "../game/projector.js";
 
 /**
@@ -29,7 +34,12 @@ type UndercoverVariables = {
   alive: string[];
   spoken: string[];
   votes: Record<string, string>;
-  summary: { round: number; tally: Record<string, number>; eliminated: string | null; tie: boolean } | null;
+  summary: {
+    round: number;
+    tally: Record<string, number>;
+    eliminated: string | null;
+    tie: boolean;
+  } | null;
   winner: string | null;
 };
 
@@ -215,7 +225,12 @@ export const undercover: GameModule = {
       variables,
     );
 
-    return { ...state, status: "waiting", stepId: "describe", waiting: waitingFor("describe", alive) };
+    return {
+      ...state,
+      status: "waiting",
+      stepId: "describe",
+      waiting: waitingFor("describe", alive),
+    };
   },
 
   transition(state: GameState, event): TransitionResult {
@@ -228,7 +243,10 @@ export const undercover: GameModule = {
 
       case platformEventTypes.seatMessage: {
         if (variables.phase !== "describe") {
-          throw new EngineError("NOT_DESCRIBING", "Descriptions are only accepted in the describe phase");
+          throw new EngineError(
+            "NOT_DESCRIBING",
+            "Descriptions are only accepted in the describe phase",
+          );
         }
         const speaker = requireActor(state, event.participantId);
         const spoken = variables.spoken.includes(speaker)
@@ -293,7 +311,12 @@ export const undercover: GameModule = {
           };
         }
         return {
-          state: { ...state, stepId: "resolve", waiting: null, variables: { ...state.variables, votes } },
+          state: {
+            ...state,
+            stepId: "resolve",
+            waiting: null,
+            variables: { ...state.variables, votes },
+          },
           events: [derived(state, "votesRevealed", { round: variables.round })],
         };
       }
@@ -325,14 +348,21 @@ function resolveRound(state: GameState): TransitionResult {
   const tied = top !== undefined && ranked[1] !== undefined && ranked[1][1] === top[1];
   const eliminated = top === undefined || tied ? null : top[0];
 
-  const alive = eliminated === null ? variables.alive : variables.alive.filter((seat) => seat !== eliminated);
+  const alive =
+    eliminated === null ? variables.alive : variables.alive.filter((seat) => seat !== eliminated);
   const undercoverAlive = state.participants.some(
     (seat) => seat.roleId === "undercover" && alive.includes(seat.participantId),
   );
   const summary = { round: variables.round, tally, eliminated, tie: tied };
 
   const winner =
-    eliminated === null ? null : !undercoverAlive ? "civilian" : alive.length <= 2 ? "undercover" : null;
+    eliminated === null
+      ? null
+      : !undercoverAlive
+        ? "civilian"
+        : alive.length <= 2
+          ? "undercover"
+          : null;
 
   if (winner !== null) {
     return {

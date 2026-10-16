@@ -20,7 +20,11 @@ export function idleExpiry(now: Date, absoluteExpiresAt: Date): Date {
   return candidate < absoluteExpiresAt ? candidate : absoluteExpiresAt;
 }
 
-export function buildSessionCookie(token: string, absoluteExpiresAt: Date, secure: boolean): string {
+export function buildSessionCookie(
+  token: string,
+  absoluteExpiresAt: Date,
+  secure: boolean,
+): string {
   const attributes = [
     `${SESSION_COOKIE_NAME}=${token}`,
     "HttpOnly",
@@ -33,13 +37,7 @@ export function buildSessionCookie(token: string, absoluteExpiresAt: Date, secur
 }
 
 export function clearSessionCookie(secure: boolean): string {
-  const attributes = [
-    `${SESSION_COOKIE_NAME}=`,
-    "HttpOnly",
-    "SameSite=Lax",
-    "Path=/",
-    "Max-Age=0",
-  ];
+  const attributes = [`${SESSION_COOKIE_NAME}=`, "HttpOnly", "SameSite=Lax", "Path=/", "Max-Age=0"];
   if (secure) attributes.push("Secure");
   return attributes.join("; ");
 }

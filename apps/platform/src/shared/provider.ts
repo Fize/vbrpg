@@ -111,7 +111,8 @@ export const updateProviderModelRequestSchema = z
   })
   .strict()
   .refine(
-    (value) => value.modelId !== undefined || value.displayName !== undefined || value.enabled !== undefined,
+    (value) =>
+      value.modelId !== undefined || value.displayName !== undefined || value.enabled !== undefined,
     { message: "At least one of modelId, displayName or enabled is required" },
   );
 

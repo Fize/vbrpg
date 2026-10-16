@@ -11,7 +11,10 @@ export const usernameSchema = z
   .string()
   .min(3)
   .max(64)
-  .regex(/^[A-Za-z0-9._-]+$/, "Username may contain letters, digits, dot, underscore and hyphen only");
+  .regex(
+    /^[A-Za-z0-9._-]+$/,
+    "Username may contain letters, digits, dot, underscore and hyphen only",
+  );
 
 export const newPasswordSchema = z.string().min(12).max(256);
 
@@ -65,7 +68,8 @@ export const updateUserRequestSchema = z
   })
   .strict()
   .refine(
-    (value) => value.role !== undefined || value.active !== undefined || value.resetPassword !== undefined,
+    (value) =>
+      value.role !== undefined || value.active !== undefined || value.resetPassword !== undefined,
     { message: "At least one of role, active or resetPassword is required" },
   );
 

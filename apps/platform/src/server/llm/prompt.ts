@@ -94,7 +94,10 @@ export function buildSeatPrompt(input: BuildSeatPromptInput): SeatPrompt {
     }
 
     if (roomTypes.has(row.type)) {
-      messages.push({ role: "user", content: `[${seatKeys[row.participantId ?? ""] ?? "?"}] ${renderPayload(row.payload)}` });
+      messages.push({
+        role: "user",
+        content: `[${seatKeys[row.participantId ?? ""] ?? "?"}] ${renderPayload(row.payload)}`,
+      });
     }
   }
 

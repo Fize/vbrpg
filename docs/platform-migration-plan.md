@@ -330,9 +330,9 @@ DSL 撤除后，这个问题变简单了：**编排库是游戏代码的内部�
 
 目标：让 CI 与运维能挡住回归。
 
-- [ ] `M4-01` **lint 与格式检查进 CI**：现在没有，而模块边界依赖评审。
-- [ ] `M4-02` **密钥轮换流程**：`credential_key_version` 已在，流程没有。
-- [ ] `M4-03` **处置依赖告警**：`pnpm audit`。
+- [x] `M4-01` **lint 与格式检查进 CI**：Prettier 管格式、ESLint 管对错（不做类型感知），CI 硬门禁。
+- [x] `M4-02` **密钥轮换流程**：`pnpm rotate-credential-key` + 真库演练 + `docs/operations/credential-rotation.md`。
+- [x] `M4-03` **处置依赖告警**：`fastify` 升级 + `fast-uri` override，`pnpm audit --prod` 归零并进 CI 硬门禁。
 - [x] `M4-04` ~~E2E 进 CI；删除根脚本 `test:golden:legacy`~~ — 已完成：CI 装了 chromium、bootstrap 了 e2e-root 管理员并跑 Playwright；断链脚本已删。
 - [ ] `M4-05` **备份恢复演练**与部署手册更新。
 

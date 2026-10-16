@@ -78,7 +78,11 @@ export async function registerPlatformAdminRoutes(
     const remainsActive = body.active ?? target.active;
     if (target.role === "admin" && target.active && (!remainsAdmin || !remainsActive)) {
       if ((await context.store.countActiveAdmins()) <= 1) {
-        throw new AppError(409, "LAST_ADMIN", "The last active administrator cannot be demoted or disabled");
+        throw new AppError(
+          409,
+          "LAST_ADMIN",
+          "The last active administrator cannot be demoted or disabled",
+        );
       }
     }
 
@@ -114,7 +118,11 @@ export async function registerPlatformAdminRoutes(
     const target = await context.store.getUser(userId);
     if (!target) throw new AppError(404, "USER_NOT_FOUND", "No such account");
     if (target.id === principal.userId) {
-      throw new AppError(409, "CANNOT_DELETE_SELF", "An administrator cannot delete their own account");
+      throw new AppError(
+        409,
+        "CANNOT_DELETE_SELF",
+        "An administrator cannot delete their own account",
+      );
     }
     try {
       // Sessions cascade with the account, and audit rows keep their history with the actor link
@@ -213,69 +221,77 @@ export async function registerPlatformAdminRoutes(
     }
   });
 
-  app.post("/v1/admin/providers/:providerId/test", { preHandler: requireAdmin }, async (request) => {
-    const principal = request.platformPrincipal!;
-    const { providerId } = providerIdParamSchema.parse(request.params);
-    return runConnectionTest(context, principal, providerId);
-  });
+  app.post(
+    "/v1/admin/providers/:providerId/test",
+    { preHandler: requireAdmin },
+    async (request) => {
+      const principal = request.platformPrincipal!;
+      const { providerId } = providerIdParamSchema.parse(request.params);
+      return runConnectionTest(context, principal, providerId);
+    },
+  );
 
-  app.post("/v1/admin/providers/:providerId/models", { preHandler: requireAdmin }, async (request, reply) => {
-    const principal = request.platformPrincipal!;
-    const { providerId } = providerIdParamSchema.parse(request.params);
-    const body = createProviderModelRequestSchema.parse(request.body);
-    try {
-      const model = await context.store.createProviderModel({
-        providerId,
-        modelId: body.modelId,
-        displayName: body.displayName,
-        enabled: body.enabled,
-      });
-      if (!model) throw new AppError(500, "MODEL_NOT_CREATED", "The model could not be created");
+  app.post(
+    "/v1/admin/providers/:providerId/models",
+    { preHandler: requireAdmin },
+    async (request, reply) => {
+      const principal = request.platformPrincipal!;
+      const { providerId } = providerIdParamSchema.parse(request.params);
+      const body = createProviderModelRequestSchema.parse(request.body);
+      try {
+        const model = await context.store.createProviderModel({
+          providerId,
+          modelId: body.modelId,
+          displayName: body.displayName,
+          enabled: body.enabled,
+        });
+        if (!model) throw new AppError(500, "MODEL_NOT_CREATED", "The model could not be created");
+        await context.store.recordAudit({
+          actorUserId: principal.userId,
+          action: "admin.provider.model.create",
+          resourceType: "provider_model",
+          resourceId: model.id,
+          metadata: { providerId },
+          succeeded: true,
+        });
+        return reply.code(201).send(model);
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          throw new AppError(409, "MODEL_TAKEN", "That model id already exists for this provider");
+        }
+        if (isForeignKeyViolation(error)) {
+          throw new AppError(404, "PROVIDER_NOT_FOUND", "No such provider");
+        }
+        throw error;
+      }
+    },
+  );
+
+  app.delete(
+    "/v1/admin/providers/:providerId",
+    { preHandler: requireAdmin },
+    async (request, reply) => {
+      const principal = request.platformPrincipal!;
+      const { providerId } = providerIdParamSchema.parse(request.params);
+      try {
+        const deleted = await context.store.deleteProvider(providerId);
+        if (!deleted) throw new AppError(404, "PROVIDER_NOT_FOUND", "No such provider");
+      } catch (error) {
+        if (isForeignKeyViolation(error)) {
+          throw new AppError(409, "PROVIDER_HAS_MODELS", "Delete this provider's models first");
+        }
+        throw error;
+      }
       await context.store.recordAudit({
         actorUserId: principal.userId,
-        action: "admin.provider.model.create",
-        resourceType: "provider_model",
-        resourceId: model.id,
-        metadata: { providerId },
+        action: "admin.provider.delete",
+        resourceType: "provider",
+        resourceId: providerId,
         succeeded: true,
       });
-      return reply.code(201).send(model);
-    } catch (error) {
-      if (isUniqueViolation(error)) {
-        throw new AppError(409, "MODEL_TAKEN", "That model id already exists for this provider");
-      }
-      if (isForeignKeyViolation(error)) {
-        throw new AppError(404, "PROVIDER_NOT_FOUND", "No such provider");
-      }
-      throw error;
-    }
-  });
-
-  app.delete("/v1/admin/providers/:providerId", { preHandler: requireAdmin }, async (request, reply) => {
-    const principal = request.platformPrincipal!;
-    const { providerId } = providerIdParamSchema.parse(request.params);
-    try {
-      const deleted = await context.store.deleteProvider(providerId);
-      if (!deleted) throw new AppError(404, "PROVIDER_NOT_FOUND", "No such provider");
-    } catch (error) {
-      if (isForeignKeyViolation(error)) {
-        throw new AppError(
-          409,
-          "PROVIDER_HAS_MODELS",
-          "Delete this provider's models first",
-        );
-      }
-      throw error;
-    }
-    await context.store.recordAudit({
-      actorUserId: principal.userId,
-      action: "admin.provider.delete",
-      resourceType: "provider",
-      resourceId: providerId,
-      succeeded: true,
-    });
-    return reply.code(204).send();
-  });
+      return reply.code(204).send();
+    },
+  );
 
   app.delete("/v1/admin/models/:modelId", { preHandler: requireAdmin }, async (request, reply) => {
     const principal = request.platformPrincipal!;
@@ -367,7 +383,11 @@ async function runConnectionTest(
     return result;
   });
   if (!running) {
-    throw new AppError(429, "CONNECTION_TEST_SATURATED", "Two connection tests are already running");
+    throw new AppError(
+      429,
+      "CONNECTION_TEST_SATURATED",
+      "Two connection tests are already running",
+    );
   }
   return running;
 }

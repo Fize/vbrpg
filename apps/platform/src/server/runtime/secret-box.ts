@@ -61,5 +61,7 @@ export function openCredential(
   const decipher = createDecipheriv("aes-256-gcm", key.key, sealed.credential_nonce);
   decipher.setAAD(associatedData(providerId));
   decipher.setAuthTag(sealed.credential_tag);
-  return Buffer.concat([decipher.update(sealed.credential_ciphertext), decipher.final()]).toString("utf8");
+  return Buffer.concat([decipher.update(sealed.credential_ciphertext), decipher.final()]).toString(
+    "utf8",
+  );
 }

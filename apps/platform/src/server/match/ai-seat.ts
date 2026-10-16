@@ -105,7 +105,10 @@ export function createAiSeatRunner(deps: {
 
     const game = registry.get(instance.game_id);
     if (!game) {
-      logger.info({ instanceId: target.instanceId, gameId: instance.game_id }, "unknown game, skipping");
+      logger.info(
+        { instanceId: target.instanceId, gameId: instance.game_id },
+        "unknown game, skipping",
+      );
       return "skipped";
     }
     const binding = await chooseBinding();

@@ -31,10 +31,22 @@ function state(overrides: Partial<GameState> = {}): GameState {
     },
     participants: [
       { participantId: "p1", actorId: "u1", roleId: "werewolf", control: "ai", status: "active" },
-      { participantId: "p2", actorId: "u2", roleId: "villager", control: "human", status: "active" },
+      {
+        participantId: "p2",
+        actorId: "u2",
+        roleId: "villager",
+        control: "human",
+        status: "active",
+      },
       { participantId: "p3", actorId: "u3", roleId: "seer", control: "human", status: "active" },
     ],
-    waiting: { kind: "playerInput", stepId: "ask", participantIds: ["p2"], actions: ["answer"], deadlineMs: undefined },
+    waiting: {
+      kind: "playerInput",
+      stepId: "ask",
+      participantIds: ["p2"],
+      actions: ["answer"],
+      deadlineMs: undefined,
+    },
     randomSeed: "seed-1",
     ...overrides,
   };
@@ -91,16 +103,32 @@ describe("player view projection", () => {
 
   it("only offers an action to the participant whose turn it is", () => {
     const waitingOnVillager = state();
-    assert.deepEqual(projectPlayerView(visibility(), waitingOnVillager, villager).availableActions, [
-      { actionId: "answer", input: { participantId: "p2" } },
-    ]);
-    assert.deepEqual(projectPlayerView(visibility(), waitingOnVillager, werewolf).availableActions, []);
+    assert.deepEqual(
+      projectPlayerView(visibility(), waitingOnVillager, villager).availableActions,
+      [{ actionId: "answer", input: { participantId: "p2" } }],
+    );
+    assert.deepEqual(
+      projectPlayerView(visibility(), waitingOnVillager, werewolf).availableActions,
+      [],
+    );
 
     const waitingOnEveryone = state({
-      waiting: { kind: "collectInput", stepId: "ask", participantIds: [], actions: ["answer"], deadlineMs: undefined },
+      waiting: {
+        kind: "collectInput",
+        stepId: "ask",
+        participantIds: [],
+        actions: ["answer"],
+        deadlineMs: undefined,
+      },
     });
-    assert.equal(projectPlayerView(visibility(), waitingOnEveryone, werewolf).availableActions.length, 1);
-    assert.deepEqual(projectPlayerView(visibility(), waitingOnEveryone, spectator).availableActions, []);
+    assert.equal(
+      projectPlayerView(visibility(), waitingOnEveryone, werewolf).availableActions.length,
+      1,
+    );
+    assert.deepEqual(
+      projectPlayerView(visibility(), waitingOnEveryone, spectator).availableActions,
+      [],
+    );
   });
 
   it("does not offer actions while nobody is being waited on", () => {
@@ -110,10 +138,20 @@ describe("player view projection", () => {
   });
 
   it("refuses to guess at an unparseable rule", () => {
-    const bad = [{}, { role: "" }, { roleId: "werewolf" }, { role: "werewolf", extra: 1 }, "private", 42, []];
+    const bad = [
+      {},
+      { role: "" },
+      { roleId: "werewolf" },
+      { role: "werewolf", extra: 1 },
+      "private",
+      42,
+      [],
+    ];
 
     for (const rule of bad) {
-      expect(() => parseVisibilityRule("secret", rule)).toThrowError(/Visibility rule for "secret"/);
+      expect(() => parseVisibilityRule("secret", rule)).toThrowError(
+        /Visibility rule for "secret"/,
+      );
       expect(() => projectPlayerView(visibility({ secret: rule }), state(), werewolf)).toThrow();
     }
   });

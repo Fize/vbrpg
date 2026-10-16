@@ -11,9 +11,7 @@ export type VisibilityRule =
   | { kind: "role"; roleId: string }
   | { kind: "participant"; participantId: string };
 
-export type Viewer =
-  | { kind: "participant"; participantId: string }
-  | { kind: "spectator" };
+export type Viewer = { kind: "participant"; participantId: string } | { kind: "spectator" };
 
 export function parseVisibilityRule(variable: string, raw: unknown): VisibilityRule {
   if (raw === "public") return { kind: "public" };
@@ -48,14 +46,23 @@ export function parseVisibilityRules(visibility: Visibility): Map<string, Visibi
 }
 
 function roleOf(state: GameState, participantId: string): string | undefined {
-  const participant = state.participants.find((candidate) => candidate.participantId === participantId);
+  const participant = state.participants.find(
+    (candidate) => candidate.participantId === participantId,
+  );
   if (!participant) {
-    throw new EngineError("UNKNOWN_PARTICIPANT", `Participant is not part of the instance: ${participantId}`);
+    throw new EngineError(
+      "UNKNOWN_PARTICIPANT",
+      `Participant is not part of the instance: ${participantId}`,
+    );
   }
   return participant.roleId;
 }
 
-function isVisibleTo(rule: VisibilityRule, viewer: Viewer, viewerRole: string | undefined): boolean {
+function isVisibleTo(
+  rule: VisibilityRule,
+  viewer: Viewer,
+  viewerRole: string | undefined,
+): boolean {
   if (rule.kind === "public") return true;
   if (viewer.kind === "spectator") return false;
   if (rule.kind === "participant") return rule.participantId === viewer.participantId;
@@ -106,5 +113,8 @@ function projectAvailableActions(state: GameState, viewer: Viewer): PlayerView["
     return [];
   }
   // Human and AI see the same vocabulary: the action names the game allows at this step.
-  return waiting.actions.map((name) => ({ actionId: name, input: { participantId: viewer.participantId } }));
+  return waiting.actions.map((name) => ({
+    actionId: name,
+    input: { participantId: viewer.participantId },
+  }));
 }

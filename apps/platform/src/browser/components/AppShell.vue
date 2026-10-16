@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Connection, Grid, Lock, SwitchButton, Tickets, User as UserIcon } from "@element-plus/icons-vue";
+import {
+  Connection,
+  Grid,
+  Lock,
+  SwitchButton,
+  Tickets,
+  User as UserIcon,
+} from "@element-plus/icons-vue";
 import { logout, sessionState } from "../stores/session";
 
 const router = useRouter();
@@ -94,16 +101,8 @@ async function handleLogout(): Promise<void> {
   z-index: -1;
   background:
     radial-gradient(60% 40% at 50% -10%, rgba(0, 240, 255, 0.12), transparent 70%),
-    repeating-linear-gradient(
-      to right,
-      rgba(255, 255, 255, 0.022) 0 1px,
-      transparent 1px 64px
-    ),
-    repeating-linear-gradient(
-      to bottom,
-      rgba(255, 255, 255, 0.022) 0 1px,
-      transparent 1px 64px
-    );
+    repeating-linear-gradient(to right, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 64px),
+    repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 64px);
 }
 
 .shell-header {

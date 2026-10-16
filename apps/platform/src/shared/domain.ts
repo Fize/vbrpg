@@ -137,10 +137,12 @@ export const playerViewSchema = z.object({
   status: gameStateSchema.shape.status,
   publicState: z.record(jsonValueSchema),
   privateState: z.record(jsonValueSchema),
-  availableActions: z.array(z.object({
-    actionId: idSchema,
-    input: z.record(jsonValueSchema),
-  })),
+  availableActions: z.array(
+    z.object({
+      actionId: idSchema,
+      input: z.record(jsonValueSchema),
+    }),
+  ),
 });
 
 /** One argument of an action. `seat` tells a UI to pick from this match's seats. */

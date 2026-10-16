@@ -47,9 +47,7 @@ const available = computed(() =>
   })),
 );
 const waitingParticipantIds = computed(() => detail.value?.waiting?.participantIds ?? []);
-const waitingSeats = computed(() =>
-  waitingParticipantIds.value.map((id) => seatName(id)),
-);
+const waitingSeats = computed(() => waitingParticipantIds.value.map((id) => seatName(id)));
 const publicEntries = computed(
   () => Object.entries(detail.value?.view.publicState ?? {}) as Array<[string, unknown]>,
 );
@@ -88,13 +86,16 @@ const bubbles = computed(() => {
 
 function seatName(participantId: string | null): string {
   if (participantId === null) return "平台";
-  return detail.value?.seats.find((seat) => seat.participantId === participantId)?.key ?? participantId;
+  return (
+    detail.value?.seats.find((seat) => seat.participantId === participantId)?.key ?? participantId
+  );
 }
 
 /** Private keys are addressed as `name:<participantId>`; the name is what a reader needs. */
 function privateKey(key: string): string {
   const id = mySeat.value?.participantId;
-  const name = id !== undefined && key.endsWith(`:${id}`) ? key.slice(0, key.length - id.length - 1) : key;
+  const name =
+    id !== undefined && key.endsWith(`:${id}`) ? key.slice(0, key.length - id.length - 1) : key;
   return detail.value?.game.words[name] ?? name;
 }
 
@@ -123,7 +124,10 @@ async function load(): Promise<void> {
 onMounted(load);
 watch(instanceId, load);
 
-async function submit(payload: { actionId: string; values: Record<string, string> }): Promise<void> {
+async function submit(payload: {
+  actionId: string;
+  values: Record<string, string>;
+}): Promise<void> {
   const seat = mySeat.value;
   if (!seat) return;
 
@@ -160,7 +164,9 @@ async function submit(payload: { actionId: string; values: Record<string, string
         我的席位 {{ mySeat.key }}
       </el-tag>
       <el-tag v-else-if="detail" type="info" effect="plain" size="small">观战中</el-tag>
-      <el-button class="spacer" text :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+      <el-button class="spacer" text :icon="Refresh" :loading="loading" @click="load"
+        >刷新</el-button
+      >
     </header>
 
     <el-alert
@@ -201,7 +207,11 @@ async function submit(payload: { actionId: string; values: Record<string, string
             <span class="panel-title">只给你看的信息</span>
           </header>
           <el-descriptions v-if="privateEntries.length > 0" :column="1" border size="small">
-            <el-descriptions-item v-for="entry in privateEntries" :key="entry.key" :label="entry.key">
+            <el-descriptions-item
+              v-for="entry in privateEntries"
+              :key="entry.key"
+              :label="entry.key"
+            >
               {{ valueText(entry.value) }}
             </el-descriptions-item>
           </el-descriptions>

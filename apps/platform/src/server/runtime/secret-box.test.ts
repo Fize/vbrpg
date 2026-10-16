@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { openCredential, parseCredentialKey, sealCredential, type CredentialKey } from "./secret-box.js";
+import {
+  openCredential,
+  parseCredentialKey,
+  sealCredential,
+  type CredentialKey,
+} from "./secret-box.js";
 
 const providerId = "11111111-1111-4111-8111-111111111111";
 const otherProviderId = "22222222-2222-4222-8222-222222222222";
@@ -36,7 +41,10 @@ describe("provider credential sealing", () => {
   it("fails closed on tampering", () => {
     const credentialKey = key();
     const sealed = sealCredential("sk-secret-value", providerId, credentialKey);
-    const tampered = { ...sealed, credential_ciphertext: Buffer.from(sealed.credential_ciphertext) };
+    const tampered = {
+      ...sealed,
+      credential_ciphertext: Buffer.from(sealed.credential_ciphertext),
+    };
     tampered.credential_ciphertext[0] = (tampered.credential_ciphertext[0] ?? 0) ^ 0xff;
     expect(() => openCredential(tampered, providerId, credentialKey)).toThrow();
   });

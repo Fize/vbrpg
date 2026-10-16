@@ -66,7 +66,11 @@ describe("model client", () => {
         {
           name: "vote",
           description: "投出一票",
-          parameters: { type: "object", properties: { target: { type: "string", description: "目标" } }, required: ["target"] },
+          parameters: {
+            type: "object",
+            properties: { target: { type: "string", description: "目标" } },
+            required: ["target"],
+          },
         },
       ],
     });
@@ -87,7 +91,9 @@ describe("model client", () => {
 
     expect(result.content).toBeNull();
     expect(result.reasoning).toBe("p2 说得很含糊");
-    expect(result.toolCalls).toEqual([{ id: "call-1", name: "vote", arguments: '{"target":"p2"}' }]);
+    expect(result.toolCalls).toEqual([
+      { id: "call-1", name: "vote", arguments: '{"target":"p2"}' },
+    ]);
     expect(result.usage).toEqual({ promptTokens: 1200, completionTokens: 42, totalTokens: 1242 });
     expect(result.finishReason).toBe("tool_calls");
   });

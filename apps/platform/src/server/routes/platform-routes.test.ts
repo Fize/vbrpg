@@ -7,7 +7,7 @@ import { loadConfig } from "../config.js";
 import { hashPassword } from "../password.js";
 import { hashToken } from "../session.js";
 import { hashCsrfToken } from "../csrf.js";
-import { sealCredential } from "../runtime/index.js";
+import type { sealCredential } from "../runtime/index.js";
 import type { PlatformUserRecord } from "../db/index.js";
 import { AppError } from "../runtime/index.js";
 import type { MatchService } from "../match/service.js";
@@ -37,7 +37,10 @@ function createFakeStore(options: {
   const users = new Map(options.users.map((user) => [user.id, user]));
   const sessions = new Map<string, SessionRecord & { tokenHash: string }>();
   const providers = new Map<string, ProviderView>();
-  const secrets = new Map<string, { baseUrl: string; enabled: boolean; sealed: ReturnType<typeof sealCredential> }>();
+  const secrets = new Map<
+    string,
+    { baseUrl: string; enabled: boolean; sealed: ReturnType<typeof sealCredential> }
+  >();
   const audits: Array<Record<string, unknown>> = [];
 
   const store: PlatformStore = {
@@ -98,7 +101,9 @@ function createFakeStore(options: {
     },
     findSessionByTokenHash: async (tokenHash) => {
       const now = new Date();
-      const match = [...sessions.values()].find((session) => session.tokenHash === tokenHash.toString("hex"));
+      const match = [...sessions.values()].find(
+        (session) => session.tokenHash === tokenHash.toString("hex"),
+      );
       if (!match) return undefined;
       if (match.idleExpiresAt <= now || match.absoluteExpiresAt <= now) return undefined;
       return match;
@@ -134,7 +139,11 @@ function createFakeStore(options: {
         models: [],
       };
       providers.set(view.id, view);
-      secrets.set(view.id, { baseUrl: input.baseUrl, enabled: input.enabled, sealed: input.credential });
+      secrets.set(view.id, {
+        baseUrl: input.baseUrl,
+        enabled: input.enabled,
+        sealed: input.credential,
+      });
       return view;
     },
     updateProvider: async (providerId, patch) => {
@@ -204,7 +213,9 @@ function createFakeStore(options: {
   return { store, audits, sessions };
 }
 
-function makeUser(overrides: Partial<PlatformUserRecord> & { passwordHash: string }): PlatformUserRecord {
+function makeUser(
+  overrides: Partial<PlatformUserRecord> & { passwordHash: string },
+): PlatformUserRecord {
   return {
     id: randomUUID(),
     username: "alice",
@@ -230,7 +241,9 @@ async function createApp(state: FakeState, matchService?: MatchService) {
 const MATCH_ID = "11111111-1111-1111-1111-111111111111";
 
 /** Records what reached the service; the write path itself is covered against real PostgreSQL. */
-function fakeMatchService(overrides: Partial<MatchService> = {}): MatchService & { seen: string[] } {
+function fakeMatchService(
+  overrides: Partial<MatchService> = {},
+): MatchService & { seen: string[] } {
   const seen: string[] = [];
   const summary = {
     instanceId: MATCH_ID,
@@ -456,7 +469,11 @@ describe("CSRF and origin enforcement", () => {
     // Browsers omit Origin on same-origin GET, so reads must not require CSRF.
     const users = await app.inject({ method: "GET", url: "/v1/admin/users", headers: { cookie } });
     assert.equal(users.statusCode, 200, users.body);
-    const providers = await app.inject({ method: "GET", url: "/v1/admin/providers", headers: { cookie } });
+    const providers = await app.inject({
+      method: "GET",
+      url: "/v1/admin/providers",
+      headers: { cookie },
+    });
     assert.equal(providers.statusCode, 200, providers.body);
   });
 
@@ -491,7 +508,11 @@ describe("CSRF and origin enforcement", () => {
     const response = await app.inject({
       method: "POST",
       url: "/v1/admin/users",
-      headers: { cookie, origin: "https://evil.example.com", "x-csrf-token": body.csrfToken as string },
+      headers: {
+        cookie,
+        origin: "https://evil.example.com",
+        "x-csrf-token": body.csrfToken as string,
+      },
       payload: { username: "bob", temporaryPassword: "temporary-pw-1", role: "user" },
     });
     assert.equal(response.statusCode, 403);
@@ -630,7 +651,8 @@ describe("password change", () => {
     const rotated = response.headers["set-cookie"];
     const rotatedCookie = (Array.isArray(rotated) ? rotated[0] : rotated) ?? "";
     assert.equal(
-      (await app.inject({ method: "GET", url: "/v1/me", headers: { cookie: rotatedCookie } })).statusCode,
+      (await app.inject({ method: "GET", url: "/v1/me", headers: { cookie: rotatedCookie } }))
+        .statusCode,
       200,
     );
   });
@@ -650,7 +672,11 @@ describe("provider administration", () => {
       method: "POST",
       url: "/v1/admin/providers",
       headers: { cookie, origin: ORIGIN, "x-csrf-token": body.csrfToken as string },
-      payload: { name: "primary", baseUrl: "https://api.example.com/v1", apiKey: "sk-super-secret" },
+      payload: {
+        name: "primary",
+        baseUrl: "https://api.example.com/v1",
+        apiKey: "sk-super-secret",
+      },
     });
     assert.equal(response.statusCode, 201, response.body);
     const created = response.json() as Record<string, unknown>;
@@ -960,7 +986,13 @@ describe("match routes", () => {
       method: "POST",
       url: "/v1/instances",
       headers,
-      payload: { gameId: "undercover", seats: [{ key: "p1", control: "human" }, { key: "p2", control: "ai" }] },
+      payload: {
+        gameId: "undercover",
+        seats: [
+          { key: "p1", control: "human" },
+          { key: "p2", control: "ai" },
+        ],
+      },
     });
     assert.equal(created.statusCode, 201, created.body);
     assert.equal(created.json().instanceId, MATCH_ID);
@@ -1030,7 +1062,11 @@ describe("match routes", () => {
     const refused = await seated({
       matchService: fakeMatchService({
         setStatus: async () => {
-          throw new AppError(403, "ADMIN_REQUIRED", "Only administrators may change a match lifecycle");
+          throw new AppError(
+            403,
+            "ADMIN_REQUIRED",
+            "Only administrators may change a match lifecycle",
+          );
         },
       }),
     });

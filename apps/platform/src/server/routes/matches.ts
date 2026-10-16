@@ -23,7 +23,9 @@ export async function registerMatchRoutes(
   const readOnly = authenticatePlatform(context);
   const write = authenticatePlatformWithCsrf(context);
 
-  const actorOf = (request: { platformPrincipal?: { userId: string; role: string } }): MatchActor => ({
+  const actorOf = (request: {
+    platformPrincipal?: { userId: string; role: string };
+  }): MatchActor => ({
     userId: request.platformPrincipal!.userId,
     isAdmin: request.platformPrincipal!.role === "admin",
   });
@@ -50,7 +52,12 @@ export async function registerMatchRoutes(
       throw new AppError(400, "IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key header is required");
     }
     const body = parseSubmitEventRequest(request.body);
-    return matchService.submit({ actor: actorOf(request), instanceId, idempotencyKey, request: body });
+    return matchService.submit({
+      actor: actorOf(request),
+      instanceId,
+      idempotencyKey,
+      request: body,
+    });
   });
 
   app.get("/v1/instances/:instanceId", { preHandler: readOnly }, async (request) => {

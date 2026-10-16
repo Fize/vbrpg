@@ -1,4 +1,4 @@
-import { closeDb, createDb, getProvider, listProvidersWithModels } from "../src/server/db/index.js";
+import { closeDb, createDb, listProvidersWithModels } from "../src/server/db/index.js";
 import { openCredential, parseCredentialKey } from "../src/server/runtime/index.js";
 import { parseProviderEndpoint } from "../src/server/provider-endpoint.js";
 import { createModelClient, type ChatMessage } from "../src/server/llm/client.js";
@@ -32,12 +32,20 @@ const db = createDb({ databaseUrl });
 try {
   const wanted = flag("--provider");
   const catalog = await listProvidersWithModels(db, { includeDisabled: false });
-  const entry = wanted === undefined ? catalog[0] : catalog.find((row) => row.provider.name === wanted);
+  const entry =
+    wanted === undefined ? catalog[0] : catalog.find((row) => row.provider.name === wanted);
   if (!entry) {
-    console.error(wanted === undefined ? "No enabled provider is configured" : `No enabled provider named ${wanted}`);
+    console.error(
+      wanted === undefined
+        ? "No enabled provider is configured"
+        : `No enabled provider named ${wanted}`,
+    );
     process.exit(1);
   }
-  const model = flag("--model") === undefined ? entry.models[0] : entry.models.find((row) => row.model_id === flag("--model"));
+  const model =
+    flag("--model") === undefined
+      ? entry.models[0]
+      : entry.models.find((row) => row.model_id === flag("--model"));
   if (!model) {
     console.error("The provider has no enabled model to call");
     process.exit(1);
@@ -74,7 +82,12 @@ try {
     seatKeys: { p1: "p1", p2: "p2", p3: "p3", p4: "p4" },
     record: [
       { sequence: 1, type: "instanceCreated", participantId: null, payload: {} },
-      { sequence: 2, type: "seatMessage", participantId: seats[0]!.participantId, payload: { text: "我这东西，冬天很常见" } },
+      {
+        sequence: 2,
+        type: "seatMessage",
+        participantId: seats[0]!.participantId,
+        payload: { text: "我这东西，冬天很常见" },
+      },
     ],
   });
 

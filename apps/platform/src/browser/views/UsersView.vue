@@ -148,7 +148,9 @@ async function confirmReset(): Promise<void> {
   }
   resetting.value = true;
   try {
-    await runRowAction(target.id, () => api.updateUser(target.id, { resetPassword: resetValue.value }));
+    await runRowAction(target.id, () =>
+      api.updateUser(target.id, { resetPassword: resetValue.value }),
+    );
     if (rowError.value === null) {
       resetTarget.value = null;
       resetValue.value = "";
@@ -287,11 +289,7 @@ async function confirmReset(): Promise<void> {
               >
                 设为普通用户
               </el-button>
-              <el-button
-                v-else
-                :disabled="rowBusyId === row.id"
-                @click="changeRole(row, 'admin')"
-              >
+              <el-button v-else :disabled="rowBusyId === row.id" @click="changeRole(row, 'admin')">
                 设为管理员
               </el-button>
               <el-button :disabled="rowBusyId === row.id" @click="openReset(row)">
@@ -319,7 +317,9 @@ async function confirmReset(): Promise<void> {
       @update:model-value="deleteTarget = null"
     >
       <p class="dialog-note">
-        永久删除「{{ deleteTarget?.username }}」及其会话。该账号如果出现在对局记录里，删除会被拒绝，此时请改用停用。
+        永久删除「{{
+          deleteTarget?.username
+        }}」及其会话。该账号如果出现在对局记录里，删除会被拒绝，此时请改用停用。
       </p>
       <p v-if="deleteError" class="field-error">
         {{ deleteError }}<span v-if="deleteRequestId"> （{{ deleteRequestId }}）</span>

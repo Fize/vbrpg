@@ -118,14 +118,15 @@ async function submitCreate(): Promise<void> {
     creating.value = false;
   }
 }
-
 </script>
 
 <template>
   <section class="lobby">
     <header class="page-head">
       <h1>大厅</h1>
-      <p class="page-sub">对局在这里开；进房间后按当前等待点行动。本阶段不做实时推送，房间页用刷新取最新记录。</p>
+      <p class="page-sub">
+        对局在这里开；进房间后按当前等待点行动。本阶段不做实时推送，房间页用刷新取最新记录。
+      </p>
     </header>
 
     <el-card class="panel" shadow="never">
@@ -197,9 +198,7 @@ async function submitCreate(): Promise<void> {
 
       <p class="hint">
         大厅里的每一局都能进：占席位的进去行动，没有席位的进去旁观，看到的是同一份记录。
-        <template v-if="isAdmin">
-          对局的暂停、恢复与取消在「对局运维」里，不在这里。
-        </template>
+        <template v-if="isAdmin"> 对局的暂停、恢复与取消在「对局运维」里，不在这里。 </template>
       </p>
     </el-card>
 
@@ -254,7 +253,12 @@ async function submitCreate(): Promise<void> {
                 placeholder="留空表示自己占该席位"
               />
               <span v-else class="seat-note muted">由平台按供应商默认模型驱动</span>
-              <el-button text type="danger" :disabled="createSeats.length <= 1" @click="removeSeat(index)">
+              <el-button
+                text
+                type="danger"
+                :disabled="createSeats.length <= 1"
+                @click="removeSeat(index)"
+              >
                 移除
               </el-button>
             </div>

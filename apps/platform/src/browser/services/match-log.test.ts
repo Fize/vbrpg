@@ -55,8 +55,17 @@ describe("match log", () => {
         row({
           type: "aiCall",
           participantId: "p-2",
-          payload: { reasoning: "他在描述水果", toolCalls: [{ id: "c1", name: "vote", arguments: "{}" }] },
-          usage: { providerId: "pv", modelId: "m", promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          payload: {
+            reasoning: "他在描述水果",
+            toolCalls: [{ id: "c1", name: "vote", arguments: "{}" }],
+          },
+          usage: {
+            providerId: "pv",
+            modelId: "m",
+            promptTokens: 10,
+            completionTokens: 5,
+            totalTokens: 15,
+          },
         }),
       ],
       actions,

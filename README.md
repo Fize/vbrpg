@@ -58,17 +58,16 @@ pnpm test:e2e     # Playwright（需要 E2E_DATABASE_URL 与 E2E_CREDENTIAL_KEY�
 
 CI 里这些都跑：构建、类型检查、单测、真实 PostgreSQL 集成、迁移与回滚、Playwright。健康检查只有 `GET /health`。
 
-
 ## 文档
 
-| 文档 | 内容 |
-| --- | --- |
-| `docs/platform-migration-plan.md` | 现状与工作计划（§8，M1–M5）、发布门槛（§10）、决策日志（§16，按轮次） |
-| `docs/adr/` | 架构决策记录（001 起，008/009/010 是最近的收敛） |
-| `docs/mvp-scope.md` | MVP 范围与下一步 |
-| `docs/operations/phase1-platform.md` | 运维手册：环境变量、迁移、回滚、排障 |
-| `docs/api/phase1-openapi.yaml` | 控制面 API 契约 |
-| `docs/design/`、`docs/security/` | 认证与凭据的安全设计、威胁模型 |
+| 文档                                 | 内容                                                                  |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| `docs/platform-migration-plan.md`    | 现状与工作计划（§8，M1–M5）、发布门槛（§10）、决策日志（§16，按轮次） |
+| `docs/adr/`                          | 架构决策记录（001 起，008/009/010 是最近的收敛）                      |
+| `docs/mvp-scope.md`                  | MVP 范围与下一步                                                      |
+| `docs/operations/phase1-platform.md` | 运维手册：环境变量、迁移、回滚、排障                                  |
+| `docs/api/phase1-openapi.yaml`       | 控制面 API 契约                                                       |
+| `docs/design/`、`docs/security/`     | 认证与凭据的安全设计、威胁模型                                        |
 
 ## 旧系统
 

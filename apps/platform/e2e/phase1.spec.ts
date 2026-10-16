@@ -1,11 +1,11 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const initialPassword = "initial-password-1";
 const userPassword = "temporary-user-pw-1";
 const changedUserPassword = "player-changed-pw-1";
 const providerApiKey = "sk-e2e-never-return-this";
 
-async function login(page: import("@playwright/test").Page, username: string, password: string) {
+async function login(page: Page, username: string, password: string) {
   await page.goto("/login");
   await page.getByLabel("用户名").fill(username);
   await page.getByLabel("密码", { exact: true }).fill(password);
@@ -21,7 +21,9 @@ test.describe.serial("Phase 1 browser acceptance", () => {
     await expect(page.getByRole("button", { name: "新建对局" })).toBeVisible();
   });
 
-  test("admin provisions a user and provider/model; secrets do not appear in the UI", async ({ page }) => {
+  test("admin provisions a user and provider/model; secrets do not appear in the UI", async ({
+    page,
+  }) => {
     await login(page, "e2e-root", initialPassword);
     await expect(page).toHaveURL(/\/lobby$/);
 
@@ -49,7 +51,9 @@ test.describe.serial("Phase 1 browser acceptance", () => {
 
     await page.getByRole("button", { name: "测试连接" }).click();
     // The connection test reports in the reader's language, not in the provider's error codes.
-    await expect(page.getByText(/密钥被拒绝|触发限流|供应商返回错误|超时|证书错误|域名不可用|响应无法解析/)).toBeVisible();
+    await expect(
+      page.getByText(/密钥被拒绝|触发限流|供应商返回错误|超时|证书错误|域名不可用|响应无法解析/),
+    ).toBeVisible();
     await expect(page.getByText(providerApiKey)).toHaveCount(0);
 
     // Deleting follows the same rule as the API: the model goes first.
@@ -108,7 +112,9 @@ test.describe.serial("Phase 1 browser acceptance", () => {
     ).toHaveCount(0);
   });
 
-  test("login form validates required inputs and displays generic auth errors", async ({ page }) => {
+  test("login form validates required inputs and displays generic auth errors", async ({
+    page,
+  }) => {
     await page.goto("/login");
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByText("请输入用户名")).toBeVisible();

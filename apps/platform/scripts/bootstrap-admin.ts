@@ -21,7 +21,9 @@ try {
   const username = usernameSchema.parse(
     normalizeUsername(readFlag(args, "--username") ?? (await prompt("Username: "))),
   );
-  const password = newPasswordSchema.parse(readFlag(args, "--password") ?? (await promptPassword()));
+  const password = newPasswordSchema.parse(
+    readFlag(args, "--password") ?? (await promptPassword()),
+  );
   const passwordHash = await hashPassword(password);
   const result = await bootstrapPlatformAdmin(db, { username, passwordHash });
   if (result.created) {

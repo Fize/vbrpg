@@ -21,7 +21,9 @@ describe("provider endpoint contract", () => {
   });
 
   it("accepts a public https endpoint", () => {
-    expect(providerBaseUrlSchema.parse("https://api.example.com/v1")).toBe("https://api.example.com/v1");
+    expect(providerBaseUrlSchema.parse("https://api.example.com/v1")).toBe(
+      "https://api.example.com/v1",
+    );
   });
 });
 
@@ -31,13 +33,21 @@ describe("platform request contracts", () => {
   });
 
   it("rejects unknown login fields", () => {
-    expect(() => parseLoginRequest({ username: "alice", password: "pw", remember: true })).toThrow();
+    expect(() =>
+      parseLoginRequest({ username: "alice", password: "pw", remember: true }),
+    ).toThrow();
   });
 
   it("requires a temporary password of at least 12 characters", () => {
-    expect(() => parseCreateUserRequest({ username: "alice", temporaryPassword: "short", role: "user" })).toThrow();
+    expect(() =>
+      parseCreateUserRequest({ username: "alice", temporaryPassword: "short", role: "user" }),
+    ).toThrow();
     expect(
-      parseCreateUserRequest({ username: "alice", temporaryPassword: "a-long-enough-pw", role: "user" }).role,
+      parseCreateUserRequest({
+        username: "alice",
+        temporaryPassword: "a-long-enough-pw",
+        role: "user",
+      }).role,
     ).toBe("user");
   });
 

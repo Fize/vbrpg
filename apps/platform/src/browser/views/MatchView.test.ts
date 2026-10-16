@@ -29,7 +29,12 @@ const detail: MatchDetail = {
     { participantId: other, key: "s2", control: "human", status: "active", actorUserId: null },
     { participantId: aiSeat, key: "s3", control: "ai", status: "active", actorUserId: null },
   ],
-  waiting: { kind: "collectInput", stepId: "describe", participantIds: [me], actions: ["seatMessage"] },
+  waiting: {
+    kind: "collectInput",
+    stepId: "describe",
+    participantIds: [me],
+    actions: ["seatMessage"],
+  },
   view: {
     instanceId,
     gameVersionId: "undercover@1.0.0",

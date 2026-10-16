@@ -3,7 +3,7 @@ import type { PlatformRole } from "../shared/index.js";
 import type { ApiConfig } from "./config.js";
 import { AppError } from "./runtime/index.js";
 import { assertTrustedOrigin, csrfTokenMatches } from "./csrf.js";
-import { createConcurrencyLimiter, createRateLimiter, type ConcurrencyLimiter, type RateLimiter } from "./rate-limit.js";
+import { createRateLimiter, type ConcurrencyLimiter, type RateLimiter } from "./rate-limit.js";
 import {
   LAST_SEEN_THROTTLE_MS,
   SESSION_ABSOLUTE_MS,
@@ -90,9 +90,16 @@ export async function resolvePrincipal(
 }
 
 /** Every protected route re-checks the DB role; a client claim is never trusted. */
-export function requirePlatformRole(principal: PlatformPrincipal, allowed: readonly PlatformRole[]): void {
+export function requirePlatformRole(
+  principal: PlatformPrincipal,
+  allowed: readonly PlatformRole[],
+): void {
   if (!allowed.includes(principal.role)) {
-    throw new AppError(403, "INSUFFICIENT_ROLE", "The authenticated account lacks the required role");
+    throw new AppError(
+      403,
+      "INSUFFICIENT_ROLE",
+      "The authenticated account lacks the required role",
+    );
   }
 }
 
@@ -102,7 +109,9 @@ export function authenticatePlatform(context: PlatformRequestContext): preHandle
   };
 }
 
-export function authenticatePlatformWithCsrf(context: PlatformRequestContext): preHandlerHookHandler {
+export function authenticatePlatformWithCsrf(
+  context: PlatformRequestContext,
+): preHandlerHookHandler {
   return async (request) => {
     const principal = await resolvePrincipal(request, context);
     assertCsrf(request, principal, context.config);
@@ -123,7 +132,9 @@ export function authenticatePlatformAdmin(context: PlatformRequestContext): preH
  * Read-only admin access. Browsers omit `Origin` on same-origin GET requests, so
  * reads must not require the CSRF/Origin check that guards state changes.
  */
-export function authenticatePlatformAdminRead(context: PlatformRequestContext): preHandlerHookHandler {
+export function authenticatePlatformAdminRead(
+  context: PlatformRequestContext,
+): preHandlerHookHandler {
   return async (request) => {
     const principal = await resolvePrincipal(request, context);
     requirePlatformRole(principal, ["admin"]);

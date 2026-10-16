@@ -236,7 +236,10 @@ export const api = {
   },
 
   async listGames(): Promise<GameCatalogueEntry[]> {
-    const result = await execute<{ games: GameCatalogueEntry[] }>({ method: "GET", path: "/games" });
+    const result = await execute<{ games: GameCatalogueEntry[] }>({
+      method: "GET",
+      path: "/games",
+    });
     return result.games;
   },
 

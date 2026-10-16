@@ -17,11 +17,16 @@ const greeting: GameModule = {
           sequence: event.sequence,
           status: "waiting",
           stepId: "ask",
-          waiting: { kind: "playerInput", stepId: "ask", participantIds: ["p1"], actions: ["answer"] },
+          waiting: {
+            kind: "playerInput",
+            stepId: "ask",
+            participantIds: ["p1"],
+            actions: ["answer"],
+          },
         },
-      events: [event],
-    };
-  }
+        events: [event],
+      };
+    }
     return {
       state: {
         ...state,
@@ -37,10 +42,20 @@ const greeting: GameModule = {
 };
 
 const participants = [
-  { participantId: "p1", actorId: "u1", roleId: "player", control: "human" as const, status: "active" as const },
+  {
+    participantId: "p1",
+    actorId: "u1",
+    roleId: "player",
+    control: "human" as const,
+    status: "active" as const,
+  },
 ];
 
-function event(sequence: number, type: GameEvent["type"], payload: Record<string, unknown> = {}): GameEvent {
+function event(
+  sequence: number,
+  type: GameEvent["type"],
+  payload: Record<string, unknown> = {},
+): GameEvent {
   return {
     eventId: `event-${sequence}`,
     instanceId: "instance-1",
@@ -63,7 +78,9 @@ describe("game module registry", () => {
     expect(registry.get("greeting")?.version).toBe("1.0.0");
     expect(registry.get("missing")).toBeUndefined();
     expect(() => registry.require("missing")).toThrowError(/Unknown game: missing/);
-    expect(() => createGameRegistry([greeting, greeting])).toThrowError(/Duplicate game id: greeting/);
+    expect(() => createGameRegistry([greeting, greeting])).toThrowError(
+      /Duplicate game id: greeting/,
+    );
   });
 
   it("drives a game through the platform envelope", () => {

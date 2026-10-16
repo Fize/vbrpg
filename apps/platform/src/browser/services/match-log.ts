@@ -44,7 +44,9 @@ function usageText(row: MatchRecordRow): string {
   return `${row.usage.modelId} · 输入 ${row.usage.promptTokens} · 输出 ${row.usage.completionTokens} · 合计 ${row.usage.totalTokens}`;
 }
 
-function toolsOf(row: MatchRecordRow): Array<{ name: string; id: string; payload: Record<string, unknown> }> {
+function toolsOf(
+  row: MatchRecordRow,
+): Array<{ name: string; id: string; payload: Record<string, unknown> }> {
   const raw = row.payload["toolCalls"];
   if (!Array.isArray(raw)) return [];
   const calls: Array<{ name: string; id: string; payload: Record<string, unknown> }> = [];
@@ -54,7 +56,8 @@ function toolsOf(row: MatchRecordRow): Array<{ name: string; id: string; payload
     let payload: Record<string, unknown> = {};
     try {
       const parsed: unknown = JSON.parse(String(call["arguments"] ?? "{}"));
-      if (typeof parsed === "object" && parsed !== null) payload = parsed as Record<string, unknown>;
+      if (typeof parsed === "object" && parsed !== null)
+        payload = parsed as Record<string, unknown>;
     } catch {
       payload = {};
     }

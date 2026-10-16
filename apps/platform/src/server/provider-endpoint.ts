@@ -26,19 +26,35 @@ export function parseProviderEndpoint(rawUrl: string): ProviderEndpoint {
   try {
     url = new URL(rawUrl);
   } catch {
-    throw new AppError(400, "PROVIDER_ENDPOINT_INVALID", "Provider base URL must be an absolute URL");
+    throw new AppError(
+      400,
+      "PROVIDER_ENDPOINT_INVALID",
+      "Provider base URL must be an absolute URL",
+    );
   }
   if (url.protocol !== "https:") {
     throw new AppError(400, "PROVIDER_ENDPOINT_INVALID", "Provider base URL must use https");
   }
   if (url.username !== "" || url.password !== "") {
-    throw new AppError(400, "PROVIDER_ENDPOINT_INVALID", "Provider base URL must not embed credentials");
+    throw new AppError(
+      400,
+      "PROVIDER_ENDPOINT_INVALID",
+      "Provider base URL must not embed credentials",
+    );
   }
   if (url.hash !== "") {
-    throw new AppError(400, "PROVIDER_ENDPOINT_INVALID", "Provider base URL must not contain a fragment");
+    throw new AppError(
+      400,
+      "PROVIDER_ENDPOINT_INVALID",
+      "Provider base URL must not contain a fragment",
+    );
   }
   if (url.hostname === "") {
-    throw new AppError(400, "PROVIDER_ENDPOINT_INVALID", "Provider base URL must contain a hostname");
+    throw new AppError(
+      400,
+      "PROVIDER_ENDPOINT_INVALID",
+      "Provider base URL must contain a hostname",
+    );
   }
   return { url, hostname: stripBrackets(url.hostname) };
 }
@@ -68,7 +84,10 @@ function groupsToWords(groups: readonly string[]): number[] | null {
       if (index !== groups.length - 1) return null;
       const bytes = parseIpv4(group);
       if (!bytes) return null;
-      words.push(((bytes[0] ?? 0) << 8) | (bytes[1] ?? 0), ((bytes[2] ?? 0) << 8) | (bytes[3] ?? 0));
+      words.push(
+        ((bytes[0] ?? 0) << 8) | (bytes[1] ?? 0),
+        ((bytes[2] ?? 0) << 8) | (bytes[3] ?? 0),
+      );
       continue;
     }
     if (!/^[0-9a-fA-F]{1,4}$/.test(group)) return null;
@@ -185,7 +204,11 @@ export async function resolvePublicEndpoint(
   for (const address of addresses) {
     const reason = classifyAddress(address);
     if (reason) {
-      throw new AppError(400, "PROVIDER_ENDPOINT_REJECTED", `Provider host resolves to a blocked target: ${reason}`);
+      throw new AppError(
+        400,
+        "PROVIDER_ENDPOINT_REJECTED",
+        `Provider host resolves to a blocked target: ${reason}`,
+      );
     }
   }
   const chosen = addresses[0] as string;
@@ -274,7 +297,11 @@ function elapsed(startedAt: number): number {
 
 function classifyRequestError(error: unknown): ProviderErrorCode {
   const code = (error as NodeJS.ErrnoException).code;
-  if (code === "ETIMEDOUT" || code === "ERR_SOCKET_CONNECTION_TIMEOUT" || code === "ESOCKETTIMEDOUT") {
+  if (
+    code === "ETIMEDOUT" ||
+    code === "ERR_SOCKET_CONNECTION_TIMEOUT" ||
+    code === "ESOCKETTIMEDOUT"
+  ) {
     return "timeout";
   }
   if (
@@ -354,12 +381,14 @@ export function performPinnedJsonRequest(
         lookup: pinnedLookup(options.pinned) as never,
       },
       (response) => {
-       let received = 0;
+        let received = 0;
         const chunks: Buffer[] = [];
         response.on("data", (chunk: Buffer) => {
           received += chunk.length;
           if (received > maxBytes) {
-            const error: NodeJS.ErrnoException = new Error("Provider response exceeded the size limit");
+            const error: NodeJS.ErrnoException = new Error(
+              "Provider response exceeded the size limit",
+            );
             error.code = "ERR_RESPONSE_BODY_TOO_LARGE";
             request.destroy();
             reject(error);
@@ -368,7 +397,10 @@ export function performPinnedJsonRequest(
           chunks.push(chunk);
         });
         response.on("end", () =>
-          resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }),
+          resolve({
+            status: response.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString("utf8"),
+          }),
         );
         response.on("error", reject);
       },

@@ -325,7 +325,11 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
             <el-input v-model="newName" autocomplete="off" placeholder="例如 primary" />
           </el-form-item>
           <el-form-item label="接口地址">
-            <el-input v-model="newBaseUrl" autocomplete="off" placeholder="https://api.example.com/v1" />
+            <el-input
+              v-model="newBaseUrl"
+              autocomplete="off"
+              placeholder="https://api.example.com/v1"
+            />
           </el-form-item>
           <el-form-item label="API 密钥">
             <el-input
@@ -430,7 +434,11 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
         </el-tag>
         <span class="test-detail">
           {{ draft.testResult.latencyMs }} ms ·
-          {{ draft.testResult.errorCode === null ? "没有报错" : `失败原因 ${errorCodeLabel(draft.testResult.errorCode)}` }}
+          {{
+            draft.testResult.errorCode === null
+              ? "没有报错"
+              : `失败原因 ${errorCodeLabel(draft.testResult.errorCode)}`
+          }}
         </span>
       </p>
       <el-alert
@@ -474,9 +482,7 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
         <el-table-column label="操作" width="240">
           <template #default="{ row }">
             <div class="row-actions">
-              <el-button :disabled="draft.busy" @click="saveModel(draft, row)">
-                保存
-              </el-button>
+              <el-button :disabled="draft.busy" @click="saveModel(draft, row)"> 保存 </el-button>
               <el-button :disabled="draft.busy" @click="toggleModel(draft, row)">
                 {{ row.enabled ? "停用" : "启用" }}
               </el-button>
@@ -514,11 +520,11 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
     >
       <p class="dialog-note">
         <template v-if="deleteTarget?.kind === 'provider'">
-          永久删除「{{ deleteTarget?.label }}」及其密钥。供应商下还有模型时删除会被拒绝，请先删除模型。
+          永久删除「{{
+            deleteTarget?.label
+          }}」及其密钥。供应商下还有模型时删除会被拒绝，请先删除模型。
         </template>
-        <template v-else>
-          永久删除模型「{{ deleteTarget?.label }}」。
-        </template>
+        <template v-else> 永久删除模型「{{ deleteTarget?.label }}」。 </template>
       </p>
       <p v-if="deleteTarget?.error" class="field-error">
         {{ deleteTarget.error

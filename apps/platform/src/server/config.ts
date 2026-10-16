@@ -27,7 +27,10 @@ const DEVELOPMENT_ORIGINS = [
   "http://127.0.0.1:5173",
 ];
 
-function resolveTrustedOrigins(parsed: { NODE_ENV: string; TRUSTED_WEB_ORIGINS?: string | undefined }): string[] {
+function resolveTrustedOrigins(parsed: {
+  NODE_ENV: string;
+  TRUSTED_WEB_ORIGINS?: string | undefined;
+}): string[] {
   const configured = (parsed.TRUSTED_WEB_ORIGINS ?? "")
     .split(",")
     .map((origin) => origin.trim())

@@ -11,7 +11,10 @@ const SEATS: Participant[] = ["p1", "p2", "p3", "p4"].map((key) => ({
 }));
 
 /** The platform's loop, in miniature: assign the sequence, apply the rule, follow derived events. */
-function apply(state: GameState, events: Array<{ type: string; actor?: string; payload?: Record<string, unknown> }>): GameState {
+function apply(
+  state: GameState,
+  events: Array<{ type: string; actor?: string; payload?: Record<string, unknown> }>,
+): GameState {
   let current = state;
   for (const input of events) {
     const queue: GameEvent[] = [
@@ -77,11 +80,14 @@ describe("undercover rules", () => {
   });
 
   it("moves to the vote phase once every active seat has described", () => {
-    const described = apply(start(), SEATS.map((seat) => ({
-      type: platformEventTypes.seatMessage,
-      actor: seat.participantId,
-      payload: { text: "..." },
-    })));
+    const described = apply(
+      start(),
+      SEATS.map((seat) => ({
+        type: platformEventTypes.seatMessage,
+        actor: seat.participantId,
+        payload: { text: "..." },
+      })),
+    );
 
     expect(described.stepId).toBe("vote");
     expect(described.waiting).toMatchObject({ stepId: "vote" });
@@ -93,7 +99,9 @@ describe("undercover rules", () => {
   it("eliminates the most voted seat and ends the match when the undercover leaves", () => {
     const started = start();
     const undercoverSeat = started.participants.find((seat) => seat.roleId === "undercover")!;
-    const others = started.participants.filter((seat) => seat.participantId !== undercoverSeat.participantId);
+    const others = started.participants.filter(
+      (seat) => seat.participantId !== undercoverSeat.participantId,
+    );
 
     const described = apply(
       started,
@@ -105,14 +113,19 @@ describe("undercover rules", () => {
         actor: seat.participantId,
         payload: { target: undercoverSeat.participantId },
       })),
-      { type: "vote", actor: undercoverSeat.participantId, payload: { target: others[0]!.participantId } },
+      {
+        type: "vote",
+        actor: undercoverSeat.participantId,
+        payload: { target: others[0]!.participantId },
+      },
     ]);
 
     expect(finished.status).toBe("completed");
     expect(finished.stepId).toBe("over");
     expect(finished.variables["winner"]).toBe("civilian");
     expect(
-      finished.participants.find((seat) => seat.participantId === undercoverSeat.participantId)?.status,
+      finished.participants.find((seat) => seat.participantId === undercoverSeat.participantId)
+        ?.status,
     ).toBe("eliminated");
   });
 
@@ -130,14 +143,12 @@ describe("undercover rules", () => {
       state,
       SEATS.map((seat) => ({ type: platformEventTypes.seatMessage, actor: seat.participantId })),
     );
-    const afterFirstVote = apply(voted, [
-      { type: "vote", actor: "p1", payload: { target: "p2" } },
-    ]);
+    const afterFirstVote = apply(voted, [{ type: "vote", actor: "p1", payload: { target: "p2" } }]);
     for (const seat of state.participants) {
       const projection = view(afterFirstVote, seat.participantId);
       expect(projection.publicState["votes"]).toBeUndefined();
       expect(projection.privateState["votes"]).toBeUndefined();
-      expect(JSON.stringify(projection)).not.toContain("\"votes\"");
+      expect(JSON.stringify(projection)).not.toContain('"votes"');
     }
   });
 
@@ -167,12 +178,12 @@ describe("undercover rules", () => {
     expect(() =>
       apply(described, [{ type: "vote", actor: "p1", payload: { target: "p1" } }]),
     ).toThrowError(EngineError);
-    expect(() => apply(described, [{ type: "vote", actor: "p1", payload: { target: "p9" } }])).toThrow(
-      /not an active seat/,
-    );
-    expect(() => apply(start(), [{ type: "vote", actor: "p1", payload: { target: "p2" } }])).toThrow(
-      /only accepted in the vote phase/,
-    );
+    expect(() =>
+      apply(described, [{ type: "vote", actor: "p1", payload: { target: "p9" } }]),
+    ).toThrow(/not an active seat/);
+    expect(() =>
+      apply(start(), [{ type: "vote", actor: "p1", payload: { target: "p2" } }]),
+    ).toThrow(/only accepted in the vote phase/);
   });
 
   it("records an unknown event type without touching the state", () => {

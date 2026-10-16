@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const adminPassword = "initial-password-1";
 const playerName = "e2e-m3-player";
@@ -9,7 +9,7 @@ const watcherPassword = "m3-watcher-password-1";
 /** Shared across the serial cases: which match this run created. */
 let matchId = "";
 
-async function login(page: import("@playwright/test").Page, username: string, password: string) {
+async function login(page: Page, username: string, password: string) {
   await page.goto("/login");
   await page.getByLabel("用户名").fill(username);
   await page.getByLabel("密码", { exact: true }).fill(password);
@@ -17,7 +17,7 @@ async function login(page: import("@playwright/test").Page, username: string, pa
   await expect(page).toHaveURL(/\/lobby$/);
 }
 
-async function provision(page: import("@playwright/test").Page, username: string, password: string) {
+async function provision(page: Page, username: string, password: string) {
   await page.goto("/admin/users");
   await page.getByLabel("用户名").fill(username);
   await page.getByLabel("临时密码").fill(password);

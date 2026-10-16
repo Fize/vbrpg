@@ -129,7 +129,10 @@ export async function insertGameParticipants(
   rows: ReadonlyArray<Insertable<GameParticipantsTable>>,
 ): Promise<void> {
   if (rows.length === 0) return;
-  await db.insertInto("game_participants").values([...rows]).execute();
+  await db
+    .insertInto("game_participants")
+    .values([...rows])
+    .execute();
 }
 
 export async function listGameParticipants(
@@ -210,5 +213,8 @@ export async function findReadyAiSeats(
     order by i.updated_at asc, p.seat asc
     limit ${limit}
   `.execute(db);
-  return result.rows.map((row) => ({ instanceId: row.instance_id, participantId: row.participant_id }));
+  return result.rows.map((row) => ({
+    instanceId: row.instance_id,
+    participantId: row.participant_id,
+  }));
 }

@@ -3,16 +3,18 @@ import { gameEventSchema, platformEventTypes, playerViewSchema } from "./domain.
 
 describe("runtime contracts", () => {
   it("requires idempotency and logical time on events", () => {
-    expect(() => gameEventSchema.parse({
-      eventId: "event-1",
-      instanceId: "instance-1",
-      sequence: 1,
-      type: "playerInputReceived",
-      participantId: "p1",
-      actorUserId: null,
-      stepId: null,
-      payload: {},
-    })).toThrow();
+    expect(() =>
+      gameEventSchema.parse({
+        eventId: "event-1",
+        instanceId: "instance-1",
+        sequence: 1,
+        type: "playerInputReceived",
+        participantId: "p1",
+        actorUserId: null,
+        stepId: null,
+        payload: {},
+      }),
+    ).toThrow();
   });
 
   it("carries a seat's reasoning and reply on a model-call row", () => {

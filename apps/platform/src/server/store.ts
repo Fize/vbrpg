@@ -19,22 +19,16 @@ import {
   updatePlatformUser,
   updateProvider,
   updateProviderModel,
-  createDb,
   deletePlatformUser,
   deleteProvider,
   deleteProviderModel,
-  type JsonObject,
   type PlatformUserRecord,
   type ProviderCredentialColumns,
 } from "./db/index.js";
-import type {
-  GameEvent,
-  GameState,
-  Participant,
-  PlayerView,
-  PlatformRole,
-  ProviderModel,
-} from "../shared/index.js";
+// `ReturnType<typeof createDb>` is the store's own handle on the database, so the factory is
+// referenced as a type, never called here.
+import type { createDb } from "./db/index.js";
+import type { PlatformRole, ProviderModel } from "../shared/index.js";
 
 export interface SessionRecord {
   id: string;
@@ -165,7 +159,8 @@ export function createPlatformStore(db: ReturnType<typeof createDb>): PlatformSt
       };
     },
     touchSession: (sessionId, idleExpiresAt) => touchAuthSession(db, sessionId, idleExpiresAt),
-    rotateCsrfToken: (sessionId, csrfTokenHash) => setAuthSessionCsrfHash(db, sessionId, csrfTokenHash),
+    rotateCsrfToken: (sessionId, csrfTokenHash) =>
+      setAuthSessionCsrfHash(db, sessionId, csrfTokenHash),
     revokeSession: (sessionId) => revokeAuthSession(db, sessionId),
     revokeUserSessions: (userId) => revokeUserSessions(db, userId),
 
@@ -216,12 +211,12 @@ export function createPlatformStore(db: ReturnType<typeof createDb>): PlatformSt
       });
       return row
         ? {
-          id: row.id,
-          providerId: row.provider_id,
-          modelId: row.model_id,
-          displayName: row.display_name,
-          enabled: row.enabled,
-        }
+            id: row.id,
+            providerId: row.provider_id,
+            modelId: row.model_id,
+            displayName: row.display_name,
+            enabled: row.enabled,
+          }
         : undefined;
     },
     deleteProvider: (providerId) => deleteProvider(db, providerId),
@@ -230,12 +225,12 @@ export function createPlatformStore(db: ReturnType<typeof createDb>): PlatformSt
       const row = await updateProviderModel(db, modelRecordId, patch);
       return row
         ? {
-          id: row.id,
-          providerId: row.provider_id,
-          modelId: row.model_id,
-          displayName: row.display_name,
-          enabled: row.enabled,
-        }
+            id: row.id,
+            providerId: row.provider_id,
+            modelId: row.model_id,
+            displayName: row.display_name,
+            enabled: row.enabled,
+          }
         : undefined;
     },
 

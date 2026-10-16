@@ -54,7 +54,10 @@ function registerStaticFiles(app: FastifyInstance, webRoot: string): void {
       const info = await stat(candidate);
       if (info.isFile()) {
         const type = CONTENT_TYPES[extname(candidate)] ?? "application/octet-stream";
-        return reply.type(type).header("cache-control", "no-cache").send(await readFile(candidate));
+        return reply
+          .type(type)
+          .header("cache-control", "no-cache")
+          .send(await readFile(candidate));
       }
     } catch {
       // Not a file: fall through to the SPA entry point.
@@ -73,9 +76,9 @@ async function startHttp(databaseUrl: string | undefined): Promise<void> {
     config,
     ...(db
       ? {
-        platformStore: createPlatformStore(db),
-        matchService: createMatchService({ db, registry: createBuiltInRegistry() }),
-      }
+          platformStore: createPlatformStore(db),
+          matchService: createMatchService({ db, registry: createBuiltInRegistry() }),
+        }
       : {}),
   });
 

@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { GameAction, GameVocabulary, MatchSummary } from "../../services/api";
-import { eventLabel, statusLabel, statusTag, stepLabel, wordText } from "../../services/match-labels";
+import {
+  eventLabel,
+  statusLabel,
+  statusTag,
+  stepLabel,
+  wordText,
+} from "../../services/match-labels";
 
 const props = defineProps<{
   summary: MatchSummary;
@@ -64,7 +70,9 @@ const waitingText = computed(() =>
       </div>
       <div class="fact">
         <dt>游戏</dt>
-        <dd>{{ game.title }}<span class="version mono">@{{ summary.gameVersion }}</span></dd>
+        <dd>
+          {{ game.title }}<span class="version mono">@{{ summary.gameVersion }}</span>
+        </dd>
       </div>
     </dl>
 

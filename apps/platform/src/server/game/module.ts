@@ -47,7 +47,10 @@ export function createBaseState(
  */
 export type VisibilitySource = Visibility | ((state: GameState) => Visibility);
 
-export function resolveVisibility(source: VisibilitySource | undefined, state: GameState): Visibility {
+export function resolveVisibility(
+  source: VisibilitySource | undefined,
+  state: GameState,
+): Visibility {
   if (source === undefined) return {};
   return typeof source === "function" ? source(state) : source;
 }

@@ -163,16 +163,16 @@ export function createModelClient(
         ...(input.tools === undefined || input.tools.length === 0
           ? {}
           : {
-            tools: input.tools.map((tool) => ({
-              type: "function",
-              function: {
-                name: tool.name,
-                description: tool.description,
-                parameters: tool.parameters,
-              },
-            })),
-            tool_choice: "auto",
-          }),
+              tools: input.tools.map((tool) => ({
+                type: "function",
+                function: {
+                  name: tool.name,
+                  description: tool.description,
+                  parameters: tool.parameters,
+                },
+              })),
+              tool_choice: "auto",
+            }),
         ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
         ...(input.maxTokens === undefined ? {} : { max_tokens: input.maxTokens }),
       });
@@ -202,10 +202,15 @@ export function createModelClient(
       const latencyMs = now() - startedAt;
 
       if (response.status < 200 || response.status >= 300) {
-        throw new AppError(502, "MODEL_CALL_FAILED", `The model provider answered ${response.status}`, {
-          status: response.status,
-          providerCode: mapStatusToErrorCode(response.status),
-        });
+        throw new AppError(
+          502,
+          "MODEL_CALL_FAILED",
+          `The model provider answered ${response.status}`,
+          {
+            status: response.status,
+            providerCode: mapStatusToErrorCode(response.status),
+          },
+        );
       }
 
       let parsed: unknown;
@@ -216,7 +221,11 @@ export function createModelClient(
       }
       const result = responseSchema.safeParse(parsed);
       if (!result.success) {
-        throw new AppError(502, "MODEL_BAD_RESPONSE", "The model provider returned an unexpected shape");
+        throw new AppError(
+          502,
+          "MODEL_BAD_RESPONSE",
+          "The model provider returned an unexpected shape",
+        );
       }
 
       const choice = result.data.choices[0];
@@ -234,10 +243,10 @@ export function createModelClient(
           usage === null || usage === undefined
             ? null
             : {
-              promptTokens: usage.prompt_tokens ?? 0,
-              completionTokens: usage.completion_tokens ?? 0,
-              totalTokens: usage.total_tokens ?? 0,
-            },
+                promptTokens: usage.prompt_tokens ?? 0,
+                completionTokens: usage.completion_tokens ?? 0,
+                totalTokens: usage.total_tokens ?? 0,
+              },
         finishReason: choice?.finish_reason ?? null,
         latencyMs,
       };

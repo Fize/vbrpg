@@ -64,7 +64,12 @@ const spokes = computed(() =>
         <slot name="center" />
       </div>
 
-      <div v-for="(seat, index) in seats" :key="seat.participantId" class="slot" :style="nodeStyle(index)">
+      <div
+        v-for="(seat, index) in seats"
+        :key="seat.participantId"
+        class="slot"
+        :style="nodeStyle(index)"
+      >
         <SeatNode
           :seat="seat"
           :actor-label="actorLabel(seat.actorUserId)"

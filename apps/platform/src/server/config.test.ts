@@ -16,9 +16,11 @@ describe("api config", () => {
 
   it("requires the master key and https origins in production", () => {
     expect(() => loadConfig({ NODE_ENV: "production" })).toThrow(/PLATFORM_CREDENTIAL_KEY/);
-    expect(() => loadConfig({
-      NODE_ENV: "production",
-      PLATFORM_CREDENTIAL_KEY: "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=",
-    })).toThrow(/TRUSTED_WEB_ORIGINS/);
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "production",
+        PLATFORM_CREDENTIAL_KEY: "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=",
+      }),
+    ).toThrow(/TRUSTED_WEB_ORIGINS/);
   });
 });

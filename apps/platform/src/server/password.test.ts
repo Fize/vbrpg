@@ -7,7 +7,9 @@ describe("password hashing", () => {
     const encoded = await hashPassword("correct horse battery");
     assert.match(
       encoded,
-      new RegExp(`^scrypt\\$v=1\\$N=${SCRYPT_PARAMS.N},r=${SCRYPT_PARAMS.r},p=${SCRYPT_PARAMS.p}\\$`),
+      new RegExp(
+        `^scrypt\\$v=1\\$N=${SCRYPT_PARAMS.N},r=${SCRYPT_PARAMS.r},p=${SCRYPT_PARAMS.p}\\$`,
+      ),
     );
     assert.ok(!encoded.includes("correct horse battery"));
   });

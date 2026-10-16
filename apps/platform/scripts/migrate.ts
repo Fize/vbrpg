@@ -18,10 +18,7 @@ if (!Number.isInteger(downSteps) || downSteps < 0) {
 }
 
 const db = createDb({ databaseUrl });
-const migrationFolder = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../migrations",
-);
+const migrationFolder = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../migrations");
 
 type MigrationRunner = (migrationDb: Parameters<Migration["up"]>[0]) => Promise<void>;
 
@@ -53,7 +50,9 @@ const sqlMigrationProvider: MigrationProvider = {
   },
 };
 
-function report(results: ReadonlyArray<{ migrationName: string; status: string }> | undefined): void {
+function report(
+  results: ReadonlyArray<{ migrationName: string; status: string }> | undefined,
+): void {
   for (const migration of results ?? []) {
     console.log(JSON.stringify({ migration: migration.migrationName, status: migration.status }));
   }

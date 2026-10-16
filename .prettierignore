@@ -1,0 +1,31 @@
+# 旧世界（不在 pnpm workspace 内），迁移完成后再统一格式化
+backend/
+frontend/
+specsai/
+scripts/
+.venv/
+htmlcov/
+downloads/
+coverage.xml
+.coverage
+start-demo.sh
+test-api.sh
+todo.md
+
+# 产物与依赖
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+pnpm-lock.yaml
+package-lock.json
+*.log
+
+# 迁移文件是 SQL（Prettier 不解析），契约快照是 YAML
+apps/platform/migrations/
+docs/api/
+
+# 文档是中文散文加代码样例：Prettier 按字符数对齐表格，中文表格会越排越歪，
+# 代码样例里的注释也会被挪到奇怪的位置，因此文档不交给格式化器。
+docs/

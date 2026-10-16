@@ -8,7 +8,7 @@ interface Available {
   spec: GameAction | null;
 }
 
-const props = defineProps<{
+defineProps<{
   available: Available[];
   seats: MatchSeat[];
   /** Whether the caller holds a seat here; a watcher only gets a sentence. */
@@ -20,7 +20,9 @@ const props = defineProps<{
   statusText: string;
 }>();
 
-const emit = defineEmits<{ submit: [payload: { actionId: string; values: Record<string, string> }] }>();
+const emit = defineEmits<{
+  submit: [payload: { actionId: string; values: Record<string, string> }];
+}>();
 
 const values = ref<Record<string, Record<string, string>>>({});
 const localError = ref<string | null>(null);
@@ -45,7 +47,10 @@ function valueOf(actionId: string, name: string): string {
 }
 
 function setValue(actionId: string, name: string, value: string): void {
-  values.value = { ...values.value, [actionId]: { ...(values.value[actionId] ?? {}), [name]: value } };
+  values.value = {
+    ...values.value,
+    [actionId]: { ...(values.value[actionId] ?? {}), [name]: value },
+  };
 }
 
 function audienceOf(spec: GameAction | null): string {
@@ -97,7 +102,9 @@ defineExpose({ reset });
     <template v-else>
       <div v-for="action in available" :key="action.actionId" class="action">
         <div class="action-head">
-          <span class="action-name" :title="action.actionId">{{ action.spec?.label ?? action.actionId }}</span>
+          <span class="action-name" :title="action.actionId">{{
+            action.spec?.label ?? action.actionId
+          }}</span>
           <el-tag
             size="small"
             effect="plain"

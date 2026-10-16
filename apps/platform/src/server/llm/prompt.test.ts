@@ -4,7 +4,11 @@ import { projectPlayerView, resolveVisibility } from "../game/index.js";
 import { undercover } from "../games/undercover.js";
 import { buildSeatPrompt } from "./prompt.js";
 
-const SEATS = ["p1", "p2", "p3", "p4"].map((key) => ({ participantId: key, control: "human" as const, status: "active" as const }));
+const SEATS = ["p1", "p2", "p3", "p4"].map((key) => ({
+  participantId: key,
+  control: "human" as const,
+  status: "active" as const,
+}));
 const KEYS: Record<string, string> = { p1: "alice", p2: "bob", p3: "carol", p4: "dave" };
 
 function started() {
@@ -59,7 +63,9 @@ describe("seat prompt", () => {
 
     expect(prompt.tools.map((tool) => tool.name).sort()).toEqual(["seatMessage", "vote"]);
     expect(prompt.messages.at(-1)?.content).toContain("本步允许的动作：seatMessage");
-    expect(prompt.tools.find((tool) => tool.name === "vote")?.parameters.required).toEqual(["target"]);
+    expect(prompt.tools.find((tool) => tool.name === "vote")?.parameters.required).toEqual([
+      "target",
+    ]);
   });
 
   it("renders speech as user turns, hides secret ballots, and replays its own call", () => {
@@ -73,7 +79,12 @@ describe("seat prompt", () => {
       seatKeys: KEYS,
       record: [
         { sequence: 1, type: "instanceCreated", participantId: null, payload: {} },
-        { sequence: 2, type: platformEventTypes.seatMessage, participantId: other, payload: { text: "我说说钢琴" } },
+        {
+          sequence: 2,
+          type: platformEventTypes.seatMessage,
+          participantId: other,
+          payload: { text: "我说说钢琴" },
+        },
         { sequence: 3, type: "vote", participantId: other, payload: { target: "secret-target" } },
         {
           sequence: 4,
@@ -102,7 +113,13 @@ describe("seat prompt", () => {
   it("keeps the cacheable prefix byte-identical as the match goes on", () => {
     const state = started();
     const me = seatId(state, 0);
-    const first = buildSeatPrompt({ game: undercover, state, participantId: me, seatKeys: KEYS, record: [] });
+    const first = buildSeatPrompt({
+      game: undercover,
+      state,
+      participantId: me,
+      seatKeys: KEYS,
+      record: [],
+    });
 
     const later = buildSeatPrompt({
       game: undercover,
@@ -114,7 +131,12 @@ describe("seat prompt", () => {
       participantId: me,
       seatKeys: KEYS,
       record: [
-        { sequence: 2, type: platformEventTypes.seatMessage, participantId: seatId(state, 1), payload: { text: "x" } },
+        {
+          sequence: 2,
+          type: platformEventTypes.seatMessage,
+          participantId: seatId(state, 1),
+          payload: { text: "x" },
+        },
       ],
     });
 
