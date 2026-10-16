@@ -57,6 +57,7 @@
 
 ## 已知边界
 
-- 本地跑 e2e 时 Playwright 会复用已有 dev server（`reuseExistingServer: !CI`），登录限流（每账号 5 次/分钟）
-  与数据库状态会跨轮次累积；CI 每轮都是新库新进程，不受影响。连着跑两轮请先 `drop database` 再 migrate。
+- 本地跑 e2e 时 Playwright 会复用已有 dev server（`reuseExistingServer: !CI`）。上一轮刚结束、进程还没退干净时
+  复用会踩到刚被 `drop database` 掉的库，表现为整轮登录失败；等它退掉或杀掉 3100/5174 再跑即可。
+  CI 每轮都是新库新进程（`reuseExistingServer: false`），不受影响。登录限流（每账号 5 次/分钟）也会跨轮次累积。
 - `frontend/`、`backend/`、`specsai/`、根目录那几个旧脚本不在 lint/格式范围内，等清理旧世界时一并处理。
