@@ -44,7 +44,7 @@ test.describe.serial("M3 对局界面", () => {
 
     await expect(page).toHaveURL(/\/matches\/[0-9a-f-]{36}$/);
     matchId = page.url().split("/").pop() ?? "";
-    await expect(page.getByText("当前等待点")).toBeVisible();
+    await expect(page.getByText("当前阶段")).toBeVisible();
     await expect(page.getByText("s3", { exact: true }).first()).toBeVisible();
     await expect(page.getByTestId("my-actions")).toContainText("seatMessage");
     await expect(page.getByPlaceholder("你要说的话")).toBeVisible();
@@ -55,10 +55,11 @@ test.describe.serial("M3 对局界面", () => {
     // The seat has spoken: the match is waiting for the other two now.
     await expect(page.getByTestId("my-actions")).toContainText("现在轮不到你");
 
-    await page.getByRole("tab", { name: "记录" }).click();
-    await expect(page.getByTestId("record-table")).toContainText("对局创建");
-    await expect(page.getByTestId("record-table")).toContainText("席位发言");
-    await expect(page.getByTestId("record-table")).toContainText("#1");
+    // The record is the room's log, not a separate page.
+    const log = page.getByTestId("match-log");
+    await expect(log).toContainText("对局创建");
+    await expect(log).toContainText("席位发言");
+    await expect(log).toContainText("#1");
   });
 
   test("第二个真人在自己的控制台里接着玩", async ({ page }) => {
@@ -68,15 +69,15 @@ test.describe.serial("M3 对局界面", () => {
 
     await expect(page).toHaveURL(/\/matches\/[0-9a-f-]{36}$/);
     // Its own seat, its own waiting point, its own action.
-    await expect(page.getByText("我的席位")).toBeVisible();
-    await expect(page.getByText("等待 s2")).toBeVisible();
+    await expect(page.getByText("我的席位", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("等 s2、s3")).toBeVisible();
     await page.getByPlaceholder("你要说的话").fill("我这东西长在树上");
     await page.getByRole("button", { name: "提交" }).click();
 
     await expect(page.getByText("我这东西长在树上").first()).toBeVisible();
     await expect(page.getByText("我这东西很甜").first()).toBeVisible();
     // Both humans have spoken; the seat left is the AI, which no browser suite drives.
-    await expect(page.getByText("等待 s3")).toBeVisible();
+    await expect(page.getByText("等 s3")).toBeVisible();
     await expect(page.getByTestId("my-actions")).toContainText("现在轮不到你");
   });
 
@@ -107,15 +108,14 @@ test.describe.serial("M3 对局界面", () => {
     await page.getByRole("button", { name: "旁观" }).first().click();
     await expect(page).toHaveURL(new RegExp(`/matches/${matchId}$`));
 
-    await expect(page.getByTestId("watching")).toBeVisible();
-    await expect(page.getByText("我的席位")).toBeVisible();
+    await expect(page.getByText("观战中")).toBeVisible();
     await expect(page.getByTestId("my-actions")).toContainText("旁观没有动作可提交");
     await expect(page.getByRole("button", { name: "提交" })).toHaveCount(0);
     // No seat means no private state and no rules: those belong to the seats playing.
     await expect(page.getByText("只给你看的信息")).toHaveCount(0);
 
-    // The record survives the lifecycle change: cancelling is not a game event.
-    await page.getByRole("tab", { name: "记录" }).click();
-    await expect(page.getByTestId("record-table")).toContainText("席位发言");
+    // The table and the record survive the lifecycle change: cancelling is not a game event.
+    await expect(page.getByTestId("seat").first()).toBeVisible();
+    await expect(page.getByTestId("match-log")).toContainText("席位发言");
   });
 });

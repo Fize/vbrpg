@@ -13,6 +13,8 @@ import { setUnauthorizedHandler } from "../services/api";
 declare module "vue-router" {
   interface RouteMeta {
     requiresAdmin?: boolean;
+    /** A match room is a workspace, not a document: it gets the full window width. */
+    fullBleed?: boolean;
   }
 }
 
@@ -21,7 +23,12 @@ const routes: RouteRecordRaw[] = [
   { path: "/login", name: "login", component: LoginView },
   { path: "/change-password", name: "change-password", component: ChangePasswordView },
   { path: "/lobby", name: "lobby", component: LobbyView },
-  { path: "/matches/:instanceId", name: "match", component: MatchView },
+  {
+    path: "/matches/:instanceId",
+    name: "match",
+    component: MatchView,
+    meta: { fullBleed: true },
+  },
   {
     path: "/admin/users",
     name: "admin-users",

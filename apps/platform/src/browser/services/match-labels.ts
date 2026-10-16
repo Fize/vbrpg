@@ -58,11 +58,37 @@ export function formatTime(value: number | string): string {
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
 }
 
-/** Payload values as they are: no invented semantics, no hidden fields. */
-export function payloadText(payload: Record<string, unknown>): string {
+/**
+ * Payload values as they are: no invented semantics, no hidden fields. `render` may replace a value
+ * it knows how to name (a seat declared as such by the action catalogue), and returns null to keep
+ * the raw one.
+ */
+export function payloadText(
+  payload: Record<string, unknown>,
+  render?: (key: string, value: unknown) => string | null,
+): string {
   const entries = Object.entries(payload);
   if (entries.length === 0) return "（无内容）";
   return entries
-    .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
+    .map(([key, value]) => {
+      const named = render?.(key, value) ?? null;
+      if (named !== null) return `${key}: ${named}`;
+      return `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`;
+    })
     .join(" · ");
+}
+
+/**
+ * State values as they are, except that a value which happens to be one of this match's seats is
+ * named by its seat key: the platform knows its own ids, so `alive: [uuid, uuid]` reads as seats.
+ */
+export function stateValueText(value: unknown, seatName: (participantId: string) => string): string {
+  if (typeof value === "string") return seatName(value);
+  if (Array.isArray(value)) return value.map((item) => stateValueText(item, seatName)).join("、");
+  if (typeof value === "object" && value !== null) {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => `${seatName(key)}: ${stateValueText(item, seatName)}`)
+      .join("、");
+  }
+  return JSON.stringify(value);
 }

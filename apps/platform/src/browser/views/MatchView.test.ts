@@ -84,7 +84,7 @@ const detail: MatchDetail = {
     },
     {
       eventId: "e4",
-      sequence: 3,
+      sequence: 4,
       type: "vote",
       participantId: me,
       actorUserId: me,
@@ -129,13 +129,13 @@ vi.mock("../stores/session", () => ({
   sessionState: { user: { id: me, username: "alice", role: "user", active: true } },
 }));
 
-/** The vote phase asks for a seat: the catalogue's `kind` decides the control, not the name. */
+/** The vote step asks for a seat: the catalogue's `kind` decides the control, not the name. */
 const voting: MatchDetail = {
   ...detail,
   summary: { ...detail.summary, stepId: "vote", sequence: 5 },
   waiting: { kind: "collectInput", stepId: "vote", participantIds: [me], actions: ["vote"] },
   view: {
-    ...detail.view!,
+    ...detail.view,
     sequence: 5,
     publicState: { phase: "vote", round: 1 },
     availableActions: [{ actionId: "vote", input: { participantId: me } }],
@@ -174,64 +174,83 @@ describe("match room", () => {
     current = detail;
   });
 
-  it("shows the seats, the waiting point and the seat's own action form", async () => {
+  it("seats everyone around the table and says who the match is waiting for", async () => {
     const wrapper = await render();
     expect(readMatch).toHaveBeenCalledWith(instanceId);
 
     const text = wrapper.text();
+    expect(wrapper.findAll("[data-testid='seat']")).toHaveLength(3);
     expect(text).toContain("s1");
-    expect(text).toContain("AI");
-    expect(text).toContain("等待 s1");
-    expect(text).toContain("苹果");
+    expect(text).toContain("s3");
+    expect(text).toContain("我");
+    expect(text).toContain("3席在场");
+    expect(text).toContain("等 s1");
+    // The seat's own material: the rules it is playing by and its private word.
     expect(text).toContain("你在玩「谁是卧底」");
-
-    // The catalogue drives the form: no invented inputs, no hardcoded game knowledge.
-    const inputs = wrapper.findAll("textarea, input");
-    expect(inputs.length).toBeGreaterThan(0);
-    expect(wrapper.find("[data-testid='my-actions']").exists()).toBe(true);
+    expect(text).toContain("苹果");
+    // Its latest line in the shared transcript is on the seat.
+    expect(wrapper.find(".bubble").text()).toContain("我这东西冬天常见");
   });
 
-  it("renders the record with the model's reasoning, tool call and usage", async () => {
+  it("offers the seat's own action and describes it from the catalogue", async () => {
     const wrapper = await render();
-    const recordTab = wrapper.findAll(".el-tabs__item").find((item) => item.text() === "记录");
-    expect(recordTab).toBeDefined();
-    await recordTab?.trigger("click");
-    await wrapper.vm.$nextTick();
+    const dock = wrapper.find("[data-testid='my-actions']");
 
-    const text = wrapper.text();
-    expect(text).toContain("模型调用");
-    expect(text).toContain("冬天常见，但我不确定是不是卧底。");
-    expect(text).toContain('seatMessage({"text":"我这东西冬天常见"})');
-    expect(text).toContain("test-model · 500/120/620");
-    expect(text).toContain("s2");
+    expect(dock.text()).toContain("seatMessage");
+    expect(dock.text()).toContain("用一句话描述你拿到的词");
+    expect(wrapper.find("input[placeholder='你要说的话']").exists()).toBe(true);
+    expect(dock.find("button").text()).toContain("提交");
+  });
+
+  it("reads the record as a log, and only expands the model's thinking on demand", async () => {
+    const wrapper = await render();
+    const log = wrapper.find("[data-testid='match-log']");
+
+    expect(log.text()).toContain("发言");
+    expect(log.text()).toContain("模型");
+    expect(log.text()).toContain("我这东西冬天常见");
+    expect(log.text()).toContain('seatMessage({"text":"我这东西冬天常见"})');
+    expect(log.text()).toContain("test-model · 500/120/620");
+    // A secret ballot is a seat-audience row, so the log names the seat it came from.
+    expect(log.text()).toContain("s2");
+    expect(log.text()).not.toContain("冬天常见，但我不确定是不是卧底。");
+
+    const detailed = wrapper.find("input[value='detailed']");
+    await detailed.setValue();
+    expect(wrapper.find("[data-testid='match-log']").text()).toContain(
+      "冬天常见，但我不确定是不是卧底。",
+    );
   });
 
   it("tells a watcher it is watching and offers it no action", async () => {
     current = watching;
     const wrapper = await render();
 
-    expect(wrapper.find("[data-testid='watching']").exists()).toBe(true);
-    expect(wrapper.text()).toContain("旁观");
-    expect(wrapper.text()).not.toContain("只给你看的信息");
-    expect(wrapper.text()).not.toContain("规则与你的处境");
+    const text = wrapper.text();
+    expect(text).toContain("观战中");
+    expect(text).not.toContain("只给你看的信息");
+    expect(text).not.toContain("你在玩「谁是卧底」");
     expect(wrapper.find("[data-testid='my-actions']").text()).toContain("旁观没有动作可提交");
-    // The seats, the waiting point and the record stay available to a watcher.
-    expect(wrapper.text()).toContain("当前等待点");
-    // The public state is not a seat's secret: `phase`/`round` show, the word does not.
-    expect(wrapper.text()).toContain("describe");
-    expect(wrapper.text()).not.toContain("苹果");
+    expect(wrapper.find("[data-testid='my-actions'] button").exists()).toBe(false);
+    // The table, the waiting point and the log stay available to a watcher.
+    expect(wrapper.findAll("[data-testid='seat']")).toHaveLength(3);
+    expect(text).toContain("等 s1");
+    expect(wrapper.find("[data-testid='match-log']").text()).toContain("发言");
+    // Public state is not a seat's secret: the phase shows, the word does not.
+    expect(text).toContain("describe");
+    expect(text).not.toContain("苹果");
   });
 
   it("renders a seat picker for an action whose catalogue declares one", async () => {
     current = voting;
     const wrapper = await render();
 
-    expect(wrapper.text()).toContain("vote");
-    expect(wrapper.text()).toContain("投出你认为最像卧底的席位。");
+    const dock = wrapper.find("[data-testid='my-actions']");
+    expect(dock.text()).toContain("vote");
+    expect(dock.text()).toContain("投出你认为最像卧底的席位。");
+    expect(dock.text()).toContain("私密");
     // A seat argument is a picker over this match's seats, not a free-text field.
-    const picker = wrapper.find(".el-select");
-    expect(wrapper.findAll(".el-select").length).toBe(1);
-    expect(picker.text()).toContain("要投的席位");
-    expect(picker.findAll(".el-select__wrapper").length).toBe(1);
+    expect(dock.findAll(".el-select")).toHaveLength(1);
+    expect(dock.find(".el-select").text()).toContain("要投的席位");
   });
 });

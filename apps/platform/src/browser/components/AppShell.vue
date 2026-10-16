@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { Connection, Grid, Lock, SwitchButton, Tickets, User as UserIcon } from "@element-plus/icons-vue";
 import { logout, sessionState } from "../stores/session";
 
 const router = useRouter();
+const route = useRoute();
 
+const wide = computed(() => route.meta.fullBleed === true);
 const user = computed(() => sessionState.user);
 const isAdmin = computed(() => user.value?.role === "admin");
 const showChrome = computed(() => user.value !== null);
@@ -63,7 +65,7 @@ async function handleLogout(): Promise<void> {
       </div>
     </header>
 
-    <main class="shell-main">
+    <main class="shell-main" :class="{ 'is-wide': wide }">
       <slot />
     </main>
 
@@ -230,6 +232,10 @@ async function handleLogout(): Promise<void> {
   max-width: var(--container-max);
   margin: 0 auto;
   padding: var(--space-xl) var(--space-lg) var(--space-2xl);
+}
+
+.shell-main.is-wide {
+  max-width: none;
 }
 
 .shell-footer {

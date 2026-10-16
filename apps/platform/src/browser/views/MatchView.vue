@@ -2,36 +2,31 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { ArrowLeft, Refresh } from "@element-plus/icons-vue";
-import { api, apiRequestId, type GameAction, type MatchRecordRow } from "../services/api";
+import { api, apiRequestId, type GameAction } from "../services/api";
 import { uiErrorMessage } from "../services/messages";
-import {
-  eventLabel,
-  formatTime,
-  isOpen,
-  payloadText,
-  statusLabel,
-  statusTag,
-} from "../services/match-labels";
+import { isOpen, payloadText, stateValueText, statusLabel, statusTag } from "../services/match-labels";
 import { sessionState } from "../stores/session";
+import ActionDock from "../components/match/ActionDock.vue";
+import MatchLog from "../components/match/MatchLog.vue";
+import PhaseCard from "../components/match/PhaseCard.vue";
+import SeatRing from "../components/match/SeatRing.vue";
 
-type SeatArg = { name: string; description: string; kind: "seat" | null };
+type Detail = Awaited<ReturnType<typeof api.readMatch>>;
 
 const route = useRoute();
 const instanceId = computed(() => String(route.params["instanceId"] ?? ""));
 
-const detail = ref<Awaited<ReturnType<typeof api.readMatch>> | null>(null);
+const detail = ref<Detail | null>(null);
 const loading = ref(false);
 const loadError = ref<string | null>(null);
 const loadRequestId = ref<string | null>(null);
-const activeTab = ref("room");
 
 const actingOn = ref<string | null>(null);
 const actionError = ref<string | null>(null);
 const actionRequestId = ref<string | null>(null);
-const values = ref<Record<string, Record<string, string>>>({});
+const dock = ref<InstanceType<typeof ActionDock> | null>(null);
 
 const myUserId = computed(() => sessionState.user?.id ?? null);
-/** The seat this console acts as: the same one the projection was built for. */
 const mySeat = computed(
   () => detail.value?.seats.find((seat) => seat.actorUserId === myUserId.value) ?? null,
 );
@@ -39,31 +34,46 @@ const open = computed(() => detail.value !== null && isOpen(detail.value.summary
 const catalogue = computed(
   () => new Map((detail.value?.actions ?? []).map((action) => [action.name, action])),
 );
-const myActions = computed(() =>
-  (detail.value?.view?.availableActions ?? []).map((available) => ({
-    actionId: available.actionId,
-    spec: catalogue.value.get(available.actionId) ?? null,
+const available = computed(() =>
+  (detail.value?.view.availableActions ?? []).map((action) => ({
+    actionId: action.actionId,
+    spec: catalogue.value.get(action.actionId) ?? null,
   })),
 );
+const waitingParticipantIds = computed(() => detail.value?.waiting?.participantIds ?? []);
 const waitingSeats = computed(() =>
-  (detail.value?.waiting?.participantIds ?? []).map((id) => seatName(id)),
+  waitingParticipantIds.value.map((id) => seatName(id)),
 );
-const waitingActions = computed(() => detail.value?.waiting?.actions ?? []);
-const roomTypes = computed(() =>
-  (detail.value?.actions ?? [])
-    .filter((action: GameAction) => (action.audience ?? "room") === "room")
-    .map((action) => action.name),
+const publicEntries = computed(
+  () => Object.entries(detail.value?.view.publicState ?? {}) as Array<[string, unknown]>,
 );
-const transcript = computed(
-  () => (detail.value?.record ?? []).filter((row) => roomTypes.value.includes(row.type)),
-);
-const publicEntries = computed(() => Object.entries(detail.value?.view?.publicState ?? {}));
 const privateEntries = computed(() =>
-  Object.entries(detail.value?.view?.privateState ?? {}).map(([key, value]) => ({
+  Object.entries(detail.value?.view.privateState ?? {}).map(([key, value]) => ({
     key: privateKey(key),
     value,
   })),
 );
+const aliveCount = computed(
+  () => (detail.value?.seats ?? []).filter((seat) => seat.status === "active").length,
+);
+const roomActionNames = computed(
+  () =>
+    new Set(
+      (detail.value?.actions ?? [])
+        .filter((action: GameAction) => (action.audience ?? "room") === "room")
+        .map((action) => action.name),
+    ),
+);
+/** Each seat's most recent line in the shared transcript, which is what the table hears. */
+const bubbles = computed(() => {
+  const map: Record<string, string> = {};
+  for (const row of detail.value?.record ?? []) {
+    if (row.participantId !== null && roomActionNames.value.has(row.type)) {
+      map[row.participantId] = payloadText(row.payload);
+    }
+  }
+  return map;
+});
 
 function seatName(participantId: string | null): string {
   if (participantId === null) return "平台";
@@ -77,48 +87,12 @@ function privateKey(key: string): string {
   return key.slice(0, key.length - id.length - 1);
 }
 
+function actorLabel(userId: string | null): string {
+  return userId !== null && userId === myUserId.value ? "我" : "";
+}
+
 function valueText(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-function payloadField(row: MatchRecordRow, key: string): string {
-  const value = row.payload[key];
-  if (value === undefined || value === null) return "";
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-function toolCalls(row: MatchRecordRow): Array<{ name: string; arguments: string }> {
-  const raw = row.payload["toolCalls"];
-  if (!Array.isArray(raw)) return [];
-  const calls: Array<{ name: string; arguments: string }> = [];
-  for (const item of raw) {
-    if (typeof item !== "object" || item === null) continue;
-    const call = item as Record<string, unknown>;
-    calls.push({ name: String(call["name"] ?? ""), arguments: String(call["arguments"] ?? "") });
-  }
-  return calls;
-}
-
-function usageText(row: MatchRecordRow): string {
-  if (row.usage === null) return "—";
-  return `${row.usage.modelId} · ${row.usage.promptTokens}/${row.usage.completionTokens}/${row.usage.totalTokens}`;
-}
-
-function argFields(spec: GameAction | null): SeatArg[] {
-  if (!spec?.args) return [];
-  return Object.entries(spec.args).map(([name, arg]) => ({
-    name,
-    description: arg.description,
-    kind: arg.kind === "seat" ? "seat" : null,
-  }));
-}
-
-function valueOf(actionId: string, name: string): string {
-  return values.value[actionId]?.[name] ?? "";
-}
-
-function setValue(actionId: string, name: string, value: string): void {
-  values.value = { ...values.value, [actionId]: { ...(values.value[actionId] ?? {}), [name]: value } };
+  return stateValueText(value, seatName);
 }
 
 async function load(): Promise<void> {
@@ -138,33 +112,21 @@ async function load(): Promise<void> {
 onMounted(load);
 watch(instanceId, load);
 
-async function submit(actionId: string, spec: GameAction | null) {
+async function submit(payload: { actionId: string; values: Record<string, string> }): Promise<void> {
   const seat = mySeat.value;
-  if (!seat) {
-    actionError.value = "你不是这局的席位，不能行动。";
-    return;
-  }
-  const payload: Record<string, string> = {};
-  for (const field of argFields(spec)) {
-    const raw = valueOf(actionId, field.name).trim();
-    if (raw.length === 0) {
-      actionError.value = `请填写「${field.description}」。`;
-      return;
-    }
-    payload[field.name] = raw;
-  }
+  if (!seat) return;
 
   actionError.value = null;
   actionRequestId.value = null;
-  actingOn.value = actionId;
+  actingOn.value = payload.actionId;
   try {
     // The payload is exactly what the game declared; the seat travels in `participantKey`.
     await api.submitMatchEvent(
       instanceId.value,
-      { type: actionId, participantKey: seat.key, payload },
+      { type: payload.actionId, participantKey: seat.key, payload: payload.values },
       crypto.randomUUID(),
     );
-    values.value = { ...values.value, [actionId]: {} };
+    dock.value?.reset(payload.actionId);
     await load();
   } catch (error) {
     actionError.value = uiErrorMessage(error);
@@ -176,437 +138,228 @@ async function submit(actionId: string, spec: GameAction | null) {
 </script>
 
 <template>
-  <section class="match">
-    <header class="page-head">
-      <div class="head-line">
-        <el-button text :icon="ArrowLeft" @click="$router.push({ name: 'lobby' })">大厅</el-button>
-        <h1>对局</h1>
-        <el-tag v-if="detail" :type="statusTag(detail.summary.status)" effect="plain" size="small">
-          {{ statusLabel(detail.summary.status) }}
-        </el-tag>
-        <el-button class="head-refresh" text :icon="Refresh" :loading="loading" @click="load">
-          刷新
-        </el-button>
-      </div>
-      <p class="page-sub mono">{{ instanceId }}</p>
+  <section class="room">
+    <header class="topbar">
+      <el-button text :icon="ArrowLeft" @click="$router.push({ name: 'lobby' })">大厅</el-button>
+      <span class="room-id mono">{{ instanceId }}</span>
+      <el-tag v-if="detail" :type="statusTag(detail.summary.status)" effect="plain" size="small">
+        {{ statusLabel(detail.summary.status) }}
+      </el-tag>
+      <el-tag v-if="detail && mySeat" type="primary" effect="plain" size="small">
+        我的席位 {{ mySeat.key }}
+      </el-tag>
+      <el-tag v-else-if="detail" type="info" effect="plain" size="small">观战中</el-tag>
+      <el-button class="spacer" text :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
     </header>
 
-    <el-card class="panel" shadow="never">
-      <el-alert
-        v-if="loadError"
-        class="stack-sm"
-        data-testid="match-error"
-        type="error"
-        :title="loadError"
-        :closable="false"
-        show-icon
-      />
-      <p v-if="loadRequestId" class="meta">请求编号 {{ loadRequestId }}</p>
+    <el-alert
+      v-if="loadError"
+      class="stack-sm"
+      data-testid="match-error"
+      type="error"
+      :title="loadError"
+      :closable="false"
+      show-icon
+    />
+    <p v-if="loadRequestId" class="meta">请求编号 {{ loadRequestId }}</p>
 
-      <el-tabs v-if="detail" v-model="activeTab">
-        <el-tab-pane label="房间" name="room">
-          <el-alert
-            v-if="!mySeat"
-            class="stack"
-            data-testid="watching"
-            type="info"
-            :closable="false"
-            show-icon
-            title="你在旁观这局"
-            description="旁观能看到席位、等待点和完整记录；行动属于占席位的账号。"
-          />
+    <div v-if="detail" class="layout">
+      <aside class="column col-left">
+        <PhaseCard
+          :summary="detail.summary"
+          :waiting-step-id="detail.waiting?.stepId ?? null"
+          :waiting-seats="waitingSeats"
+          :allowed-actions="detail.waiting?.actions ?? []"
+          :public-entries="publicEntries"
+          :seat-name="seatName"
+        />
 
-          <el-descriptions class="stack" :column="2" border>
-            <el-descriptions-item label="游戏">
-              {{ detail.summary.gameId }}@{{ detail.summary.gameVersion }}
+        <section v-if="mySeat" class="panel">
+          <header class="panel-head">
+            <span class="panel-title">我的席位</span>
+            <span class="mono seat-key">{{ mySeat.key }}</span>
+          </header>
+          <pre v-if="detail.briefing" class="briefing">{{ detail.briefing }}</pre>
+          <p v-else class="hint">这局没有给你单独的规则文本。</p>
+        </section>
+
+        <section v-if="mySeat" class="panel">
+          <header class="panel-head">
+            <span class="panel-title">只给你看的信息</span>
+          </header>
+          <el-descriptions v-if="privateEntries.length > 0" :column="1" border size="small">
+            <el-descriptions-item v-for="entry in privateEntries" :key="entry.key" :label="entry.key">
+              {{ valueText(entry.value) }}
             </el-descriptions-item>
-            <el-descriptions-item label="进度">
-              <span class="mono">#{{ detail.summary.sequence }}</span>
-              <span class="muted"> · {{ detail.summary.stepId }}</span>
-            </el-descriptions-item>
-            <el-descriptions-item label="我的席位">
-              <span v-if="mySeat" class="mono">{{ mySeat.key }}</span>
-              <span v-else class="muted">旁观</span>
-            </el-descriptions-item>
-            <el-descriptions-item label="当前等待点">
-              <template v-if="detail.waiting">
-                <span class="mono">{{ detail.waiting.stepId }}</span>
-                <span class="muted">
-                  · 等待 {{ waitingSeats.length === 0 ? "任何人" : waitingSeats.join("、") }}
-                  <template v-if="waitingActions.length > 0"> · 可行动作 {{ waitingActions.join("、") }}</template>
-                </span>
-              </template>
-              <span v-else class="muted">不在等待任何输入</span>
-            </el-descriptions-item>
-            <el-descriptions-item label="创建时间">
-              {{ formatTime(detail.summary.createdAt) }}
-            </el-descriptions-item>
-            <el-descriptions-item label="记录行数">{{ detail.record.length }}</el-descriptions-item>
           </el-descriptions>
+          <p v-else class="hint">当前没有单独的私有信息。</p>
+        </section>
 
-          <el-table class="stack" :data="detail.seats" row-key="participantId" size="small">
-            <el-table-column label="席位" width="110">
-              <template #default="{ row }">
-                <span class="mono">{{ row.key }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="控制" width="90">
-              <template #default="{ row }">
-                <el-tag :type="row.control === 'ai' ? 'warning' : 'info'" effect="plain" size="small">
-                  {{ row.control === "ai" ? "AI" : "真人" }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" width="110">
-              <template #default="{ row }">
-                <el-tag :type="row.status === 'active' ? 'success' : 'info'" effect="plain" size="small">
-                  {{ row.status === "active" ? "在场" : row.status }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="账号" min-width="150">
-              <template #default="{ row }">
-                <span v-if="row.actorUserId === null" class="muted">—</span>
-                <span v-else-if="row.actorUserId === myUserId">我</span>
-                <span v-else class="mono">{{ row.actorUserId.slice(0, 8) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="等待中" width="110">
-              <template #default="{ row }">
-                <span v-if="detail.waiting?.participantIds.includes(row.participantId)">是</span>
-                <span v-else class="muted">—</span>
-              </template>
-            </el-table-column>
-          </el-table>
+        <ActionDock
+          ref="dock"
+          :available="available"
+          :seats="detail.seats"
+          :seated="mySeat !== null"
+          :open="open"
+          :busy-action-id="actingOn"
+          :error="actionError"
+          :request-id="actionRequestId"
+          :status-text="statusLabel(detail.summary.status)"
+          @submit="submit"
+        />
+      </aside>
 
-          <el-card v-if="detail.briefing" class="stack inner" shadow="never">
-            <template #header>
-              <span class="panel-title">规则与你的处境</span>
-            </template>
-            <pre class="briefing">{{ detail.briefing }}</pre>
-          </el-card>
+      <main class="column col-center">
+        <SeatRing
+          :seats="detail.seats"
+          :my-seat-key="mySeat?.key ?? null"
+          :waiting-participant-ids="waitingParticipantIds"
+          :bubbles="bubbles"
+          :actor-label="actorLabel"
+        >
+          <template #center>
+            <span class="center-status">{{ statusLabel(detail.summary.status) }}</span>
+            <span class="center-alive">
+              <strong>{{ aliveCount }}</strong>
+              <em>席在场</em>
+            </span>
+            <span class="center-waiting">
+              {{ waitingSeats.length === 0 ? "不在等待输入" : `等 ${waitingSeats.join("、")}` }}
+            </span>
+          </template>
+        </SeatRing>
+      </main>
 
-          <div class="split">
-            <el-card v-if="mySeat" class="inner" shadow="never">
-              <template #header>
-                <span class="panel-title">只给你看的信息</span>
-              </template>
-              <el-descriptions v-if="privateEntries.length > 0" :column="1" border>
-                <el-descriptions-item v-for="entry in privateEntries" :key="entry.key" :label="entry.key">
-                  {{ valueText(entry.value) }}
-                </el-descriptions-item>
-              </el-descriptions>
-              <el-empty v-else :image-size="60" description="当前没有单独的私有信息" />
-            </el-card>
+      <aside class="column col-right">
+        <MatchLog
+          :record="detail.record"
+          :actions="detail.actions"
+          :seat-name="seatName"
+          :loading="loading"
+          @refresh="load"
+        />
+      </aside>
+    </div>
 
-            <el-card class="inner" shadow="never">
-              <template #header>
-                <span class="panel-title">公开状态</span>
-              </template>
-              <el-descriptions :column="1" border>
-                <el-descriptions-item v-for="entry in publicEntries" :key="entry[0]" :label="entry[0]">
-                  {{ valueText(entry[1]) }}
-                </el-descriptions-item>
-              </el-descriptions>
-            </el-card>
-          </div>
-
-          <el-card class="stack inner" shadow="never" data-testid="my-actions">
-            <template #header>
-              <span class="panel-title">我的动作</span>
-            </template>
-
-            <el-alert
-              v-if="actionError"
-              class="stack-sm"
-              data-testid="action-error"
-              type="error"
-              :title="actionError"
-              :closable="false"
-              show-icon
-            />
-            <p v-if="actionRequestId" class="meta">请求编号 {{ actionRequestId }}</p>
-
-            <template v-if="!mySeat">
-              <p class="hint">旁观没有动作可提交。</p>
-            </template>
-            <template v-else-if="!open">
-              <p class="hint">对局状态为「{{ statusLabel(detail.summary.status) }}」，不接受输入。</p>
-            </template>
-            <template v-else-if="myActions.length === 0">
-              <p class="hint">现在轮不到你，刷新看别人的动作。</p>
-            </template>
-            <template v-else>
-              <div v-for="action in myActions" :key="action.actionId" class="action">
-                <div class="action-head">
-                  <span class="action-title mono">{{ action.actionId }}</span>
-                  <span class="muted">{{ action.spec?.description }}</span>
-                </div>
-                <div class="action-fields">
-                  <div v-for="field in argFields(action.spec)" :key="field.name" class="action-field">
-                    <el-select
-                      v-if="field.kind === 'seat'"
-                      :model-value="valueOf(action.actionId, field.name)"
-                      :placeholder="field.description"
-                      class="field-input"
-                      @update:model-value="(value: string) => setValue(action.actionId, field.name, value)"
-                    >
-                      <el-option
-                        v-for="seat in detail.seats"
-                        :key="seat.participantId"
-                        :label="`${seat.key}${seat.status === 'active' ? '' : `（${seat.status}）`}`"
-                        :value="seat.participantId"
-                      />
-                    </el-select>
-                    <el-input
-                      v-else
-                      :model-value="valueOf(action.actionId, field.name)"
-                      :placeholder="field.description"
-                      class="field-input"
-                      @update:model-value="(value: string) => setValue(action.actionId, field.name, value)"
-                    />
-                  </div>
-                  <el-button
-                    type="primary"
-                    :loading="actingOn === action.actionId"
-                    @click="submit(action.actionId, action.spec)"
-                  >
-                    提交
-                  </el-button>
-                </div>
-              </div>
-            </template>
-          </el-card>
-
-          <el-card class="stack inner" shadow="never">
-            <template #header>
-              <div class="panel-head">
-                <span class="panel-title">发言记录</span>
-                <el-button text :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-              </div>
-            </template>
-            <el-empty v-if="transcript.length === 0" :image-size="60" description="还没有公开发言" />
-            <ul v-else class="transcript">
-              <li v-for="row in transcript" :key="row.eventId">
-                <span class="mono transcript-seat">{{ seatName(row.participantId) }}</span>
-                <span class="transcript-text">{{ payloadText(row.payload) }}</span>
-              </li>
-            </ul>
-          </el-card>
-
-        </el-tab-pane>
-
-        <el-tab-pane label="记录" name="record">
-          <p class="hint">
-            按 <span class="mono">sequence</span> 的完整记录：模型调用行带思考与用量，逐行展开可看原始 JSON。
-          </p>
-          <el-table :data="detail.record" row-key="eventId" size="small" data-testid="record-table">
-            <el-table-column type="expand">
-              <template #default="{ row }">
-                <pre class="raw">{{ JSON.stringify(row, null, 2) }}</pre>
-              </template>
-            </el-table-column>
-            <el-table-column label="#" width="70">
-              <template #default="{ row }">
-                <span class="mono">#{{ row.sequence }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="事件" width="140">
-              <template #default="{ row }">{{ eventLabel(row.type) }}</template>
-            </el-table-column>
-            <el-table-column label="席位" width="100">
-              <template #default="{ row }">
-                <span class="mono">{{ seatName(row.participantId) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="步骤" width="120">
-              <template #default="{ row }">
-                <span class="mono muted">{{ row.stepId ?? "—" }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="内容" min-width="320">
-              <template #default="{ row }">
-                <template v-if="row.type === 'aiCall'">
-                  <div v-if="payloadField(row, 'content')" class="record-line">
-                    {{ payloadField(row, "content") }}
-                  </div>
-                  <div v-for="(call, index) in toolCalls(row)" :key="index" class="record-line mono">
-                    → {{ call.name }}({{ call.arguments }})
-                  </div>
-                  <el-collapse v-if="payloadField(row, 'reasoning')" class="reasoning">
-                    <el-collapse-item title="模型思考">
-                      <pre class="raw">{{ payloadField(row, "reasoning") }}</pre>
-                    </el-collapse-item>
-                  </el-collapse>
-                </template>
-                <template v-else-if="row.type === 'vote'">
-                  → <span class="mono">{{ seatName(payloadField(row, "target")) }}</span>
-                </template>
-                <template v-else>{{ payloadText(row.payload) }}</template>
-              </template>
-            </el-table-column>
-            <el-table-column label="用量 in/out/总" min-width="230">
-              <template #default="{ row }">
-                <span class="mono muted">{{ usageText(row) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="时间" width="180">
-              <template #default="{ row }">{{ formatTime(row.occurredAtMs) }}</template>
-            </el-table-column>
-          </el-table>
-        </el-tab-pane>
-      </el-tabs>
-      <el-skeleton v-else :rows="4" animated />
-    </el-card>
+    <el-skeleton v-else :rows="6" animated />
   </section>
 </template>
 
 <style scoped>
-.page-head {
+.room {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2xs);
-  margin-bottom: var(--space-lg);
+  gap: var(--space-sm);
+  height: 100%;
 }
 
-.head-line {
+.topbar {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
+  padding-bottom: var(--space-2xs);
+  border-bottom: 1px solid var(--border-soft);
 }
 
-.head-line h1 {
-  font-size: var(--text-xl);
-  font-weight: 600;
-}
-
-.head-refresh {
+.spacer {
   margin-left: auto;
 }
 
-.page-sub {
-  font-size: var(--text-sm);
-  color: var(--muted);
+.room-id {
+  font-size: var(--text-xs);
+  color: var(--meta);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr) 360px;
+  align-items: start;
+  gap: var(--space-md);
+  flex: 1;
+  min-height: 0;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.col-center {
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-md) 0;
+}
+
+.col-right {
+  min-height: 0;
+  max-height: calc(100vh - var(--header-height) - 120px);
 }
 
 .panel {
-  margin-bottom: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
 }
 
 .panel-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
 }
 
 .panel-title {
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-weight: 600;
+  color: var(--fg-2);
 }
 
-.stack {
-  margin-bottom: var(--space-md);
-}
-
-.stack-sm {
-  margin-bottom: var(--space-sm);
-}
-
-.inner {
-  margin-bottom: var(--space-md);
-  background: var(--surface-warm);
-}
-
-.split {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--space-md);
+.seat-key {
+  color: var(--accent);
 }
 
 .briefing {
   margin: 0;
   font-family: var(--font-sans);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   line-height: var(--leading-normal);
-  white-space: pre-wrap;
   color: var(--fg-2);
+  white-space: pre-wrap;
 }
 
-.action {
-  padding-bottom: var(--space-sm);
-  margin-bottom: var(--space-sm);
-  border-bottom: 1px solid var(--border-soft);
+.center-status {
+  font-size: var(--text-xs);
+  color: var(--muted);
 }
 
-.action:last-child {
-  border-bottom: none;
-  margin-bottom: 0;
-}
-
-.action-head {
+.center-alive {
   display: flex;
   align-items: baseline;
-  gap: var(--space-xs);
-  margin-bottom: var(--space-xs);
+  gap: var(--space-3xs);
 }
 
-.action-title {
-  font-weight: 600;
-}
-
-.action-fields {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.field-input {
-  flex: 1;
-}
-
-.transcript {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.transcript-seat {
-  margin-right: var(--space-xs);
+.center-alive strong {
+  font-size: var(--text-2xl);
   color: var(--accent);
 }
 
-.transcript-text {
-  font-size: var(--text-base);
-}
-
-.record-line {
-  font-size: var(--text-base);
-  white-space: pre-wrap;
-}
-
-.reasoning {
-  margin-top: var(--space-2xs);
-}
-
-.raw {
-  margin: 0;
-  padding: var(--space-xs);
-  overflow-x: auto;
-  font-family: var(--font-mono);
+.center-alive em {
   font-size: var(--text-xs);
-  line-height: var(--leading-normal);
-  color: var(--fg-2);
-  background: var(--bg);
-  border-radius: var(--radius-xs);
-  white-space: pre-wrap;
-  word-break: break-word;
+  font-style: normal;
+  color: var(--meta);
+}
+
+.center-waiting {
+  font-size: var(--text-xs);
+  color: var(--warn);
 }
 
 .hint {
-  margin-bottom: var(--space-sm);
   font-size: var(--text-sm);
   color: var(--muted);
 }
@@ -616,11 +369,17 @@ async function submit(actionId: string, spec: GameAction | null) {
   color: var(--meta);
 }
 
-.mono {
-  font-family: var(--font-mono);
+.stack-sm {
+  margin-bottom: var(--space-sm);
 }
 
-.muted {
-  color: var(--muted);
+@media (max-width: 1200px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .col-right {
+    max-height: none;
+  }
 }
 </style>
