@@ -2,7 +2,13 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { Plus, Refresh } from "@element-plus/icons-vue";
-import { api, apiRequestId, type GameCatalogueEntry, type MatchSummary } from "../services/api";
+import {
+  api,
+  apiRequestId,
+  type GameCatalogueEntry,
+  type MatchSummary,
+  type RoomSummary,
+} from "../services/api";
 import { uiErrorMessage } from "../services/messages";
 import { formatTime, statusLabel, statusTag } from "../services/match-labels";
 import { sessionState } from "../stores/session";
@@ -23,7 +29,6 @@ const CATEGORIES = [
 
 interface SeatDraft {
   control: "human" | "ai";
-  username: string;
 }
 
 const router = useRouter();
@@ -31,18 +36,20 @@ const user = computed(() => sessionState.user);
 const isAdmin = computed(() => user.value?.role === "admin");
 const roleLabel = computed(() => (isAdmin.value ? "管理员" : "普通用户"));
 
+const rooms = ref<RoomSummary[]>([]);
 const matches = ref<MatchSummary[]>([]);
 const games = ref<GameCatalogueEntry[]>([]);
 const loading = ref(false);
 const loadError = ref<string | null>(null);
 const loadRequestId = ref<string | null>(null);
+const rowBusyId = ref<string | null>(null);
 
 const createOpen = ref(false);
 const createGame = ref("");
 const createSeats = ref<SeatDraft[]>([
-  { control: "human", username: "" },
-  { control: "human", username: "" },
-  { control: "ai", username: "" },
+  { control: "human" },
+  { control: "human" },
+  { control: "ai" },
 ]);
 /** Whether the table sees each other's personas; the platform deals one to every seat anyway. */
 const createPersonaPublic = ref(false);
@@ -57,10 +64,12 @@ const setupFields = computed(() =>
 const derivedCount = computed(
   () => (selectedGame.value?.setup ?? []).filter((field) => field.from !== undefined).length,
 );
+const seatBounds = computed(() => selectedGame.value?.seats ?? { min: 1, max: 24 });
 
 watch(createGame, () => {
   createValues.value = {};
 });
+
 const creating = ref(false);
 const createError = ref<string | null>(null);
 const createRequestId = ref<string | null>(null);
@@ -70,6 +79,7 @@ async function load(): Promise<void> {
   loadError.value = null;
   loadRequestId.value = null;
   try {
+    rooms.value = await api.listRooms();
     matches.value = await api.listMatches();
   } catch (error) {
     loadError.value = uiErrorMessage(error);
@@ -84,7 +94,7 @@ onMounted(async () => {
   try {
     games.value = await api.listGames();
   } catch {
-    // The catalogue is only needed to create a match; a failure here does not block the list.
+    // The catalogue is only needed to create a room; a failure here does not block the lists.
   }
 });
 
@@ -109,7 +119,8 @@ function openCreate(): void {
 }
 
 function addSeat(): void {
-  createSeats.value.push({ control: "human", username: "" });
+  if (createSeats.value.length >= seatBounds.value.max) return;
+  createSeats.value.push({ control: "human" });
 }
 
 function removeSeat(index: number): void {
@@ -123,10 +134,16 @@ async function submitCreate(): Promise<void> {
     createError.value = "请选择游戏。";
     return;
   }
-  if (createSeats.value.length === 0) {
-    createError.value = "至少需要一个席位。";
+  const bounds = seatBounds.value;
+  if (createSeats.value.length < bounds.min || createSeats.value.length > bounds.max) {
+    createError.value = `${selectedGame.value?.title ?? "这个游戏"} 需要 ${bounds.min}–${bounds.max} 个席位。`;
     return;
   }
+  if (createSeats.value.every((seat) => seat.control === "ai")) {
+    createError.value = "至少要有一个真人席位。";
+    return;
+  }
+
   const variables: Record<string, string> = {};
   for (const field of setupFields.value) {
     const value = (createValues.value[field.name] ?? "").trim();
@@ -139,25 +156,37 @@ async function submitCreate(): Promise<void> {
 
   creating.value = true;
   try {
-    const created = await api.createMatch({
+    const room = await api.createRoom({
       gameId: createGame.value,
       personaPublic: createPersonaPublic.value,
       ...(setupFields.value.length === 0 ? {} : { variables }),
       seats: createSeats.value.map((seat, index) => ({
         key: `s${index + 1}`,
         control: seat.control,
-        ...(seat.control === "human" && seat.username.trim().length > 0
-          ? { username: seat.username.trim() }
-          : {}),
       })),
     });
     createOpen.value = false;
-    await router.push({ name: "match", params: { instanceId: created.instanceId } });
+    await router.push({ name: "room", params: { roomId: room.roomId } });
   } catch (error) {
     createError.value = uiErrorMessage(error);
     createRequestId.value = apiRequestId(error);
   } finally {
     creating.value = false;
+  }
+}
+
+/** Kept for the room list below: taking a seat from the lobby. */
+async function join(roomId: string): Promise<void> {
+  rowBusyId.value = roomId;
+  loadError.value = null;
+  try {
+    await api.joinRoom(roomId);
+    await router.push({ name: "room", params: { roomId } });
+  } catch (error) {
+    loadError.value = uiErrorMessage(error);
+    loadRequestId.value = apiRequestId(error);
+  } finally {
+    rowBusyId.value = null;
   }
 }
 </script>
@@ -171,13 +200,90 @@ async function submitCreate(): Promise<void> {
       </p>
     </header>
 
+    <el-card class="panel" shadow="never" data-testid="room-list">
+      <template #header>
+        <div class="panel-head">
+          <span class="panel-title">房间</span>
+          <span class="muted">先有房间，人进来准备，房主开局才生成对局与 AI 席位</span>
+        </div>
+      </template>
+
+      <el-table :data="rooms" row-key="roomId" size="small" empty-text="还没有房间">
+        <el-table-column label="游戏" min-width="160">
+          <template #default="{ row }">
+            {{ gameTitle(row.gameId) }}
+            <span class="muted mono">@{{ row.gameVersion }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="席位" width="150">
+          <template #default="{ row }">
+            <span class="mono">{{ row.humanSeats }}</span> 真人
+            <span class="muted"> · </span>
+            <span class="mono">{{ row.aiSeats }}</span> AI 占位
+          </template>
+        </el-table-column>
+        <el-table-column label="人数" width="180">
+          <template #default="{ row }">
+            已坐 {{ row.takenSeats }}/{{ row.humanSeats }} · 已准备 {{ row.readySeats }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="130">
+          <template #default="{ row }">
+            <el-tag v-if="row.status !== 'open'" type="danger" effect="plain" size="small"
+              >已关闭</el-tag
+            >
+            <el-tag v-else-if="row.playing" type="warning" effect="plain" size="small"
+              >对局中</el-tag
+            >
+            <el-tag v-else type="success" effect="plain" size="small">等开局</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="我的席位" width="110">
+          <template #default="{ row }">
+            <span v-if="row.mySeatKeys.length > 0" class="mono">{{
+              row.mySeatKeys.join("、")
+            }}</span>
+            <span v-else class="muted">未加入</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" min-width="180">
+          <template #default="{ row }">
+            <div class="row-actions">
+              <el-button
+                v-if="
+                  row.mySeatKeys.length === 0 &&
+                  row.status === 'open' &&
+                  !row.playing &&
+                  row.takenSeats < row.humanSeats
+                "
+                type="primary"
+                :loading="rowBusyId === row.roomId"
+                size="small"
+                @click="join(row.roomId)"
+              >
+                坐下
+              </el-button>
+              <el-button
+                size="small"
+                @click="router.push({ name: 'room', params: { roomId: row.roomId } })"
+              >
+                {{ row.mySeatKeys.length > 0 ? "进入房间" : "查看" }}
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <p class="hint">开放中的房间谁都能坐下；同一张桌子可以连开多局，同一时间只有一局在跑。</p>
+    </el-card>
+
     <el-card class="panel" shadow="never">
       <template #header>
         <div class="panel-head">
-          <span class="panel-title">对局列表</span>
+          <span class="panel-title">对局</span>
           <div class="panel-actions">
             <el-button text :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-            <el-button type="primary" :icon="Plus" @click="openCreate">新建对局</el-button>
+            <el-button type="primary" :icon="Plus" @click="openCreate">新建房间</el-button>
           </div>
         </div>
       </template>
@@ -267,7 +373,7 @@ async function submitCreate(): Promise<void> {
       </el-descriptions>
     </el-card>
 
-    <el-dialog v-model="createOpen" title="新建对局" width="620px">
+    <el-dialog v-model="createOpen" title="新建房间" width="620px">
       <el-form label-position="top">
         <el-form-item label="游戏">
           <el-select v-model="createGame" class="full" placeholder="选择游戏">
@@ -288,13 +394,10 @@ async function submitCreate(): Promise<void> {
                 <el-option label="真人" value="human" />
                 <el-option label="AI" value="ai" />
               </el-select>
-              <el-input
-                v-if="seat.control === 'human'"
-                v-model="seat.username"
-                class="seat-user"
-                placeholder="留空表示自己占该席位"
-              />
-              <span v-else class="seat-note muted">由平台按供应商默认模型驱动</span>
+              <span v-if="seat.control === 'human'" class="seat-note muted">
+                开局前由真人坐下（房主先坐）
+              </span>
+              <span v-else class="seat-note muted">开局时才生成，现在是占位</span>
               <el-button
                 text
                 type="danger"
@@ -340,7 +443,10 @@ async function submitCreate(): Promise<void> {
           打开后全桌能看到彼此的职业、性格与说话风格；性别始终公开，MBTI 始终只有自己可见。
         </span>
       </el-form-item>
-      <p class="hint">席位数量与角色由游戏在开局时判定；不符合规则的开局会被游戏拒绝并给出原因。</p>
+      <p class="hint">
+        房间先存在：选好游戏与席位布局，人进房准备，房主开局时才生成对局与 AI 席位。 席位数量必须是
+        {{ seatBounds.min }}–{{ seatBounds.max }} 个。
+      </p>
       <el-alert
         v-if="createError"
         class="stack-sm"
@@ -354,7 +460,7 @@ async function submitCreate(): Promise<void> {
 
       <template #footer>
         <el-button @click="createOpen = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="submitCreate">开局</el-button>
+        <el-button type="primary" :loading="creating" @click="submitCreate">建房</el-button>
       </template>
     </el-dialog>
   </section>
@@ -427,6 +533,12 @@ async function submitCreate(): Promise<void> {
 
 .full {
   width: 100%;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
 }
 
 .hint.inline {

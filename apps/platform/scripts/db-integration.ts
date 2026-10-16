@@ -727,6 +727,14 @@ try {
   assert.equal(room.playing, false);
   assert.equal(room.currentInstanceId, null, "no match exists yet: AI seats are placeholders");
 
+  // A listed room must carry its own id: rooms are found by joining members, and a careless
+  // `selectAll` there would surface the member row's id instead.
+  const listedRooms = await roomService.list({ actor: guest });
+  const listedRoom = listedRooms.find((row) => row.roomId === room.roomId);
+  assert.ok(listedRoom, "an open room must show up for another account");
+  assert.equal(listedRoom.humanSeats, 2);
+  assert.deepEqual(listedRoom.mySeatKeys, [], "not seated yet");
+
   // Nobody may start before everyone is seated and ready.
   let notReady = false;
   try {

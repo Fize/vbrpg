@@ -4,6 +4,7 @@ const API_BASE = "/v1";
 // copy of these shapes. Web-side aliases keep the call sites readable.
 import type {
   ConnectionTestResult,
+  CreateRoomRequest,
   CreateMatchRequest as CreateMatchInput,
   CreateProviderModelRequest as CreateProviderModelInput,
   CreateUserRequest as CreateUserInput,
@@ -11,9 +12,12 @@ import type {
   LoginResult,
   MatchDetail,
   MatchSummary,
+  RoomDetail,
+  RoomSummary,
   PlatformUser as User,
   PlayerView,
   Provider,
+  UpdateRoomRequest,
   ProviderInput as CreateProviderInput,
   ProviderModel,
   SubmitEventRequest,
@@ -36,9 +40,13 @@ export type {
   MatchSeat,
   MatchSummary,
   PlatformRole as Role,
+  RoomDetail,
+  RoomSeat,
+  RoomSummary,
   PlatformUser as User,
   PlayerView,
   Provider,
+  UpdateRoomRequest,
   ProviderErrorCode,
   ProviderModel,
   CreateProviderModelRequest as CreateProviderModelInput,
@@ -233,6 +241,78 @@ export const api = {
     });
     csrfToken = result.csrfToken;
     return result;
+  },
+
+  /** A room is the table; a match is a round played at it. Rooms are created first. */
+  createRoom(input: CreateRoomRequest): Promise<RoomDetail> {
+    return execute<RoomDetail>({ method: "POST", path: "/rooms", body: input, csrf: true });
+  },
+
+  async listRooms(): Promise<RoomSummary[]> {
+    const result = await execute<{ rooms: RoomSummary[] }>({ method: "GET", path: "/rooms" });
+    return result.rooms;
+  },
+
+  readRoom(roomId: string): Promise<RoomDetail> {
+    return execute<RoomDetail>({ method: "GET", path: `/rooms/${encodeURIComponent(roomId)}` });
+  },
+
+  updateRoom(roomId: string, patch: UpdateRoomRequest): Promise<RoomDetail> {
+    return execute<RoomDetail>({
+      method: "PATCH",
+      path: `/rooms/${encodeURIComponent(roomId)}`,
+      body: patch,
+      csrf: true,
+    });
+  },
+
+  joinRoom(roomId: string): Promise<RoomDetail> {
+    return execute<RoomDetail>({
+      method: "POST",
+      path: `/rooms/${encodeURIComponent(roomId)}/join`,
+      csrf: true,
+    });
+  },
+
+  setRoomReady(roomId: string, ready: boolean): Promise<RoomDetail> {
+    return execute<RoomDetail>({
+      method: "POST",
+      path: `/rooms/${encodeURIComponent(roomId)}/ready`,
+      body: { ready },
+      csrf: true,
+    });
+  },
+
+  leaveRoom(roomId: string): Promise<RoomDetail> {
+    return execute<RoomDetail>({
+      method: "POST",
+      path: `/rooms/${encodeURIComponent(roomId)}/leave`,
+      csrf: true,
+    });
+  },
+
+  startRoom(roomId: string): Promise<{ summary: MatchSummary }> {
+    return execute<{ summary: MatchSummary }>({
+      method: "POST",
+      path: `/rooms/${encodeURIComponent(roomId)}/start`,
+      csrf: true,
+    });
+  },
+
+  closeRoom(roomId: string): Promise<RoomDetail> {
+    return execute<RoomDetail>({
+      method: "POST",
+      path: `/rooms/${encodeURIComponent(roomId)}/close`,
+      csrf: true,
+    });
+  },
+
+  async listRoomMatches(roomId: string): Promise<MatchSummary[]> {
+    const result = await execute<{ matches: MatchSummary[] }>({
+      method: "GET",
+      path: `/rooms/${encodeURIComponent(roomId)}/matches`,
+    });
+    return result.matches;
   },
 
   async listGames(): Promise<GameCatalogueEntry[]> {

@@ -54,20 +54,24 @@ export async function listRooms(
   db: DbExecutor,
   input: { userId: string; limit?: number },
 ): Promise<Array<Selectable<RoomsTable>>> {
-  return db
-    .selectFrom("rooms")
-    .selectAll()
-    .leftJoin("room_members", "room_members.room_id", "rooms.id")
-    .where((expression) =>
-      expression.or([
-        expression("rooms.status", "=", "open"),
-        expression("room_members.user_id", "=", input.userId),
-      ]),
-    )
-    .distinct()
-    .orderBy("rooms.updated_at", "desc")
-    .limit(input.limit ?? 50)
-    .execute();
+  return (
+    db
+      .selectFrom("rooms")
+      // Columns are named per table on purpose: a bare `selectAll()` across a join would let the
+      // member row's `id` win over the room's, and every listed room would carry the wrong id.
+      .selectAll("rooms")
+      .leftJoin("room_members", "room_members.room_id", "rooms.id")
+      .where((expression) =>
+        expression.or([
+          expression("rooms.status", "=", "open"),
+          expression("room_members.user_id", "=", input.userId),
+        ]),
+      )
+      .distinct()
+      .orderBy("rooms.updated_at", "desc")
+      .limit(input.limit ?? 50)
+      .execute()
+  );
 }
 
 export async function updateRoom(

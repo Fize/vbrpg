@@ -1,12 +1,13 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Page } from "@playwright/test";
 
 const adminPassword = "initial-password-1";
 const playerName = "e2e-m3-player";
 const playerPassword = "m3-player-password-1";
 const watcherName = "e2e-m3-watcher";
 const watcherPassword = "m3-watcher-password-1";
+const origin = "http://127.0.0.1:5174";
 
-/** Shared across the serial cases: which match this run created. */
+let roomId = "";
 let matchId = "";
 
 async function login(page: Page, username: string, password: string) {
@@ -17,16 +18,29 @@ async function login(page: Page, username: string, password: string) {
   await expect(page).toHaveURL(/\/lobby$/);
 }
 
+async function csrf(page: Page): Promise<string> {
+  const response = await page.request.get("/v1/auth/csrf");
+  const { csrfToken } = (await response.json()) as { csrfToken: string };
+  return csrfToken;
+}
+
+async function provision(page: Page, username: string, password: string): Promise<void> {
+  const response = await page.request.post("/v1/admin/users", {
+    headers: { "x-csrf-token": await csrf(page), origin },
+    data: { username, temporaryPassword: password, role: "user" },
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
+}
+
 /**
- * The console's own creation flow needs a model for the word pair, and no model exists in a test
- * run (loopback providers are refused by design). So the suite creates matches through the API with
- * explicit words and asserts the room in the browser; the dialog is asserted structurally.
+ * A room whose words are already known needs no model at all, which is what a test run can offer:
+ * loopback providers are refused by design, so nothing here may call one. The room is created
+ * through the API with its words, and everything a player does — sitting down, getting ready,
+ * starting, playing — happens in the browser.
  */
-async function createMatch(page: Page, seats: Array<Record<string, unknown>>): Promise<string> {
-  const csrf = await page.request.get("/v1/auth/csrf");
-  const { csrfToken } = (await csrf.json()) as { csrfToken: string };
-  const response = await page.request.post("/v1/instances", {
-    headers: { "x-csrf-token": csrfToken, origin: "http://127.0.0.1:5174" },
+async function createRoom(page: Page, seats: Array<Record<string, unknown>>): Promise<string> {
+  const response = await page.request.post("/v1/rooms", {
+    headers: { "x-csrf-token": await csrf(page), origin },
     data: {
       gameId: "undercover",
       seats,
@@ -34,83 +48,102 @@ async function createMatch(page: Page, seats: Array<Record<string, unknown>>): P
     },
   });
   expect(response.ok(), await response.text()).toBeTruthy();
-  return ((await response.json()) as { instanceId: string }).instanceId;
+  return ((await response.json()) as { roomId: string }).roomId;
 }
 
-async function provision(page: Page, username: string, password: string) {
-  await page.goto("/admin/users");
-  await page.getByLabel("用户名").fill(username);
-  await page.getByLabel("临时密码").fill(password);
-  await page.getByRole("button", { name: "创建" }).click();
-  await expect(page.getByRole("cell", { name: username })).toBeVisible();
+/** A fresh browser context per account: two humans and a watcher in the same run. */
+async function asUser(browser: Browser, username: string, password: string): Promise<Page> {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await login(page, username, password);
+  return page;
 }
 
-/**
- * 两个真人 + 一个 AI 的开局，加上一个旁观账号。AI 席位由 worker 驱动，浏览器套件里没有 worker，
- * 所以这一局停在「等 AI 发言」；两个真人那半局在浏览器里是真跑的，记录页看的也是真记录。
- */
-test.describe.serial("M3 对局界面", () => {
-  test("管理员开一局：两个真人席位 + 一个 AI 席位", async ({ page }) => {
+test.describe.serial("M7 房间与对局", () => {
+  test("建房、坐下、准备、开局，两个真人在浏览器里打起来", async ({ page, browser }) => {
     await login(page, "e2e-root", adminPassword);
     await provision(page, playerName, playerPassword);
     await provision(page, watcherName, watcherPassword);
 
+    // The dialog asks for a category, not for words: the pair is generated when a match starts.
     await page.goto("/lobby");
-    // The dialog asks for a category, not for words: the pair is generated during creation.
-    await page.getByRole("button", { name: "新建对局" }).click();
+    await page.getByRole("button", { name: "新建房间" }).click();
     await expect(page.getByLabel("分类")).toBeVisible();
-    await expect(page.getByText("由平台的模型按分类给出一对词")).toBeVisible();
-    await expect(page.getByPlaceholder("留空表示自己占该席位")).toHaveCount(2);
+    await expect(page.getByText("开局时才生成，现在是占位")).toBeVisible();
     await page.getByRole("button", { name: "取消" }).click();
 
-    matchId = await createMatch(page, [
+    roomId = await createRoom(page, [
       { key: "s1", control: "human" },
-      { key: "s2", control: "human", username: playerName },
+      { key: "s2", control: "human" },
       { key: "s3", control: "ai" },
     ]);
-    await page.goto(`/matches/${matchId}`);
-    await expect(page.getByText("当前阶段")).toBeVisible();
-    await expect(page.getByText("s3", { exact: true }).first()).toBeVisible();
-    await expect(page.getByTestId("my-actions")).toContainText("描述");
-    await expect(page.getByPlaceholder("你要说的话")).toBeVisible();
+    await page.goto(`/rooms/${roomId}`);
 
+    // The room is the table: seats, AI placeholders, and why a start is not possible yet.
+    await expect(page.getByTestId("room-seats")).toContainText("AI 占位");
+    await expect(page.getByTestId("room-seats")).toContainText("不需要");
+    await expect(page.getByTestId("room-blockers")).toContainText("还有空席位");
+    await page.getByRole("button", { name: "我准备好了" }).click();
+    await expect(page.getByTestId("room-seats")).toContainText("已准备");
+
+    // The second human joins from their own console and gets ready.
+    const player = await asUser(browser, playerName, playerPassword);
+    await expect(player.getByTestId("room-list")).toContainText("等开局");
+    await player.getByRole("button", { name: "坐下" }).click();
+    await expect(player).toHaveURL(new RegExp(`/rooms/${roomId}$`));
+    await expect(player.getByTestId("room-seats")).toContainText("我");
+    await player.getByRole("button", { name: "我准备好了" }).click();
+    await expect(player.getByTestId("room-seats")).toContainText("已准备");
+
+    // With everyone seated and ready the owner starts; a match is dealt only now.
+    await page.reload();
+    await expect(page.getByTestId("room-blockers")).toHaveCount(0);
+    await page.getByTestId("room-start").click();
+    await expect(page).toHaveURL(/\/matches\/[0-9a-f-]{36}$/);
+    matchId = page.url().split("/").pop() ?? "";
+
+    await expect(page.getByText("当前阶段")).toBeVisible();
+    await expect(page.getByPlaceholder("你要说的话")).toBeVisible();
     await page.getByPlaceholder("你要说的话").fill("我这东西很甜");
     await page.getByRole("button", { name: "提交" }).click();
     await expect(page.getByText("我这东西很甜").first()).toBeVisible();
-    // The seat has spoken: the match is waiting for the other two now.
     await expect(page.getByTestId("my-actions")).toContainText("现在轮不到你");
 
-    // The record is the room's log, not a separate page.
     const log = page.getByTestId("match-log");
     await expect(log).toContainText("对局创建");
-    // Rows read in the game's own words, not in event names.
-    await expect(log).toContainText("描述");
     await expect(log).toContainText("你要说的话：我这东西很甜");
-    await expect(log).toContainText("#1");
+
+    // The second human reaches the same match from the room it belongs to.
+    await player.goto(`/rooms/${roomId}`);
+    await expect(player.getByText("对局中")).toBeVisible();
+    await player.getByRole("button", { name: "进入" }).click();
+    await expect(player).toHaveURL(new RegExp(`/matches/${matchId}$`));
+    await expect(player.getByText("等 s2、s3")).toBeVisible();
+    await player.getByPlaceholder("你要说的话").fill("我这东西长在树上");
+    await player.getByRole("button", { name: "提交" }).click();
+    await expect(player.getByText("我这东西长在树上").first()).toBeVisible();
+    // Both humans have spoken; the seat left is the AI, which no browser suite drives.
+    await expect(player.getByText("等 s3")).toBeVisible();
+
+    await player.context().close();
   });
 
-  test("第二个真人在自己的控制台里接着玩", async ({ page }) => {
-    await login(page, playerName, playerPassword);
-    await expect(page.getByText("谁是卧底").first()).toBeVisible();
-    await page.getByRole("button", { name: "进入房间" }).first().click();
+  test("第三个账号从房间旁观同一局，拿不到动作", async ({ browser }) => {
+    const watcher = await asUser(browser, watcherName, watcherPassword);
+    await watcher.goto(`/matches/${matchId}`);
 
-    await expect(page).toHaveURL(/\/matches\/[0-9a-f-]{36}$/);
-    // Its own seat, its own waiting point, its own action.
-    await expect(page.getByText("我的席位", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("等 s2、s3")).toBeVisible();
-    await page.getByPlaceholder("你要说的话").fill("我这东西长在树上");
-    await page.getByRole("button", { name: "提交" }).click();
+    await expect(watcher.getByText("观战中")).toBeVisible();
+    await expect(watcher.getByTestId("my-actions")).toContainText("旁观没有动作可提交");
+    await expect(watcher.getByRole("button", { name: "提交" })).toHaveCount(0);
+    await expect(watcher.getByText("只给你看的信息")).toHaveCount(0);
+    await expect(watcher.getByTestId("seat").first()).toBeVisible();
+    await expect(watcher.getByTestId("match-log")).toContainText("描述");
 
-    await expect(page.getByText("我这东西长在树上").first()).toBeVisible();
-    await expect(page.getByText("我这东西很甜").first()).toBeVisible();
-    // Both humans have spoken; the seat left is the AI, which no browser suite drives.
-    await expect(page.getByText("等 s3")).toBeVisible();
-    await expect(page.getByTestId("my-actions")).toContainText("现在轮不到你");
+    await watcher.context().close();
   });
 
   test("管理员在对局运维页暂停、恢复、取消这一局", async ({ page }) => {
     await login(page, "e2e-root", adminPassword);
-    // The lifecycle lives on its own page, not inside the room the admin plays in.
     await page.getByRole("link", { name: "对局运维" }).click();
     await expect(page).toHaveURL(/\/admin\/matches$/);
 
@@ -119,30 +152,20 @@ test.describe.serial("M3 对局界面", () => {
 
     await row.getByRole("button", { name: "暂停" }).click();
     await expect(row).toContainText("已暂停");
-
     await row.getByRole("button", { name: "恢复" }).click();
     await expect(row).toContainText("等待行动");
 
-    await row.getByRole("button", { name: "取消" }).click();
+    await page.goto(`/rooms/${roomId}`);
+    await expect(page.getByTestId("room-seats")).toBeVisible();
+
+    await page.goto("/admin/matches");
+    const again = page.getByRole("row", { name: new RegExp(matchId) });
+    await again.getByRole("button", { name: "取消" }).click();
     await page.getByRole("button", { name: "确认取消" }).click();
-    await expect(row).toContainText("已取消");
-  });
+    await expect(again).toContainText("已取消");
 
-  test("第三个账号能旁观同一局，但拿不到动作", async ({ page }) => {
-    await login(page, watcherName, watcherPassword);
-    // The lobby is the match hall: every match is listed, and this account holds no seat anywhere.
-    await expect(page.getByText("谁是卧底").first()).toBeVisible();
-    await page.getByRole("button", { name: "旁观" }).first().click();
-    await expect(page).toHaveURL(new RegExp(`/matches/${matchId}$`));
-
-    await expect(page.getByText("观战中")).toBeVisible();
-    await expect(page.getByTestId("my-actions")).toContainText("旁观没有动作可提交");
-    await expect(page.getByRole("button", { name: "提交" })).toHaveCount(0);
-    // No seat means no private state and no rules: those belong to the seats playing.
-    await expect(page.getByText("只给你看的信息")).toHaveCount(0);
-
-    // The table and the record survive the lifecycle change: cancelling is not a game event.
-    await expect(page.getByTestId("seat").first()).toBeVisible();
-    await expect(page.getByTestId("match-log")).toContainText("描述");
+    // A cancelled match frees the table: the same room can be started again.
+    await page.goto(`/rooms/${roomId}`);
+    await expect(page.getByText("等开局")).toBeVisible();
   });
 });

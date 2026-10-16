@@ -6,6 +6,7 @@ import LobbyView from "../views/LobbyView.vue";
 import LoginView from "../views/LoginView.vue";
 import MatchView from "../views/MatchView.vue";
 import ProvidersView from "../views/ProvidersView.vue";
+import RoomView from "../views/RoomView.vue";
 import UsersView from "../views/UsersView.vue";
 import { loadCurrentUser, sessionState } from "../stores/session";
 import { setUnauthorizedHandler } from "../services/api";
@@ -23,6 +24,11 @@ const routes: RouteRecordRaw[] = [
   { path: "/login", name: "login", component: LoginView },
   { path: "/change-password", name: "change-password", component: ChangePasswordView },
   { path: "/lobby", name: "lobby", component: LobbyView },
+  {
+    path: "/rooms/:roomId",
+    name: "room",
+    component: RoomView,
+  },
   {
     path: "/matches/:instanceId",
     name: "match",
