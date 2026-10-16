@@ -324,6 +324,11 @@ export const updateRoomRequestSchema = z
 
 export const roomReadyRequestSchema = z.object({ ready: z.boolean() }).strict();
 
+/** The short name of a room: six characters people can say out loud and type in. */
+export const roomCodeSchema = z.string().regex(/^[A-Z0-9]{6}$/);
+
+export const joinRoomByCodeRequestSchema = z.object({ code: roomCodeSchema }).strict();
+
 export const roomSeatSchema = z.object({
   key: z.string().min(1),
   seat: z.number().int().positive(),
@@ -336,6 +341,8 @@ export const roomSeatSchema = z.object({
 
 export const roomSummarySchema = z.object({
   roomId: idSchema,
+  /** The room's short name, for saying out loud. The id stays the identifier. */
+  code: roomCodeSchema,
   gameId: idSchema,
   gameTitle: z.string().min(1),
   gameVersion: z.string().min(1),
@@ -430,4 +437,8 @@ export function parseUpdateRoomRequest(input: unknown): UpdateRoomRequest {
 
 export function parseRoomReadyRequest(input: unknown): { ready: boolean } {
   return roomReadyRequestSchema.parse(input);
+}
+
+export function parseJoinRoomByCodeRequest(input: unknown): { code: string } {
+  return joinRoomByCodeRequestSchema.parse(input);
 }

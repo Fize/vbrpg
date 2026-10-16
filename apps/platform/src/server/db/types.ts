@@ -56,6 +56,8 @@ export interface RoomsTable {
   game_id: string;
   game_version: string;
   owner_user_id: string;
+  /** Six characters, unique, meant to be read aloud. */
+  code: string;
   status: "open" | "closed" | "cancelled";
   /**
    * `[{key, control}]`: humans take their seats, AI seats are placeholders until a match starts.

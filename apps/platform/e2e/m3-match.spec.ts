@@ -67,7 +67,7 @@ test.describe.serial("M7 房间与对局", () => {
 
     // The dialog asks for a category, not for words: the pair is generated when a match starts.
     await page.goto("/lobby");
-    await page.getByRole("button", { name: "新建房间" }).click();
+    await page.getByRole("button", { name: "创建房间" }).first().click();
     await expect(page.getByLabel("分类")).toBeVisible();
     await expect(page.getByText("开局时才生成，现在是占位")).toBeVisible();
     await page.getByRole("button", { name: "取消" }).click();

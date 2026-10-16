@@ -53,6 +53,7 @@ export {
   addRoomMember,
   clearRoomReadiness,
   createRoom,
+  findRoomByCode,
   getRoom,
   listRoomMatches,
   listRoomMembers,

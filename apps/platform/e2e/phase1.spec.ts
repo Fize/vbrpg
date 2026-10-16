@@ -19,7 +19,7 @@ test.describe.serial("Phase 1 browser acceptance", () => {
     await expect(page.getByRole("heading", { name: "大厅" })).toBeVisible();
     // The lobby is rooms plus the public match list; a room is created before any match exists.
     await expect(page.getByTestId("room-list")).toBeVisible();
-    await expect(page.getByRole("button", { name: "新建房间" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "创建房间" }).first()).toBeVisible();
   });
 
   test("admin provisions a user and provider/model; secrets do not appear in the UI", async ({

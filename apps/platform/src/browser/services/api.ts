@@ -266,6 +266,15 @@ export const api = {
     });
   },
 
+  joinRoomByCode(code: string): Promise<RoomDetail> {
+    return execute<RoomDetail>({
+      method: "POST",
+      path: "/rooms/join",
+      body: { code },
+      csrf: true,
+    });
+  },
+
   joinRoom(roomId: string): Promise<RoomDetail> {
     return execute<RoomDetail>({
       method: "POST",

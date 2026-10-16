@@ -14,6 +14,7 @@ export async function createRoom(
     gameId: string;
     gameVersion: string;
     ownerUserId: string;
+    code: string;
     seatPlan: readonly RoomSeatPlanEntry[];
     personaPublic: boolean;
     variables: Record<string, unknown>;
@@ -26,6 +27,7 @@ export async function createRoom(
       game_id: input.gameId,
       game_version: input.gameVersion,
       owner_user_id: input.ownerUserId,
+      code: input.code,
       status: "open",
       seat_plan: JSON.stringify(input.seatPlan),
       persona_public: input.personaPublic,
@@ -39,6 +41,13 @@ export async function getRoom(
   roomId: string,
 ): Promise<Selectable<RoomsTable> | undefined> {
   return db.selectFrom("rooms").selectAll().where("id", "=", roomId).executeTakeFirst();
+}
+
+export async function findRoomByCode(
+  db: DbExecutor,
+  code: string,
+): Promise<Selectable<RoomsTable> | undefined> {
+  return db.selectFrom("rooms").selectAll().where("code", "=", code).executeTakeFirst();
 }
 
 /** Locks a room for the rest of the transaction: one writer at a time, per room. */

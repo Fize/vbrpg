@@ -11,7 +11,6 @@ import {
 } from "../services/api";
 import { uiErrorMessage } from "../services/messages";
 import { formatTime, statusLabel, statusTag } from "../services/match-labels";
-import { sessionState } from "../stores/session";
 
 /** Suggestions for the category field; the creator can type anything else. */
 const CATEGORIES = [
@@ -32,17 +31,20 @@ interface SeatDraft {
 }
 
 const router = useRouter();
-const user = computed(() => sessionState.user);
-const isAdmin = computed(() => user.value?.role === "admin");
-const roleLabel = computed(() => (isAdmin.value ? "管理员" : "普通用户"));
 
 const rooms = ref<RoomSummary[]>([]);
-const matches = ref<MatchSummary[]>([]);
 const games = ref<GameCatalogueEntry[]>([]);
 const loading = ref(false);
 const loadError = ref<string | null>(null);
 const loadRequestId = ref<string | null>(null);
 const rowBusyId = ref<string | null>(null);
+/** A room's matches are read only when somebody opens that room's history. */
+const roomMatches = ref<Record<string, MatchSummary[]>>({});
+const expanded = ref<Record<string, boolean>>({});
+
+const joinCode = ref("");
+const joiningByCode = ref(false);
+const joinError = ref<string | null>(null);
 
 const createOpen = ref(false);
 const createGame = ref("");
@@ -51,16 +53,10 @@ const createSeats = ref<SeatDraft[]>([
   { control: "human" },
   { control: "ai" },
 ]);
-/** Whether the table sees each other's personas; the platform deals one to every seat anyway. */
 const createPersonaPublic = ref(false);
-/** Whatever the selected game asks for at creation, keyed by the game's own field names. */
 const createValues = ref<Record<string, string>>({});
 
 const selectedGame = computed(() => games.value.find((game) => game.gameId === createGame.value));
-const derivedCount = computed(
-  () => (selectedGame.value?.setup ?? []).filter((field) => field.from !== undefined).length,
-);
-/** A game may offer two ways to get its words: type both, or name a category and let the model do it. */
 const wordFields = computed(() =>
   (selectedGame.value?.setup ?? []).filter(
     (field) => field.from === undefined && field.kind === "word",
@@ -71,15 +67,33 @@ const askedFields = computed(() =>
     (field) => field.from === undefined && field.kind !== "word",
   ),
 );
+const derivedCount = computed(
+  () => (selectedGame.value?.setup ?? []).filter((field) => field.from !== undefined).length,
+);
 const seatBounds = computed(() => selectedGame.value?.seats ?? { min: 1, max: 24 });
+
+const creating = ref(false);
+const createError = ref<string | null>(null);
+const createRequestId = ref<string | null>(null);
 
 watch(createGame, () => {
   createValues.value = {};
 });
 
-const creating = ref(false);
-const createError = ref<string | null>(null);
-const createRequestId = ref<string | null>(null);
+/** Open rooms first, then the ones I am already in, newest first within each group. */
+const sortedRooms = computed(() =>
+  [...rooms.value].sort((left, right) => {
+    const mine = Number(right.mySeatKeys.length > 0) - Number(left.mySeatKeys.length > 0);
+    if (mine !== 0) return mine;
+    return right.createdAt.localeCompare(left.createdAt);
+  }),
+);
+
+function openRoomsOf(gameId: string): number {
+  return rooms.value.filter(
+    (room) => room.gameId === gameId && room.status === "open" && !room.playing,
+  ).length;
+}
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -87,7 +101,6 @@ async function load(): Promise<void> {
   loadRequestId.value = null;
   try {
     rooms.value = await api.listRooms();
-    matches.value = await api.listMatches();
   } catch (error) {
     loadError.value = uiErrorMessage(error);
     loadRequestId.value = apiRequestId(error);
@@ -101,25 +114,54 @@ onMounted(async () => {
   try {
     games.value = await api.listGames();
   } catch {
-    // The catalogue is only needed to create a room; a failure here does not block the lists.
+    // The catalogue is only needed to create a room; a failure here does not block the list.
   }
 });
 
-function entryOf(gameId: string): GameCatalogueEntry | undefined {
-  return games.value.find((game) => game.gameId === gameId);
+async function toggleHistory(roomId: string): Promise<void> {
+  expanded.value = { ...expanded.value, [roomId]: !expanded.value[roomId] };
+  if (!expanded.value[roomId] || roomMatches.value[roomId] !== undefined) return;
+  try {
+    roomMatches.value = { ...roomMatches.value, [roomId]: await api.listRoomMatches(roomId) };
+  } catch (error) {
+    loadError.value = uiErrorMessage(error);
+    loadRequestId.value = apiRequestId(error);
+  }
 }
 
-/** The catalogue names the games and their steps; an unknown word stays as the API sent it. */
-function gameTitle(gameId: string): string {
-  return entryOf(gameId)?.title ?? gameId;
+async function join(roomId: string): Promise<void> {
+  rowBusyId.value = roomId;
+  joinError.value = null;
+  try {
+    await api.joinRoom(roomId);
+    await router.push({ name: "room", params: { roomId } });
+  } catch (error) {
+    joinError.value = uiErrorMessage(error);
+  } finally {
+    rowBusyId.value = null;
+  }
 }
 
-function stepName(row: { gameId: string; stepId: string }): string {
-  return entryOf(row.gameId)?.steps[row.stepId] ?? row.stepId;
+async function joinWithCode(): Promise<void> {
+  const code = joinCode.value.trim().toUpperCase();
+  if (code.length !== 6) {
+    joinError.value = "房间号是 6 位。";
+    return;
+  }
+  joiningByCode.value = true;
+  joinError.value = null;
+  try {
+    const room = await api.joinRoomByCode(code);
+    await router.push({ name: "room", params: { roomId: room.roomId } });
+  } catch (error) {
+    joinError.value = uiErrorMessage(error);
+  } finally {
+    joiningByCode.value = false;
+  }
 }
 
-function openCreate(): void {
-  createGame.value = games.value[0]?.gameId ?? "";
+function openCreate(gameId: string): void {
+  createGame.value = gameId;
   createError.value = null;
   createRequestId.value = null;
   createOpen.value = true;
@@ -194,206 +236,177 @@ async function submitCreate(): Promise<void> {
     creating.value = false;
   }
 }
-
-/** Kept for the room list below: taking a seat from the lobby. */
-async function join(roomId: string): Promise<void> {
-  rowBusyId.value = roomId;
-  loadError.value = null;
-  try {
-    await api.joinRoom(roomId);
-    await router.push({ name: "room", params: { roomId } });
-  } catch (error) {
-    loadError.value = uiErrorMessage(error);
-    loadRequestId.value = apiRequestId(error);
-  } finally {
-    rowBusyId.value = null;
-  }
-}
 </script>
 
 <template>
   <section class="lobby">
     <header class="page-head">
-      <h1>大厅</h1>
-      <p class="page-sub">
-        对局在这里开；进房间后按当前等待点行动。本阶段不做实时推送，房间页用刷新取最新记录。
-      </p>
+      <h1>游戏大厅</h1>
+      <p class="page-sub">选一款游戏开一桌，或者用房间号加入朋友的桌子。</p>
     </header>
 
-    <el-card class="panel" shadow="never" data-testid="room-list">
-      <template #header>
-        <div class="panel-head">
-          <span class="panel-title">房间</span>
-          <span class="muted">先有房间，人进来准备，房主开局才生成对局与 AI 席位</span>
-        </div>
-      </template>
+    <el-alert
+      v-if="loadError"
+      class="stack-sm"
+      data-testid="lobby-error"
+      type="error"
+      :title="loadError"
+      :closable="false"
+      show-icon
+    />
+    <el-alert
+      v-if="joinError"
+      class="stack-sm"
+      data-testid="join-error"
+      type="error"
+      :title="joinError"
+      :closable="false"
+      show-icon
+    />
+    <p v-if="loadRequestId" class="meta">请求编号 {{ loadRequestId }}</p>
 
-      <el-table :data="rooms" row-key="roomId" size="small" empty-text="还没有房间">
-        <el-table-column label="游戏" min-width="160">
-          <template #default="{ row }">
-            {{ gameTitle(row.gameId) }}
-            <span class="muted mono">@{{ row.gameVersion }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="席位" width="150">
-          <template #default="{ row }">
-            <span class="mono">{{ row.humanSeats }}</span> 真人
-            <span class="muted"> · </span>
-            <span class="mono">{{ row.aiSeats }}</span> AI 占位
-          </template>
-        </el-table-column>
-        <el-table-column label="人数" width="180">
-          <template #default="{ row }">
-            已坐 {{ row.takenSeats }}/{{ row.humanSeats }} · 已准备 {{ row.readySeats }}
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="130">
-          <template #default="{ row }">
-            <el-tag v-if="row.status !== 'open'" type="danger" effect="plain" size="small"
+    <div class="games">
+      <article v-for="game in games" :key="game.gameId" class="game-card">
+        <span class="game-mark" aria-hidden="true">[AI]</span>
+        <h2 class="game-name">{{ game.title }}</h2>
+        <p class="game-meta">
+          {{ game.seats.min }}–{{ game.seats.max }} 席 ·
+          <span v-if="openRoomsOf(game.gameId) > 0">{{ openRoomsOf(game.gameId) }} 桌在等人</span>
+          <span v-else>暂时没有空桌</span>
+        </p>
+        <el-button type="primary" :icon="Plus" @click="openCreate(game.gameId)">创建房间</el-button>
+      </article>
+
+      <article class="game-card join-card">
+        <span class="game-mark" aria-hidden="true">#</span>
+        <h2 class="game-name">用房间号加入</h2>
+        <p class="game-meta">6 位房间号，不含 0/O/1/I</p>
+        <div class="join-row">
+          <el-input
+            v-model="joinCode"
+            maxlength="6"
+            placeholder="例如 3532E3"
+            class="code-input mono"
+            @keyup.enter="joinWithCode"
+          />
+          <el-button :loading="joiningByCode" @click="joinWithCode">加入</el-button>
+        </div>
+      </article>
+    </div>
+
+    <section class="panel" data-testid="room-list">
+      <header class="panel-head">
+        <span class="panel-title">房间</span>
+        <el-button text :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+      </header>
+
+      <el-empty
+        v-if="sortedRooms.length === 0"
+        :image-size="70"
+        description="还没有房间，开一桌试试"
+      />
+
+      <div class="room-cards">
+        <article v-for="room in sortedRooms" :key="room.roomId" class="room-card">
+          <header class="room-head">
+            <span class="room-code mono" :title="room.roomId">{{ room.code }}</span>
+            <span class="room-game">{{ room.gameTitle }}</span>
+            <el-tag v-if="room.status !== 'open'" type="danger" effect="plain" size="small"
               >已关闭</el-tag
             >
-            <el-tag v-else-if="row.playing" type="warning" effect="plain" size="small"
+            <el-tag v-else-if="room.playing" type="warning" effect="plain" size="small"
               >对局中</el-tag
             >
             <el-tag v-else type="success" effect="plain" size="small">等开局</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="我的席位" width="110">
-          <template #default="{ row }">
-            <span v-if="row.mySeatKeys.length > 0" class="mono">{{
-              row.mySeatKeys.join("、")
-            }}</span>
-            <span v-else class="muted">未加入</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" min-width="180">
-          <template #default="{ row }">
-            <div class="row-actions">
-              <el-button
-                v-if="
-                  row.mySeatKeys.length === 0 &&
-                  row.status === 'open' &&
-                  !row.playing &&
-                  row.takenSeats < row.humanSeats
-                "
-                type="primary"
-                :loading="rowBusyId === row.roomId"
-                size="small"
-                @click="join(row.roomId)"
-              >
-                坐下
-              </el-button>
-              <el-button
-                size="small"
-                @click="router.push({ name: 'room', params: { roomId: row.roomId } })"
-              >
-                {{ row.mySeatKeys.length > 0 ? "进入房间" : "查看" }}
-              </el-button>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
+            <span class="room-seats muted">
+              {{ room.seats }} 席（{{ room.humanSeats }} 真人 + {{ room.aiSeats }} AI）
+            </span>
+            <span v-if="room.mySeatKeys.length > 0" class="room-mine mono">
+              我在 {{ room.mySeatKeys.join("、") }}
+            </span>
+          </header>
 
-      <p class="hint">开放中的房间谁都能坐下；同一张桌子可以连开多局，同一时间只有一局在跑。</p>
-    </el-card>
+          <p class="room-line">
+            <span v-if="room.humanSeats > 0">已坐 {{ room.takenSeats }}/{{ room.humanSeats }}</span>
+            <span v-if="room.readySeats > 0"> · 已准备 {{ room.readySeats }}</span>
+            <span v-if="room.personaPublic"> · 人格公开</span>
+            <span v-if="room.status === 'open' && !room.playing" class="muted">
+              · 房主开局时才生成对局与 AI 席位
+            </span>
+          </p>
 
-    <el-card class="panel" shadow="never">
-      <template #header>
-        <div class="panel-head">
-          <span class="panel-title">对局</span>
-          <div class="panel-actions">
-            <el-button text :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-            <el-button type="primary" :icon="Plus" @click="openCreate">新建房间</el-button>
-          </div>
-        </div>
-      </template>
-
-      <el-alert
-        v-if="loadError"
-        class="stack-sm"
-        data-testid="lobby-error"
-        type="error"
-        :title="loadError"
-        :closable="false"
-        show-icon
-      />
-      <p v-if="loadRequestId" class="meta">请求编号 {{ loadRequestId }}</p>
-
-      <el-table v-loading="loading" :data="matches" empty-text="还没有对局" row-key="instanceId">
-        <el-table-column label="游戏" min-width="160">
-          <template #default="{ row }">
-            {{ gameTitle(row.gameId) }}
-            <span class="muted mono">@{{ row.gameVersion }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="110">
-          <template #default="{ row }">
-            <el-tag :type="statusTag(row.status)" effect="plain" size="small">
-              {{ statusLabel(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="我的席位" width="130">
-          <template #default="{ row }">
-            <el-tag v-if="row.mySeatKeys.length > 0" type="primary" effect="plain" size="small">
-              {{ row.mySeatKeys.join("、") }}
-            </el-tag>
-            <span v-else class="muted">旁观</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="进度" min-width="150">
-          <template #default="{ row }">
-            <span class="mono">#{{ row.sequence }}</span>
-            <span class="muted"> · {{ stepName(row) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="创建时间" min-width="170">
-          <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="120">
-          <template #default="{ row }">
+          <div class="room-actions">
             <el-button
-              :type="row.mySeatKeys.length > 0 ? 'primary' : 'default'"
-              :plain="row.mySeatKeys.length === 0"
+              v-if="
+                room.mySeatKeys.length === 0 &&
+                room.status === 'open' &&
+                !room.playing &&
+                room.takenSeats < room.humanSeats
+              "
+              type="primary"
+              :loading="rowBusyId === room.roomId"
               size="small"
-              @click="router.push({ name: 'match', params: { instanceId: row.instanceId } })"
+              @click="join(room.roomId)"
             >
-              {{ row.mySeatKeys.length > 0 ? "进入房间" : "旁观" }}
+              坐下
             </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+            <el-button
+              size="small"
+              @click="router.push({ name: 'room', params: { roomId: room.roomId } })"
+            >
+              {{ room.mySeatKeys.length > 0 ? "进入房间" : "查看" }}
+            </el-button>
+            <el-button
+              v-if="room.currentInstanceId"
+              text
+              size="small"
+              @click="toggleHistory(room.roomId)"
+            >
+              {{ expanded[room.roomId] ? "收起对局" : "这一桌的对局" }}
+            </el-button>
+          </div>
 
-      <p class="hint">
-        大厅里的每一局都能进：占席位的进去行动，没有席位的进去旁观，看到的是同一份记录。
-        <template v-if="isAdmin"> 对局的暂停、恢复与取消在「对局运维」里，不在这里。 </template>
-      </p>
-    </el-card>
+          <!-- A room's matches belong to the room: they are shown here, not in a list of their own. -->
+          <ul v-if="room.currentInstanceId" class="room-matches">
+            <li v-if="room.playing" class="room-match">
+              <el-tag type="warning" effect="plain" size="small">进行中</el-tag>
+              <el-button
+                text
+                size="small"
+                @click="
+                  router.push({ name: 'match', params: { instanceId: room.currentInstanceId } })
+                "
+              >
+                进入这一局
+              </el-button>
+            </li>
+            <template v-else-if="expanded[room.roomId]">
+              <li
+                v-for="match in roomMatches[room.roomId] ?? []"
+                :key="match.instanceId"
+                class="room-match"
+              >
+                <el-tag :type="statusTag(match.status)" effect="plain" size="small">
+                  {{ statusLabel(match.status) }}
+                </el-tag>
+                <span class="muted mono">#{{ match.sequence }} · {{ match.stepId }}</span>
+                <span class="muted">{{ formatTime(match.createdAt) }}</span>
+                <el-button
+                  text
+                  size="small"
+                  @click="router.push({ name: 'match', params: { instanceId: match.instanceId } })"
+                >
+                  回看
+                </el-button>
+              </li>
+            </template>
+            <li v-else class="room-match muted">上一局已结束，可以「这一桌的对局」看记录</li>
+          </ul>
+        </article>
+      </div>
+    </section>
 
-    <el-card class="panel" shadow="never">
-      <template #header>
-        <span class="panel-title">我的账号</span>
-      </template>
-
-      <el-descriptions v-if="user" :column="2" border>
-        <el-descriptions-item label="用户名">{{ user.username }}</el-descriptions-item>
-        <el-descriptions-item label="角色">
-          <el-tag :type="isAdmin ? 'warning' : 'info'" effect="plain" size="small">
-            {{ roleLabel }}
-          </el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item label="账号状态">
-          <el-tag :type="user.active ? 'success' : 'danger'" effect="plain" size="small">
-            {{ user.active ? "正常" : "已停用" }}
-          </el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item label="创建时间">
-          {{ formatTime(user.createdAt) }}
-        </el-descriptions-item>
-      </el-descriptions>
-    </el-card>
-
-    <el-dialog v-model="createOpen" title="新建房间" width="620px">
+    <el-dialog v-model="createOpen" title="创建房间" width="620px">
       <el-form label-position="top">
         <el-form-item label="游戏">
           <el-select v-model="createGame" class="full" placeholder="选择游戏">
@@ -430,57 +443,59 @@ async function join(roomId: string): Promise<void> {
             <el-button text :icon="Plus" @click="addSeat">增加席位</el-button>
           </div>
         </el-form-item>
-      </el-form>
 
-      <el-form-item v-for="field in askedFields" :key="field.name" :label="field.label">
-        <el-select
-          v-if="field.kind === 'category'"
-          v-model="createValues[field.name]"
-          class="category-select"
-          filterable
-          allow-create
-          default-first-option
-          :placeholder="field.description"
-        >
-          <el-option v-for="name in CATEGORIES" :key="name" :label="name" :value="name" />
-        </el-select>
-        <el-input
-          v-else
-          :model-value="createValues[field.name] ?? ''"
-          :placeholder="field.description"
-          @update:model-value="
-            (value: string) => (createValues = { ...createValues, [field.name]: value })
-          "
-        />
-      </el-form-item>
-      <el-form-item v-if="wordFields.length > 0" label="自己出词（可选）">
-        <div class="word-row">
+        <el-form-item v-for="field in askedFields" :key="field.name" :label="field.label">
+          <el-select
+            v-if="field.kind === 'category'"
+            v-model="createValues[field.name]"
+            class="category-select"
+            filterable
+            allow-create
+            default-first-option
+            :placeholder="field.description"
+          >
+            <el-option v-for="name in CATEGORIES" :key="name" :label="name" :value="name" />
+          </el-select>
           <el-input
-            v-for="field in wordFields"
-            :key="field.name"
-            class="word-input"
+            v-else
             :model-value="createValues[field.name] ?? ''"
-            :placeholder="field.label"
+            :placeholder="field.description"
             @update:model-value="
               (value: string) => (createValues = { ...createValues, [field.name]: value })
             "
           />
-        </div>
-      </el-form-item>
+        </el-form-item>
 
-      <p v-if="derivedCount > 0" class="hint" data-testid="word-source">
-        开局时由平台的模型按分类给出一对词，直接发到席位上，不会先显示给别人看。
-        <template v-if="wordFields.length > 0">
-          也可以自己填这两个词（都填就用自己的；自己填的会被全桌看到，所以只建议旁观者来填）。
-        </template>
-      </p>
+        <el-form-item v-if="wordFields.length > 0" label="自己出词（可选）">
+          <div class="word-row">
+            <el-input
+              v-for="field in wordFields"
+              :key="field.name"
+              class="word-input"
+              :model-value="createValues[field.name] ?? ''"
+              :placeholder="field.label"
+              @update:model-value="
+                (value: string) => (createValues = { ...createValues, [field.name]: value })
+              "
+            />
+          </div>
+        </el-form-item>
 
-      <el-form-item label="公开人格">
-        <el-switch v-model="createPersonaPublic" />
-        <span class="hint inline">
-          打开后全桌能看到彼此的职业、性格与说话风格；性别始终公开，MBTI 始终只有自己可见。
-        </span>
-      </el-form-item>
+        <p v-if="derivedCount > 0" class="hint" data-testid="word-source">
+          开局时由平台的模型按分类给出一对词，直接发到席位上，不会先显示给别人看。
+          <template v-if="wordFields.length > 0">
+            也可以自己填这两个词（都填就用自己的；自己填的会被全桌看到，所以只建议旁观者来填）。
+          </template>
+        </p>
+
+        <el-form-item label="公开人格">
+          <el-switch v-model="createPersonaPublic" />
+          <span class="hint inline">
+            打开后全桌能看到彼此的职业、性格与说话风格；性别始终公开，MBTI 始终只有自己可见。
+          </span>
+        </el-form-item>
+      </el-form>
+
       <p class="hint">
         房间先存在：选好游戏与席位布局，人进房准备，房主开局时才生成对局与 AI 席位。 席位数量必须是
         {{ seatBounds.min }}–{{ seatBounds.max }} 个。
@@ -517,8 +532,66 @@ async function join(roomId: string): Promise<void> {
   color: var(--muted);
 }
 
+.games {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.game-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2xs);
+  padding: var(--space-md);
+  background: var(--surface-glass);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(8px);
+}
+
+.game-mark {
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  color: var(--accent);
+}
+
+.game-name {
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.game-meta {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.join-row {
+  display: flex;
+  gap: var(--space-xs);
+  width: 100%;
+  margin-top: var(--space-2xs);
+}
+
+.code-input {
+  width: 140px;
+}
+
+.code-input :deep(input) {
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
 .panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
   margin-bottom: var(--space-md);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
 }
 
 .panel-head {
@@ -527,15 +600,82 @@ async function join(roomId: string): Promise<void> {
   justify-content: space-between;
 }
 
-.panel-actions {
+.panel-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg-2);
+}
+
+.room-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.room-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+
+.room-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-xs);
 }
 
-.panel-title {
-  font-size: var(--text-base);
+.room-code {
+  font-size: var(--text-md);
   font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.16em;
+}
+
+.room-game {
+  font-weight: 600;
+}
+
+.room-seats,
+.room-line {
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+}
+
+.room-mine {
+  font-size: var(--text-sm);
+  color: var(--accent);
+}
+
+.room-line {
+  margin: 0;
+}
+
+.room-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.room-matches {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xs);
+  margin: 0;
+  padding: var(--space-2xs) 0 0;
+  list-style: none;
+  border-top: 1px dashed var(--border-soft);
+}
+
+.room-match {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--text-sm);
 }
 
 .seat-editor {
@@ -560,40 +700,9 @@ async function join(roomId: string): Promise<void> {
   width: 110px;
 }
 
-.seat-user {
-  flex: 1;
-}
-
 .seat-note {
   flex: 1;
   font-size: var(--text-sm);
-}
-
-.full {
-  width: 100%;
-}
-
-.row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2xs);
-}
-
-.hint.inline {
-  margin: 0 0 0 var(--space-xs);
-  font-size: var(--text-sm);
-  color: var(--muted);
-}
-
-.pair-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  width: 100%;
-}
-
-.category-select {
-  width: 200px;
 }
 
 .word-row {
@@ -606,10 +715,28 @@ async function join(roomId: string): Promise<void> {
   flex: 1;
 }
 
-.field-error {
-  margin-top: var(--space-2xs);
+.full {
+  width: 100%;
+}
+
+.category-select {
+  width: 200px;
+}
+
+.hint {
   font-size: var(--text-sm);
-  color: var(--danger);
+  color: var(--muted);
+}
+
+.hint.inline {
+  margin: 0 0 0 var(--space-xs);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.meta {
+  font-size: var(--text-xs);
+  color: var(--meta);
 }
 
 .mono {
@@ -618,17 +745,6 @@ async function join(roomId: string): Promise<void> {
 
 .muted {
   color: var(--muted);
-}
-
-.hint {
-  margin-top: var(--space-sm);
-  font-size: var(--text-sm);
-  color: var(--muted);
-}
-
-.meta {
-  font-size: var(--text-xs);
-  color: var(--meta);
 }
 
 .stack-sm {

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
   parseCreateRoomRequest,
+  parseJoinRoomByCodeRequest,
   parseRoomReadyRequest,
   parseUpdateRoomRequest,
 } from "../../shared/index.js";
@@ -38,6 +39,12 @@ export async function registerRoomRoutes(
   app.get("/v1/rooms", { preHandler: readOnly }, async (request) => ({
     rooms: await rooms.list({ actor: actorOf(request) }),
   }));
+
+  // Reading the code out loud is how people get into a room they were told about.
+  app.post("/v1/rooms/join", { preHandler: write }, async (request) => {
+    const body = parseJoinRoomByCodeRequest(request.body);
+    return rooms.joinByCode({ actor: actorOf(request), code: body.code });
+  });
 
   app.get("/v1/rooms/:roomId", { preHandler: readOnly }, async (request) => {
     const { roomId } = roomParamSchema.parse(request.params);

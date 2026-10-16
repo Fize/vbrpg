@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import type { Kysely } from "kysely";
 import type {
   CreateRoomRequest,
@@ -11,6 +11,7 @@ import type {
 } from "../../shared/index.js";
 import {
   addRoomMember,
+  findRoomByCode,
   clearRoomReadiness,
   createRoom,
   getPlatformUser,
@@ -32,6 +33,23 @@ import type { MatchService } from "../match/service.js";
 
 const MAX_ROOMS_LISTED = 50;
 
+/** No 0/O/1/I: a room code gets read out loud and typed by somebody else. */
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function generateRoomCode(): string {
+  let code = "";
+  for (let index = 0; index < 6; index += 1) {
+    code += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
+  }
+  return code;
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" && error !== null && (error as { code?: string }).code === "23505"
+  );
+}
+
 export interface RoomActor {
   userId: string;
   isAdmin: boolean;
@@ -50,6 +68,7 @@ interface RoomRow {
   game_id: string;
   game_version: string;
   owner_user_id: string;
+  code: string;
   status: "open" | "closed" | "cancelled";
   seat_plan: RoomSeatPlanEntry[];
   persona_public: boolean;
@@ -68,6 +87,8 @@ export interface RoomService {
     patch: UpdateRoomRequest;
   }): Promise<RoomDetail>;
   join(input: { actor: RoomActor; roomId: string }): Promise<RoomDetail>;
+  /** The same, for the six characters somebody read out loud. */
+  joinByCode(input: { actor: RoomActor; code: string }): Promise<RoomDetail>;
   setReady(input: { actor: RoomActor; roomId: string; ready: boolean }): Promise<RoomDetail>;
   leave(input: { actor: RoomActor; roomId: string }): Promise<RoomDetail>;
   /** The owner's one act that can spend money: it deals a match, and may call the model for words. */
@@ -161,6 +182,7 @@ export function createRoomService(options: {
     const { room, seats } = input;
     return {
       roomId: room.id,
+      code: room.code,
       gameId: room.game_id,
       gameTitle: input.game.title,
       gameVersion: room.game_version,
@@ -197,6 +219,40 @@ export function createRoomService(options: {
     };
   }
 
+  /** Seating a member is one operation, whether the caller found the room by id or by its code. */
+  async function joinRoom(actor: RoomActor, roomId: string): Promise<RoomDetail> {
+    await db.transaction().execute(async (transaction) => {
+      const locked = await lockRoom(transaction, roomId);
+      if (!locked) throw new AppError(404, "ROOM_NOT_FOUND", "No such room");
+      const room = locked as unknown as RoomRow;
+      if (room.status !== "open") throw new AppError(409, "ROOM_CLOSED", "This room is closed");
+      if (await isPlaying(room)) {
+        throw new AppError(409, "ROOM_BUSY", "A match of this room is still running");
+      }
+
+      const members = await listRoomMembers(transaction, roomId);
+      if (members.some((member) => member.user_id === actor.userId)) {
+        throw new AppError(409, "ALREADY_SEATED", "You are already sitting in this room");
+      }
+      const taken = new Set(members.map((member) => member.seat_key));
+      const index = room.seat_plan.findIndex(
+        (seat) => seat.control === "human" && !taken.has(seat.key),
+      );
+      if (index < 0) throw new AppError(409, "ROOM_FULL", "Every human seat is taken");
+      const seat = room.seat_plan[index] as RoomSeatPlanEntry;
+
+      await addRoomMember(transaction, {
+        id: randomUUID(),
+        room_id: roomId,
+        user_id: actor.userId,
+        seat_key: seat.key,
+        seat: index + 1,
+        ready: false,
+      });
+    });
+    return detailOf({ actor, roomId });
+  }
+
   return {
     async create({ actor, request }) {
       const game = requireGame(request.gameId);
@@ -208,27 +264,36 @@ export function createRoomService(options: {
       const ownerSeatIndex = request.seats.findIndex((seat) => seat.control === "human");
       const ownerSeat = request.seats[ownerSeatIndex] as RoomSeatPlanEntry;
 
-      await db.transaction().execute(async (transaction) => {
-        await createRoom(transaction, {
-          id: roomId,
-          gameId: game.id,
-          gameVersion: game.version,
-          ownerUserId: actor.userId,
-          seatPlan: request.seats,
-          personaPublic: request.personaPublic ?? false,
-          variables: request.variables ?? {},
-        });
-        // The owner sits down first: a table with nobody in it is a table nobody can start.
-        await addRoomMember(transaction, {
-          id: randomUUID(),
-          room_id: roomId,
-          user_id: actor.userId,
-          seat_key: ownerSeat.key,
-          seat: ownerSeatIndex + 1,
-          ready: false,
-        });
-      });
-      return detailOf({ actor, roomId });
+      // A code collision is a retry, not an error: the space is large and the constraint is the truth.
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+          await db.transaction().execute(async (transaction) => {
+            await createRoom(transaction, {
+              id: roomId,
+              gameId: game.id,
+              gameVersion: game.version,
+              ownerUserId: actor.userId,
+              code: generateRoomCode(),
+              seatPlan: request.seats,
+              personaPublic: request.personaPublic ?? false,
+              variables: request.variables ?? {},
+            });
+            // The owner sits down first: a table with nobody in it is a table nobody can start.
+            await addRoomMember(transaction, {
+              id: randomUUID(),
+              room_id: roomId,
+              user_id: actor.userId,
+              seat_key: ownerSeat.key,
+              seat: ownerSeatIndex + 1,
+              ready: false,
+            });
+          });
+          return detailOf({ actor, roomId });
+        } catch (error) {
+          if (!isUniqueViolation(error)) throw error;
+        }
+      }
+      throw new AppError(500, "ROOM_CODE_UNAVAILABLE", "Could not find a free room code");
     },
 
     async list({ actor }) {
@@ -310,36 +375,20 @@ export function createRoomService(options: {
       return detailOf({ actor, roomId });
     },
 
-    async join({ actor, roomId }) {
-      await db.transaction().execute(async (transaction) => {
-        const locked = await lockRoom(transaction, roomId);
-        if (!locked) throw new AppError(404, "ROOM_NOT_FOUND", "No such room");
-        const room = locked as unknown as RoomRow;
-        if (room.status !== "open") throw new AppError(409, "ROOM_CLOSED", "This room is closed");
-        if (await isPlaying(room)) {
-          throw new AppError(409, "ROOM_BUSY", "A match of this room is still running");
-        }
+    join: async ({ actor, roomId }) => joinRoom(actor, roomId),
 
-        const members = await listRoomMembers(transaction, roomId);
-        if (members.some((member) => member.user_id === actor.userId)) {
-          throw new AppError(409, "ALREADY_SEATED", "You are already sitting in this room");
-        }
-        const taken = new Set(members.map((member) => member.seat_key));
-        const index = room.seat_plan.findIndex(
-          (seat) => seat.control === "human" && !taken.has(seat.key),
-        );
-        if (index < 0) throw new AppError(409, "ROOM_FULL", "Every human seat is taken");
-        const seat = room.seat_plan[index] as RoomSeatPlanEntry;
+    async joinByCode({ actor, code }) {
+      const found = await findRoomByCode(db, code.trim().toUpperCase());
+      if (!found) throw new AppError(404, "ROOM_NOT_FOUND", "No room has that code");
+      return joinRoom(actor, found.id);
+    },
 
-        await addRoomMember(transaction, {
-          id: randomUUID(),
-          room_id: roomId,
-          user_id: actor.userId,
-          seat_key: seat.key,
-          seat: index + 1,
-          ready: false,
-        });
-      });
+    async close({ actor, roomId }) {
+      const room = await requireRoom(roomId);
+      if (room.owner_user_id !== actor.userId && !actor.isAdmin) {
+        throw new AppError(403, "NOT_ROOM_OWNER", "Only the room's owner may close it");
+      }
+      await setRoomStatus(db, roomId, "cancelled");
       return detailOf({ actor, roomId });
     },
 
@@ -422,15 +471,6 @@ export function createRoomService(options: {
       // Ready is a statement about the next match, so starting one clears the table's answers.
       await clearRoomReadiness(db, roomId);
       return { summary };
-    },
-
-    async close({ actor, roomId }) {
-      const room = await requireRoom(roomId);
-      if (room.owner_user_id !== actor.userId && !actor.isAdmin) {
-        throw new AppError(403, "NOT_ROOM_OWNER", "Only the room's owner may close it");
-      }
-      await setRoomStatus(db, roomId, "cancelled");
-      return detailOf({ actor, roomId });
     },
 
     // The history is a list of the room's matches, and every match is readable by any signed-in

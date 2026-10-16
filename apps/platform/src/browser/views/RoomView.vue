@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Plus, Refresh } from "@element-plus/icons-vue";
+import { CopyDocument, Plus, Refresh } from "@element-plus/icons-vue";
 import {
   api,
   apiRequestId,
@@ -10,6 +10,7 @@ import {
   type RoomDetail,
   type RoomSeat,
 } from "../services/api";
+import { copyText } from "../services/clipboard";
 import { uiErrorMessage } from "../services/messages";
 import { formatTime, isOpen, statusLabel, statusTag } from "../services/match-labels";
 
@@ -26,6 +27,7 @@ const loadRequestId = ref<string | null>(null);
 const actionError = ref<string | null>(null);
 const actionRequestId = ref<string | null>(null);
 const busy = ref(false);
+const copyState = ref<string | null>(null);
 const closeOpen = ref(false);
 
 /** Seat edits happen on a copy: the room keeps its own plan until the owner saves. */
@@ -100,6 +102,11 @@ async function run(action: () => Promise<unknown>): Promise<void> {
   }
 }
 
+async function copyCode(): Promise<void> {
+  if (room.value === null) return;
+  copyState.value = (await copyText(room.value.code)) ? "已复制" : "复制失败，请手动选择";
+}
+
 async function joinRoom(): Promise<void> {
   await run(() => api.joinRoom(roomId.value));
 }
@@ -169,7 +176,12 @@ function seatLabel(seat: RoomSeat): string {
           >刷新</el-button
         >
       </div>
-      <p class="page-sub mono" :title="roomId">{{ roomId.slice(0, 8) }}</p>
+      <p class="page-sub">
+        <span class="room-code mono">{{ room?.code ?? "······" }}</span>
+        <span class="muted">这是房间号，念给别人就能进来</span>
+        <el-button text size="small" :icon="CopyDocument" @click="copyCode">复制</el-button>
+        <span class="muted mono" :title="roomId">{{ roomId.slice(0, 8) }}</span>
+      </p>
     </header>
 
     <el-alert
@@ -404,8 +416,18 @@ function seatLabel(seat: RoomSeat): string {
 }
 
 .page-sub {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
   font-size: var(--text-xs);
   color: var(--meta);
+}
+
+.room-code {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.16em;
 }
 
 .layout {
