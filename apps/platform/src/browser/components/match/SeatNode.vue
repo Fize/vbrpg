@@ -10,6 +10,8 @@ const props = defineProps<{
   isWaiting: boolean;
   /** The seat's latest line in the shared transcript, or null when it has not spoken. */
   bubble: string | null;
+  /** What this reader may see of the seat's persona, already formatted; empty when unknown. */
+  personaLine: string;
 }>();
 
 const out = computed(() => props.seat.status !== "active");
@@ -28,39 +30,44 @@ const statusLabel = computed(() => {
 </script>
 
 <template>
-  <div
-    class="seat"
-    data-testid="seat"
-    :class="{
-      'is-mine': isMine,
-      'is-waiting': isWaiting,
-      'is-out': out,
-      'is-ai': seat.control === 'ai',
-    }"
-  >
-    <div class="node">
-      <div class="face">
-        <el-icon :size="22">
-          <Monitor v-if="seat.control === 'ai'" />
-          <User v-else />
-        </el-icon>
-        <i class="led" aria-hidden="true"></i>
+  <el-tooltip :content="personaLine" :disabled="personaLine === ''" placement="top">
+    <div
+      class="seat"
+      data-testid="seat"
+      :class="{
+        'is-mine': isMine,
+        'is-waiting': isWaiting,
+        'is-out': out,
+        'is-ai': seat.control === 'ai',
+      }"
+    >
+      <div class="node">
+        <div class="face">
+          <el-icon :size="22">
+            <Monitor v-if="seat.control === 'ai'" />
+            <User v-else />
+          </el-icon>
+          <i class="led" aria-hidden="true"></i>
+        </div>
+        <div class="label">
+          <span class="key mono">{{ seat.key }}</span>
+          <span v-if="isMine" class="mine">我</span>
+        </div>
       </div>
-      <div class="label">
-        <span class="key mono">{{ seat.key }}</span>
-        <span v-if="isMine" class="mine">我</span>
+
+      <div class="meta">
+        <span class="status">{{ statusLabel }}</span>
+        <span v-if="seat.persona?.gender" class="control">{{ seat.persona.gender }}</span>
+        <span v-if="seat.control === 'ai'" class="control">AI</span>
+        <span v-else-if="actorLabel" class="control" :title="actorLabel">{{ actorLabel }}</span>
+        <span v-if="isWaiting" class="waiting">等待行动</span>
       </div>
-    </div>
 
-    <div class="meta">
-      <span class="status">{{ statusLabel }}</span>
-      <span v-if="seat.control === 'ai'" class="control">AI</span>
-      <span v-else-if="actorLabel" class="control" :title="actorLabel">{{ actorLabel }}</span>
-      <span v-if="isWaiting" class="waiting">等待行动</span>
+      <p v-if="bubble" class="bubble" :class="{ 'is-mine': isMine }" :title="bubble">
+        {{ bubble }}
+      </p>
     </div>
-
-    <p v-if="bubble" class="bubble" :class="{ 'is-mine': isMine }" :title="bubble">{{ bubble }}</p>
-  </div>
+  </el-tooltip>
 </template>
 
 <style scoped>

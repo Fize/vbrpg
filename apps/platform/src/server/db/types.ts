@@ -57,6 +57,8 @@ export interface GameInstancesTable {
   status: "created" | "running" | "waiting" | "paused" | "completed" | "cancelled";
   current_sequence: number;
   state_json: JsonObject;
+  /** Whether the table may see each other's personas. Gender and MBTI ignore it. */
+  persona_public: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   completed_at: Date | null;
@@ -71,6 +73,8 @@ export interface GameParticipantsTable {
   control: "human" | "ai";
   status: "active" | "eliminated" | "disconnected" | "finished";
   seat: number | null;
+  /** Platform flavour dealt at creation; never changes inside a match. */
+  persona: JsonObject | null;
   created_at: Generated<Date>;
 }
 

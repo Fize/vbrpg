@@ -12,6 +12,15 @@ const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   ]),
 );
 
+/** The part of a seat's persona the reader may see. Gender is always there, MBTI never is. */
+export const seatPersonaSchema = z.object({
+  gender: z.string().min(1),
+  mbti: z.string().min(1).optional(),
+  profession: z.string().min(1).optional(),
+  personality: z.string().min(1).optional(),
+  style: z.string().min(1).optional(),
+});
+
 export const participantSchema = z.object({
   participantId: idSchema,
   /** The account behind a human seat. AI seats are unowned, so this is absent. */
@@ -119,6 +128,8 @@ export const createMatchRequestSchema = z
     seats: z.array(seatRequestSchema).min(1).max(24),
     randomSeed: z.string().min(1).max(128).optional(),
     variables: z.record(jsonValueSchema).optional(),
+    /** Whether the table may see each other's personas. Gender and MBTI ignore this. */
+    personaPublic: z.boolean().optional(),
   })
   .strict();
 
@@ -179,6 +190,8 @@ export const matchSeatSchema = z.object({
   control: z.enum(["human", "ai"]),
   status: participantSchema.shape.status,
   actorUserId: idSchema.nullable(),
+  /** Platform flavour, dealt at creation: what this reader may see of the seat's persona. */
+  persona: seatPersonaSchema.nullable(),
 });
 
 export const matchRecordRowSchema = z.object({
@@ -251,6 +264,7 @@ export type CreateMatchRequest = z.infer<typeof createMatchRequestSchema>;
 export type SubmitEventRequest = z.infer<typeof submitEventRequestSchema>;
 export type PlayerView = z.infer<typeof playerViewSchema>;
 export type ActionArg = z.infer<typeof actionArgSchema>;
+export type SeatPersona = z.infer<typeof seatPersonaSchema>;
 export type GameAction = z.infer<typeof gameActionSchema>;
 export type GameVocabulary = z.infer<typeof gameVocabularySchema>;
 export type GameCatalogueEntry = z.infer<typeof gameCatalogueEntrySchema>;

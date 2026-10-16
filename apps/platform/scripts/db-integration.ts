@@ -46,6 +46,7 @@ const INTEGRATION_KEY = Buffer.alloc(32).toString("base64");
 let matchId: string | null = null;
 let aiMatchIdValue: string | null = null;
 let lifecycleMatchId: string | null = null;
+let publishedMatchId: string | null = null;
 
 try {
   await createGameInstance(db, {
@@ -611,6 +612,26 @@ try {
   const idle = await runnerWith(scriptedClient([answer({})]).client).runOnce({ limit: 1 });
   assert.deepEqual(idle, { turns: 0, failures: 0 });
 
+  // A match that publishes personas shows the table the flavour, but still never the MBTI.
+  const published = await matchService.create({
+    actor,
+    request: {
+      gameId: "undercover",
+      personaPublic: true,
+      seats: [
+        { key: "p1", control: "human" },
+        { key: "p2", control: "ai" },
+        { key: "p3", control: "ai" },
+      ],
+    },
+  });
+  publishedMatchId = published.instanceId;
+  const publishedRead = await matchService.read({ actor, instanceId: published.instanceId });
+  const [, publishedNeighbour] = publishedRead.seats;
+  assert.ok(publishedNeighbour?.persona?.profession, "a published persona shows its profession");
+  assert.ok(publishedNeighbour?.persona?.style, "a published persona shows how it talks");
+  assert.equal(publishedNeighbour?.persona?.mbti, undefined, "even published, MBTI stays private");
+
   // ─── Administrator lifecycle: the column moves, the record does not ───────────────
   const lifecycle = await matchService.create({
     actor,
@@ -751,6 +772,7 @@ try {
     ...(matchId === null ? [] : [matchId]),
     ...(aiMatchIdValue === null ? [] : [aiMatchIdValue]),
     ...(lifecycleMatchId === null ? [] : [lifecycleMatchId]),
+    ...(publishedMatchId === null ? [] : [publishedMatchId]),
   ];
   await db.deleteFrom("game_instances").where("id", "in", instanceIds).execute();
   await db.deleteFrom("users").where("id", "=", platformUserId).execute();

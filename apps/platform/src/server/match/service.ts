@@ -22,6 +22,7 @@ import {
   type GameRegistry,
 } from "../game/index.js";
 import { AppError } from "../runtime/index.js";
+import { dealPersonas, readPersona, visiblePersona } from "./persona.js";
 import {
   advanceGameInstance,
   createGameInstance,
@@ -270,6 +271,8 @@ export function createMatchService(options: {
       const game = requireGame(request.gameId);
       const instanceId = randomUUID();
       const randomSeed = request.randomSeed ?? randomUUID();
+      // Dealt from the seed and independent of roles, so publishing personas cannot hint at who is what.
+      const personas = dealPersonas(randomSeed, request.seats.length);
 
       return db.transaction().execute(async (transaction) => {
         const planned = await Promise.all(
@@ -321,11 +324,12 @@ export function createMatchService(options: {
           status: state.status,
           currentSequence: 0,
           stateJson: state as unknown as Record<string, unknown>,
+          personaPublic: request.personaPublic ?? false,
         });
 
         await insertGameParticipants(
           transaction,
-          planned.map((seat) => {
+          planned.map((seat, index) => {
             const dealt = state.participants.find(
               (candidate) => candidate.participantId === seat.id,
             );
@@ -338,6 +342,7 @@ export function createMatchService(options: {
               control: seat.control,
               status: dealt?.status ?? "active",
               seat: seat.seat,
+              persona: (personas[index] ?? null) as unknown as Record<string, unknown> | null,
               created_at: new Date(),
             };
           }),
@@ -676,6 +681,10 @@ export function createMatchService(options: {
           control: seat.control,
           status: seat.status,
           actorUserId: seat.actor_user_id,
+          persona: visiblePersona(readPersona(seat.persona), {
+            own: seat.actor_user_id === actor.userId,
+            published: instance.persona_public,
+          }),
         })),
         view: mine ? viewFor(game, state, mine.id) : spectatorViewFor(game, state),
         waiting: state.waiting,

@@ -13,6 +13,8 @@ const props = defineProps<{
   waitingParticipantIds: string[];
   bubbles: Record<string, string>;
   actorLabel: (userId: string | null) => string;
+  /** Formats a seat's visible persona for the tooltip. */
+  personaLine: (persona: MatchSeat["persona"]) => string;
 }>();
 
 const ring = computed(() => props.seats.length <= RING_LIMIT);
@@ -76,6 +78,7 @@ const spokes = computed(() =>
           :is-mine="seat.key === mySeatKey"
           :is-waiting="waitingParticipantIds.includes(seat.participantId)"
           :bubble="bubbles[seat.participantId] ?? null"
+          :persona-line="personaLine(seat.persona)"
         />
       </div>
     </div>
@@ -89,6 +92,7 @@ const spokes = computed(() =>
         :is-mine="seat.key === mySeatKey"
         :is-waiting="waitingParticipantIds.includes(seat.participantId)"
         :bubble="bubbles[seat.participantId] ?? null"
+        :persona-line="personaLine(seat.persona)"
       />
     </div>
   </div>

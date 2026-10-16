@@ -30,6 +30,8 @@ const createSeats = ref<SeatDraft[]>([
   { control: "human", username: "" },
   { control: "ai", username: "" },
 ]);
+/** Whether the table sees each other's personas; the platform deals one to every seat anyway. */
+const createPersonaPublic = ref(false);
 const creating = ref(false);
 const createError = ref<string | null>(null);
 const createRequestId = ref<string | null>(null);
@@ -101,6 +103,7 @@ async function submitCreate(): Promise<void> {
   try {
     const created = await api.createMatch({
       gameId: createGame.value,
+      personaPublic: createPersonaPublic.value,
       seats: createSeats.value.map((seat, index) => ({
         key: `s${index + 1}`,
         control: seat.control,
@@ -267,6 +270,12 @@ async function submitCreate(): Promise<void> {
         </el-form-item>
       </el-form>
 
+      <el-form-item label="公开人格">
+        <el-switch v-model="createPersonaPublic" />
+        <span class="hint inline">
+          打开后全桌能看到彼此的职业、性格与说话风格；性别始终公开，MBTI 始终只有自己可见。
+        </span>
+      </el-form-item>
       <p class="hint">席位数量与角色由游戏在开局时判定；不符合规则的开局会被游戏拒绝并给出原因。</p>
       <el-alert
         v-if="createError"
@@ -354,6 +363,12 @@ async function submitCreate(): Promise<void> {
 
 .full {
   width: 100%;
+}
+
+.hint.inline {
+  margin: 0 0 0 var(--space-xs);
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
 
 .mono {

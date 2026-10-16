@@ -25,9 +25,36 @@ const detail: MatchDetail = {
     words: { round: "回合", winner: "胜方", civilian: "平民", text: "你要说的话" },
   },
   seats: [
-    { participantId: me, key: "s1", control: "human", status: "active", actorUserId: me },
-    { participantId: other, key: "s2", control: "human", status: "active", actorUserId: null },
-    { participantId: aiSeat, key: "s3", control: "ai", status: "active", actorUserId: null },
+    {
+      participantId: me,
+      key: "s1",
+      control: "human",
+      status: "active",
+      actorUserId: me,
+      persona: {
+        gender: "女",
+        mbti: "INTJ",
+        profession: "架构师",
+        personality: "冷静、讲究结构",
+        style: "句子短，先给结论",
+      },
+    },
+    {
+      participantId: other,
+      key: "s2",
+      control: "human",
+      status: "active",
+      actorUserId: null,
+      persona: { gender: "男" },
+    },
+    {
+      participantId: aiSeat,
+      key: "s3",
+      control: "ai",
+      status: "active",
+      actorUserId: null,
+      persona: { gender: "女" },
+    },
   ],
   waiting: {
     kind: "collectInput",
@@ -202,6 +229,14 @@ describe("match room", () => {
     expect(text).toContain("苹果");
     // Its latest line in the shared transcript is on the seat.
     expect(wrapper.find(".bubble").text()).toContain("我这东西冬天常见");
+    // Its own persona, MBTI included; the table only ever sees the gender of the others.
+    const card = wrapper.find("[data-testid='my-persona']").text();
+    expect(card).toContain("INTJ");
+    expect(card).toContain("架构师");
+    expect(card).toContain("女");
+    expect(wrapper.findAll("[data-testid='seat']").map((seat) => seat.text())).toContainEqual(
+      expect.stringContaining("男"),
+    );
   });
 
   it("offers the seat's own action and describes it from the catalogue", async () => {
@@ -246,6 +281,7 @@ describe("match room", () => {
     expect(text).not.toContain("你在玩「谁是卧底」");
     expect(wrapper.find("[data-testid='my-actions']").text()).toContain("旁观没有动作可提交");
     expect(wrapper.find("[data-testid='my-actions'] button").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='my-persona']").exists()).toBe(false);
     // The table, the waiting point and the log stay available to a watcher.
     expect(wrapper.findAll("[data-testid='seat']")).toHaveLength(3);
     expect(text).toContain("等 s1");

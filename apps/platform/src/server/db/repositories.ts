@@ -58,6 +58,8 @@ export async function createGameInstance(
     status: "created" | "running" | "waiting" | "paused" | "completed" | "cancelled";
     currentSequence: number;
     stateJson: JsonObject;
+    /** Whether the table may see each other's personas; set once, at creation. */
+    personaPublic: boolean;
   },
 ): Promise<void> {
   await db
@@ -69,6 +71,7 @@ export async function createGameInstance(
       status: input.status,
       current_sequence: input.currentSequence,
       state_json: input.stateJson,
+      persona_public: input.personaPublic,
     })
     .execute();
 }

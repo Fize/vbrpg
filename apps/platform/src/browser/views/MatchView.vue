@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { ArrowLeft, Refresh } from "@element-plus/icons-vue";
-import { api, apiRequestId, type GameAction } from "../services/api";
+import { api, apiRequestId, type GameAction, type MatchSeat } from "../services/api";
 import { uiErrorMessage } from "../services/messages";
 import {
   describePayload,
@@ -57,6 +57,16 @@ const privateEntries = computed(() =>
     value,
   })),
 );
+const myPersona = computed(() => mySeat.value?.persona ?? null);
+
+/** One line per seat: a persona the reader may see, never including MBTI for someone else. */
+function personaLine(persona: MatchSeat["persona"]): string {
+  if (persona === null) return "";
+  return [persona.mbti, persona.gender, persona.profession, persona.personality, persona.style]
+    .filter((part): part is string => part !== undefined && part !== "")
+    .join(" · ");
+}
+
 const aliveCount = computed(
   () => (detail.value?.seats ?? []).filter((seat) => seat.status === "active").length,
 );
@@ -218,6 +228,35 @@ async function submit(payload: {
           <p v-else class="hint">当前没有单独的私有信息。</p>
         </section>
 
+        <section v-if="myPersona" class="panel" data-testid="my-persona">
+          <header class="panel-head">
+            <span class="panel-title">我的人物卡</span>
+          </header>
+          <dl class="persona">
+            <div>
+              <dt>人格类型</dt>
+              <dd class="mono">{{ myPersona.mbti }}</dd>
+            </div>
+            <div>
+              <dt>性别</dt>
+              <dd>{{ myPersona.gender }}</dd>
+            </div>
+            <div>
+              <dt>职业</dt>
+              <dd>{{ myPersona.profession }}</dd>
+            </div>
+            <div>
+              <dt>性格</dt>
+              <dd>{{ myPersona.personality }}</dd>
+            </div>
+            <div>
+              <dt>说话风格</dt>
+              <dd>{{ myPersona.style }}</dd>
+            </div>
+          </dl>
+          <p class="hint">人格影响你怎么说话；MBTI 只有你自己知道。</p>
+        </section>
+
         <ActionDock
           ref="dock"
           :available="available"
@@ -239,6 +278,7 @@ async function submit(payload: {
           :waiting-participant-ids="waitingParticipantIds"
           :bubbles="bubbles"
           :actor-label="actorLabel"
+          :persona-line="personaLine"
         >
           <template #center>
             <span class="center-status">{{ statusLabel(detail.summary.status) }}</span>
@@ -354,6 +394,30 @@ async function submit(payload: {
   line-height: var(--leading-normal);
   color: var(--fg-2);
   white-space: pre-wrap;
+}
+
+.persona {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.persona div {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.persona dt {
+  flex: 0 0 72px;
+  color: var(--meta);
+}
+
+.persona dd {
+  margin: 0;
+  color: var(--fg-2);
+  overflow-wrap: anywhere;
 }
 
 .center-status {
