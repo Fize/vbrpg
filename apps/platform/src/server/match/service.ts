@@ -25,6 +25,7 @@ import {
 } from "../game/index.js";
 import { AppError } from "../runtime/index.js";
 import { dealPersonas, readPersona, visiblePersona } from "./persona.js";
+import { resolveSeatReferences } from "./seat-reference.js";
 import { seededIndex } from "../game/seeded.js";
 import {
   advanceGameInstance,
@@ -604,7 +605,13 @@ export function createMatchService(options: {
               stepId: state.stepId,
               occurredAtMs: Date.now(),
               idempotencyKey: actionKey,
-              payload: action.payload,
+              // The model names seats the way the table does; the platform owns the mapping.
+              payload: resolveSeatReferences({
+                game,
+                actionType: action.type,
+                payload: action.payload,
+                seats: seatIdByKey(seats),
+              }),
               usage: null,
             },
           });
@@ -723,7 +730,13 @@ export function createMatchService(options: {
             stepId: current.stepId,
             occurredAtMs: Date.now(),
             idempotencyKey,
-            payload: request.payload,
+            // A seat may be named the way people name it; the rules only ever see ids.
+            payload: resolveSeatReferences({
+              game,
+              actionType: request.type,
+              payload: request.payload,
+              seats: seatIdByKey(seats),
+            }),
             usage: null,
           },
         });
@@ -787,6 +800,13 @@ export function createMatchService(options: {
       };
     },
   };
+}
+
+/** Seat name to participant id, for resolving whatever a caller wrote for a seat argument. */
+function seatIdByKey(
+  seats: ReadonlyArray<{ id: string; participant_key: string }>,
+): Record<string, string> {
+  return Object.fromEntries(seats.map((seat) => [seat.participant_key, seat.id]));
 }
 
 function stateOf(row: { state_json: unknown }): GameState {

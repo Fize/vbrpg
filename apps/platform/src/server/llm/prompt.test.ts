@@ -52,6 +52,22 @@ describe("seat prompt", () => {
     expect(prompt.messages[prompt.messages.length - 1]?.content).not.toContain(word);
   });
 
+  it("names the table's seats so no seat id has to be reproduced", () => {
+    const state = started();
+    const built = buildSeatPrompt({
+      game: undercover,
+      state,
+      participantId: seatId(state, 1),
+      seatKeys: KEYS,
+      record: [],
+    });
+    expect(built.system).toContain("桌上的席位：alice、bob、carol、dave");
+    expect(built.system).toContain("参数里写它的席位名");
+    expect(built.system).toContain("不要写内部 id");
+    // The seat table is part of the cacheable prefix: it must not be derived per turn.
+    expect(built.system).not.toContain(seatId(state, 0));
+  });
+
   it("offers the whole catalogue as tools, not just this step's subset", () => {
     const state = started();
     const prompt = buildSeatPrompt({

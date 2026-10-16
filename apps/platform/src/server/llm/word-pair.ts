@@ -15,6 +15,13 @@ import { createModelClient, type ChatMessage, type ChatTool, type ModelClient } 
 /** Generating a pair is a small completion; a create request must not hang on a slow provider. */
 export const WORD_PAIR_TIMEOUT_MS = 15_000;
 
+/**
+ * Room for the reasoning a model spends before it calls the tool. A tight budget here truncates the
+ * arguments and looks exactly like a model that ignored the instruction — it cost a failed room
+ * creation to learn that 256 was not enough.
+ */
+export const WORD_PAIR_MAX_TOKENS = 1024;
+
 export const WORD_PAIR_TOOL: ChatTool = {
   name: "giveWordPair",
   description: "给出一对相近但不同的词，用于「谁是卧底」的平民与卧底。",
@@ -72,7 +79,7 @@ export function createWordPairGenerator(input: {
     const binding = await chooseModelBinding({
       db: input.db,
       credentialKey: input.credentialKey,
-      maxTokens: 256,
+      maxTokens: WORD_PAIR_MAX_TOKENS,
     });
     if (!binding) {
       throw new AppError(409, "NO_MODEL_CONFIGURED", "No enabled provider and model is configured");
@@ -81,38 +88,66 @@ export function createWordPairGenerator(input: {
   };
 }
 
-/** One call, one tool call, two words. Anything else is a bad reply, not a retry loop. */
+/** How many times a bad reply is retried: models occasionally answer in prose instead of a call. */
+const WORD_PAIR_ATTEMPTS = 2;
+
+/**
+ * One tool call, two words. A reply that is not a usable pair is retried once — a room creation
+ * failing because a model had a bad moment is worse than one extra paid call.
+ */
 export async function generateWordPair(input: {
   client: ModelClient;
   binding: ModelBinding;
   category: string;
 }): Promise<WordPair> {
   const prompt = buildWordPairPrompt(input.category);
-  const reply = await input.client.call({
-    endpoint: input.binding.endpoint,
-    model: input.binding.modelId,
-    apiKey: input.binding.apiKey,
-    messages: prompt.messages,
-    tools: [WORD_PAIR_TOOL],
-    maxTokens: input.binding.maxTokens,
-    timeoutMs: WORD_PAIR_TIMEOUT_MS,
-  });
+  let lastError: AppError | null = null;
 
-  const call = reply.toolCalls[0];
-  if (!call) {
-    throw new AppError(502, "MODEL_BAD_RESPONSE", "The model did not return a word pair");
+  for (let attempt = 0; attempt < WORD_PAIR_ATTEMPTS; attempt += 1) {
+    const reply = await input.client.call({
+      endpoint: input.binding.endpoint,
+      model: input.binding.modelId,
+      apiKey: input.binding.apiKey,
+      messages: prompt.messages,
+      tools: [WORD_PAIR_TOOL],
+      maxTokens: input.binding.maxTokens,
+      timeoutMs: WORD_PAIR_TIMEOUT_MS,
+    });
+
+    if (reply.finishReason === "length") {
+      lastError = new AppError(502, "MODEL_BAD_RESPONSE", "The model ran out of room mid-answer");
+      continue;
+    }
+
+    const call = reply.toolCalls[0];
+    if (!call) {
+      lastError = new AppError(502, "MODEL_BAD_RESPONSE", "The model did not return a word pair");
+      continue;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(call.arguments) as unknown;
+    } catch {
+      lastError = new AppError(
+        502,
+        "MODEL_BAD_RESPONSE",
+        "The model returned an unreadable word pair",
+      );
+      continue;
+    }
+
+    const pair = wordPairSchema.safeParse(parsed);
+    if (!pair.success || pair.data.civilian === pair.data.undercover) {
+      lastError = new AppError(
+        502,
+        "MODEL_BAD_RESPONSE",
+        "The model returned an unusable word pair",
+      );
+      continue;
+    }
+    return pair.data;
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(call.arguments) as unknown;
-  } catch {
-    throw new AppError(502, "MODEL_BAD_RESPONSE", "The model returned an unreadable word pair");
-  }
-
-  const pair = wordPairSchema.safeParse(parsed);
-  if (!pair.success || pair.data.civilian === pair.data.undercover) {
-    throw new AppError(502, "MODEL_BAD_RESPONSE", "The model returned an unusable word pair");
-  }
-  return pair.data;
+  throw lastError ?? new AppError(502, "MODEL_BAD_RESPONSE", "The model returned no word pair");
 }

@@ -24,14 +24,14 @@ function reply(call: ChatToolCall | null): ModelCallOutput {
   };
 }
 
-function stub(output: ModelCallOutput) {
+function stub(...outputs: ModelCallOutput[]) {
   const seen: ModelCallInput[] = [];
   return {
     seen,
     client: {
       async call(input: ModelCallInput): Promise<ModelCallOutput> {
         seen.push(input);
-        return output;
+        return outputs[Math.min(seen.length - 1, outputs.length - 1)] as ModelCallOutput;
       },
     },
   };
@@ -59,6 +59,34 @@ describe("word pair generation", () => {
     );
     assert.equal(sent.messages[0]?.role, "system");
     assert.match(String(sent.messages[1]?.content), /水果/);
+  });
+
+  it("treats a truncated answer as a bad reply and retries it", async () => {
+    const truncated: ModelCallOutput = {
+      ...reply({ id: "c1", name: "giveWordPair", arguments: '{"civilian": ' }),
+      finishReason: "length",
+    };
+    const flaky = stub(
+      truncated,
+      reply({ id: "c2", name: "giveWordPair", arguments: '{"civilian":"苹果","undercover":"梨"}' }),
+    );
+    const pair = await generateWordPair({ client: flaky.client, binding, category: "水果" });
+    assert.deepEqual(pair, { civilian: "苹果", undercover: "梨" });
+    assert.equal(flaky.seen.length, 2);
+  });
+
+  it("retries once when the model answers without a tool call", async () => {
+    const flaky = stub(
+      reply(null),
+      reply({
+        id: "c2",
+        name: "giveWordPair",
+        arguments: '{"civilian":"诸葛亮","undercover":"司马懿"}',
+      }),
+    );
+    const pair = await generateWordPair({ client: flaky.client, binding, category: "三国人物" });
+    assert.deepEqual(pair, { civilian: "诸葛亮", undercover: "司马懿" });
+    assert.equal(flaky.seen.length, 2, "one bad reply must not fail the caller");
   });
 
   it("refuses a reply that is not two different words", async () => {

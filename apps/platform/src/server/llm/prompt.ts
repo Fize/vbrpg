@@ -60,6 +60,7 @@ export function buildSeatPrompt(input: BuildSeatPromptInput): SeatPrompt {
     `只有你知道自己的私有信息：${JSON.stringify(own.privateState)}`,
     "你正在通过工具行动：每次只能调用一个工具，调用完就结束本轮。",
     `你的席位居于房间中的名字是「${seatKey}」。`,
+    seatTable(seatKeys),
   ]
     .filter((part) => part.length > 0)
     .join("\n\n");
@@ -104,6 +105,21 @@ export function buildSeatPrompt(input: BuildSeatPromptInput): SeatPrompt {
   messages.push({ role: "user", content: turnInstruction(input) });
 
   return { tools, system, messages };
+}
+
+/**
+ * The table's seats, in the game's own names. Ids never have to be reproduced by the model: it
+ * names a seat, and the platform resolves it (see `resolveSeatReferences`).
+ */
+function seatTable(seatKeys: Record<string, string>): string {
+  const seats = Object.entries(seatKeys)
+    .map(([participantId, key]) => ({ key, participantId }))
+    .sort((left, right) => left.key.localeCompare(right.key));
+  if (seats.length === 0) return "";
+  return [
+    `桌上的席位：${seats.map((seat) => seat.key).join("、")}。`,
+    "要指定某个席位（例如投票），参数里写它的席位名，例如「s2」；不要写内部 id。",
+  ].join("\n");
 }
 
 /** The only part of the prompt that moves: what is happening now and what is allowed now. */
