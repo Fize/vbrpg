@@ -1,4 +1,4 @@
-import type { GameEvent, GameState, Participant } from "../../shared/index.js";
+import type { ActionArg, GameEvent, GameState, Participant } from "../../shared/index.js";
 import type { TransitionResult } from "./errors.js";
 import type { Visibility } from "./projector.js";
 
@@ -59,8 +59,8 @@ export function resolveVisibility(source: VisibilitySource | undefined, state: G
 export interface ActionDefinition {
   readonly name: string;
   readonly description: string;
-  /** Argument name to a short description. Everything is a string: ids and free text. */
-  readonly args?: Readonly<Record<string, string>>;
+  /** Argument name to its shape. `kind: "seat"` is the only hint a UI needs; text is the default. */
+  readonly args?: Readonly<Record<string, ActionArg>>;
   /**
    * `room` content is part of the shared transcript every seat may read; `seat` content stays
    * with its owner (a secret ballot, a private note).

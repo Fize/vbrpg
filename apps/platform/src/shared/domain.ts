@@ -143,6 +143,82 @@ export const playerViewSchema = z.object({
   })),
 });
 
+/** One argument of an action. `seat` tells a UI to pick from this match's seats. */
+export const actionArgSchema = z.object({
+  description: z.string(),
+  kind: z.enum(["seat"]).optional(),
+});
+
+/** The catalogue entry a seat needs to build a form: the action name is the event it produces. */
+export const gameActionSchema = z.object({
+  name: idSchema,
+  description: z.string(),
+  args: z.record(actionArgSchema).optional(),
+  audience: z.enum(["room", "seat"]).optional(),
+});
+
+export const matchSummarySchema = z.object({
+  instanceId: idSchema,
+  gameId: idSchema,
+  gameVersion: z.string().min(1),
+  status: gameStateSchema.shape.status,
+  sequence: z.number().int().nonnegative(),
+  stepId: idSchema,
+  createdAt: z.string().min(1),
+});
+
+export const matchSeatSchema = z.object({
+  participantId: idSchema,
+  key: z.string().min(1),
+  control: z.enum(["human", "ai"]),
+  status: participantSchema.shape.status,
+  actorUserId: idSchema.nullable(),
+});
+
+export const matchRecordRowSchema = z.object({
+  eventId: idSchema,
+  sequence: z.number().int().positive(),
+  type: z.string().min(1),
+  participantId: idSchema.nullable(),
+  actorUserId: idSchema.nullable(),
+  stepId: idSchema.nullable(),
+  occurredAtMs: z.number().int().nonnegative(),
+  idempotencyKey: z.string().min(1),
+  payload: eventPayloadSchema,
+  usage: eventUsageSchema.nullable(),
+});
+
+export const matchListSchema = z.object({ matches: z.array(matchSummarySchema) });
+
+export const gameCatalogueEntrySchema = z.object({
+  gameId: idSchema,
+  version: z.string().min(1),
+  engineVersion: z.string().min(1),
+});
+
+export const gameCatalogueSchema = z.object({ games: z.array(gameCatalogueEntrySchema) });
+
+/**
+ * Everything a page needs for one match. `view` and `briefing` are absent for an administrator who
+ * holds no seat; `actions` is the game's whole catalogue — the same vocabulary every seat sees.
+ */
+export const matchDetailSchema = z.object({
+  summary: matchSummarySchema,
+  seats: z.array(matchSeatSchema),
+  /** The point the match is waiting on. Public: it is who the table is waiting for, not a secret. */
+  waiting: waitingSchema.nullable(),
+  view: playerViewSchema.nullable(),
+  /** The game's rules in its own words, plus this seat's private state — what an AI seat is told. */
+  briefing: z.string().nullable(),
+  record: z.array(matchRecordRowSchema),
+  actions: z.array(gameActionSchema),
+});
+
+/** Administrator lifecycle only: a match's rules never see these. */
+export const updateMatchStatusRequestSchema = z
+  .object({ status: z.enum(["running", "paused", "cancelled"]) })
+  .strict();
+
 export type GameEvent = z.infer<typeof gameEventSchema>;
 export type GameState = z.infer<typeof gameStateSchema>;
 export type Participant = z.infer<typeof participantSchema>;
@@ -151,6 +227,14 @@ export type AiCallPayload = z.infer<typeof aiCallPayloadSchema>;
 export type CreateMatchRequest = z.infer<typeof createMatchRequestSchema>;
 export type SubmitEventRequest = z.infer<typeof submitEventRequestSchema>;
 export type PlayerView = z.infer<typeof playerViewSchema>;
+export type ActionArg = z.infer<typeof actionArgSchema>;
+export type GameAction = z.infer<typeof gameActionSchema>;
+export type GameCatalogueEntry = z.infer<typeof gameCatalogueEntrySchema>;
+export type MatchSummary = z.infer<typeof matchSummarySchema>;
+export type MatchSeat = z.infer<typeof matchSeatSchema>;
+export type MatchRecordRow = z.infer<typeof matchRecordRowSchema>;
+export type MatchDetail = z.infer<typeof matchDetailSchema>;
+export type UpdateMatchStatusRequest = z.infer<typeof updateMatchStatusRequestSchema>;
 
 export function parseGameEvent(input: unknown): GameEvent {
   return gameEventSchema.parse(input);
@@ -174,4 +258,8 @@ export function parseCreateMatchRequest(input: unknown): CreateMatchRequest {
 
 export function parseSubmitEventRequest(input: unknown): SubmitEventRequest {
   return submitEventRequestSchema.parse(input);
+}
+
+export function parseUpdateMatchStatusRequest(input: unknown): UpdateMatchStatusRequest {
+  return updateMatchStatusRequestSchema.parse(input);
 }

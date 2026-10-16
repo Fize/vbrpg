@@ -123,8 +123,8 @@ export function turnInstruction(input: BuildSeatPromptInput): string {
 function toTools(game: GameModule): ChatTool[] {
   return (game.actions ?? []).map((action) => {
     const properties: Record<string, { type: "string"; description: string }> = {};
-    for (const [name, description] of Object.entries(action.args ?? {})) {
-      properties[name] = { type: "string", description };
+    for (const [name, arg] of Object.entries(action.args ?? {})) {
+      properties[name] = { type: "string", description: arg.description };
     }
     return {
       name: action.name,

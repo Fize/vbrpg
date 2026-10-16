@@ -40,6 +40,7 @@ export {
   insertGameEvent,
   insertGameParticipants,
   listGameEvents,
+  listGameInstances,
   listGameParticipants,
   lockGameInstance,
   setInstanceStatus,

@@ -51,13 +51,13 @@ const ACTIONS: readonly ActionDefinition[] = [
   {
     name: platformEventTypes.seatMessage,
     description: "用一句话描述你拿到的词，不要直接说出它。",
-    args: { text: "你要说的话" },
+    args: { text: { description: "你要说的话" } },
     audience: "room",
   },
   {
     name: "vote",
     description: "投出你认为最像卧底的席位。",
-    args: { target: "目标的 participantId" },
+    args: { target: { description: "要投的席位", kind: "seat" } },
     audience: "seat",
   },
 ];

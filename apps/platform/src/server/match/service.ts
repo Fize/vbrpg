@@ -2,10 +2,16 @@ import { randomUUID } from "node:crypto";
 import type { Kysely, Transaction } from "kysely";
 import type {
   CreateMatchRequest,
+  GameAction,
+  GameCatalogueEntry,
   GameEvent,
   GameState,
+  MatchRecordRow,
+  MatchSeat,
+  MatchSummary,
   PlayerView,
   SubmitEventRequest,
+  UpdateMatchStatusRequest,
 } from "../../shared/index.js";
 import { platformEventTypes } from "../../shared/index.js";
 import {
@@ -25,8 +31,11 @@ import {
   insertGameEvent,
   insertGameParticipants,
   listGameEvents,
+  listGameInstances,
   listGameParticipants,
   lockGameInstance,
+  recordAuditLog,
+  setInstanceStatus,
   updateGameParticipantStatus,
   type Database,
 } from "../db/index.js";
@@ -34,47 +43,12 @@ import {
 /** A game never produces more than this many derived events out of one submission. */
 const MAX_DERIVED_EVENTS = 32;
 
+/** Statuses a match accepts input in. Anything else is a lifecycle an administrator chose. */
+const ACTIVE_STATUSES: ReadonlyArray<GameState["status"]> = ["created", "running", "waiting"];
+
 export interface MatchActor {
   userId: string;
   isAdmin: boolean;
-}
-
-export interface MatchSummary {
-  instanceId: string;
-  gameId: string;
-  gameVersion: string;
-  status: GameState["status"];
-  sequence: number;
-  stepId: string;
-  createdAt: string;
-}
-
-export interface MatchSeat {
-  participantId: string;
-  key: string;
-  control: "human" | "ai";
-  status: GameState["participants"][number]["status"];
-  actorUserId: string | null;
-}
-
-/** One row of the match record, shaped exactly like the `game_events` table. */
-export interface MatchRecordRow {
-  eventId: string;
-  sequence: number;
-  type: string;
-  participantId: string | null;
-  actorUserId: string | null;
-  stepId: string | null;
-  occurredAtMs: number;
-  idempotencyKey: string;
-  payload: Record<string, unknown>;
-  usage: {
-    providerId: string;
-    modelId: string;
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  } | null;
 }
 
 /** One model turn as the executor sees it: the call that came back, and the action it asked for. */
@@ -112,6 +86,16 @@ export type RecordTurnResult =
 
 export interface MatchService {
   create(input: { actor: MatchActor; request: CreateMatchRequest }): Promise<MatchSummary>;
+  /** Matches this actor may open: its own seats, or every match for an administrator. */
+  list(input: { actor: MatchActor }): Promise<MatchSummary[]>;
+  /** The games this deployment ships, so a client can offer them without hardcoding ids. */
+  listGames(): GameCatalogueEntry[];
+  /** Administrator lifecycle. Writes `status` and an audit row; the game never sees it. */
+  setStatus(input: {
+    actor: MatchActor;
+    instanceId: string;
+    status: UpdateMatchStatusRequest["status"];
+  }): Promise<MatchSummary>;
   /**
    * Records one model turn atomically: the `aiCall` row always lands, and the action it requested
    * lands with it unless the rules refuse it. A refusal keeps the call and returns the reason, so
@@ -129,8 +113,11 @@ export interface MatchService {
   read(input: { actor: MatchActor; instanceId: string }): Promise<{
     summary: MatchSummary;
     seats: MatchSeat[];
+    waiting: GameState["waiting"];
     view: PlayerView | null;
+    briefing: string | null;
     record: MatchRecordRow[];
+    actions: GameAction[];
   }>;
 }
 
@@ -174,16 +161,20 @@ export function createMatchService(options: {
     });
   }
 
-  function runTransition(game: GameModule, state: GameState, event: GameEvent) {
+  /** A rule that refuses is a client error carrying the game's own code; anything else is a bug. */
+  function settle<T>(run: () => T): T {
     try {
-      return game.transition(state, event);
+      return run();
     } catch (error) {
       if (error instanceof EngineError) {
-        // A rejected move is a client error carrying the rule's own code.
         throw new AppError(409, error.code, error.message);
       }
       throw error;
     }
+  }
+
+  function runTransition(game: GameModule, state: GameState, event: GameEvent) {
+    return settle(() => game.transition(state, event));
   }
 
   /**
@@ -285,20 +276,22 @@ export function createMatchService(options: {
           }),
         );
 
-        const state = game.initialState({
-          instanceId,
-          gameVersionId: `${game.id}@${game.version}`,
-          engineVersion: game.engineVersion,
-          randomSeed,
-          participants: planned.map((seat) => ({
-            participantId: seat.id,
-            ...(seat.actorUserId === null ? {} : { actorId: seat.actorUserId }),
-            ...(seat.roleId === undefined ? {} : { roleId: seat.roleId }),
-            control: seat.control,
-            status: "active" as const,
-          })),
-          ...(request.variables === undefined ? {} : { variables: request.variables }),
-        });
+        const state = settle(() =>
+          game.initialState({
+            instanceId,
+            gameVersionId: `${game.id}@${game.version}`,
+            engineVersion: game.engineVersion,
+            randomSeed,
+            participants: planned.map((seat) => ({
+              participantId: seat.id,
+              ...(seat.actorUserId === null ? {} : { actorId: seat.actorUserId }),
+              ...(seat.roleId === undefined ? {} : { roleId: seat.roleId }),
+              control: seat.control,
+              status: "active" as const,
+            })),
+            ...(request.variables === undefined ? {} : { variables: request.variables }),
+          }),
+        );
 
         await createGameInstance(transaction, {
           id: instanceId,
@@ -351,6 +344,61 @@ export function createMatchService(options: {
         const stored = await getGameInstance(transaction, instanceId);
         if (!stored) throw new AppError(500, "INSTANCE_MISSING", "The match vanished during creation");
         return summarize(stored);
+      });
+    },
+
+    async list({ actor }) {
+      const rows = await listGameInstances(db, { userId: actor.userId, isAdmin: actor.isAdmin });
+      return rows.map(summarize);
+    },
+
+    listGames() {
+      return registry.list().map((game) => ({
+        gameId: game.id,
+        version: game.version,
+        engineVersion: game.engineVersion,
+      }));
+    },
+
+    /**
+     * The platform suspends a match without touching its state: the row lock is what serializes
+     * this against a submission, and `state_json` keeps the status the game itself last chose, so
+     * a resume hands the match back exactly as it was.
+     */
+    async setStatus({ actor, instanceId, status }) {
+      if (!actor.isAdmin) {
+        throw new AppError(403, "ADMIN_REQUIRED", "Only administrators may change a match lifecycle");
+      }
+      return db.transaction().execute(async (transaction) => {
+        const instance = await lockGameInstance(transaction, instanceId);
+        if (!instance) throw new AppError(404, "MATCH_NOT_FOUND", "No such match");
+        const isActive = ACTIVE_STATUSES.includes(instance.status);
+        if (status === "running") {
+          if (instance.status !== "paused") {
+            throw new AppError(409, "MATCH_NOT_PAUSED", "Only a paused match can be resumed");
+          }
+        } else if (!isActive && instance.status !== "paused") {
+          throw new AppError(409, "MATCH_ENDED", `A match in status ${instance.status} cannot change`);
+        } else if (instance.status === status) {
+          throw new AppError(409, "MATCH_STATUS_UNCHANGED", `This match is already ${status}`);
+        }
+
+        // Resuming hands the match back the status the game itself last chose.
+        const previous = stateOf(instance).status;
+        const resuming = instance.status === "paused" && status === "running";
+        const next =
+          resuming && ACTIVE_STATUSES.includes(previous) ? previous : status;
+        await setInstanceStatus(transaction, instanceId, next);
+        await recordAuditLog(transaction, {
+          id: randomUUID(),
+          actorUserId: actor.userId,
+          action: `match.${next}`,
+          resourceType: "game_instance",
+          resourceId: instanceId,
+          metadata: { from: instance.status, to: next },
+          succeeded: true,
+        });
+        return summarize({ ...instance, status: next });
       });
     },
 
@@ -568,7 +616,16 @@ export function createMatchService(options: {
           actorUserId: seat.actor_user_id,
         })),
         view: mine ? viewFor(game, state, mine.id) : null,
+        waiting: state.waiting,
+        // The same words an AI seat is given: a human seat deserves the rules it is playing by.
+        briefing: mine ? (game.briefing?.(state, mine.id) ?? null) : null,
         record: rows.map(toRecordRow),
+        actions: (game.actions ?? []).map((action) => ({
+          name: action.name,
+          description: action.description,
+          ...(action.args ? { args: { ...action.args } } : {}),
+          ...(action.audience ? { audience: action.audience } : {}),
+        })),
       };
     },
   };

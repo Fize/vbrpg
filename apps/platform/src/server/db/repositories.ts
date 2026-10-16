@@ -21,6 +21,34 @@ export async function getGameInstance(
     .executeTakeFirst();
 }
 
+/** Newest first. An administrator sees every match; anyone else sees the ones holding a seat. */
+export async function listGameInstances(
+  db: DbExecutor,
+  input: { userId: string; isAdmin: boolean; limit?: number },
+): Promise<Array<Selectable<GameInstancesTable>>> {
+  const limit = input.limit ?? 50;
+  if (input.isAdmin) {
+    return db
+      .selectFrom("game_instances")
+      .selectAll()
+      .orderBy("created_at", "desc")
+      .limit(limit)
+      .execute();
+  }
+  return db
+    .selectFrom("game_instances")
+    .selectAll()
+    .where("id", "in", (expression) =>
+      expression
+        .selectFrom("game_participants")
+        .select("instance_id")
+        .where("actor_user_id", "=", input.userId),
+    )
+    .orderBy("created_at", "desc")
+    .limit(limit)
+    .execute();
+}
+
 export async function createGameInstance(
   db: DbExecutor,
   input: {

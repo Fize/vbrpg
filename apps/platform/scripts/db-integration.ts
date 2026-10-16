@@ -44,6 +44,7 @@ const providerName = `integration-provider-${suffix}`;
 const INTEGRATION_KEY = Buffer.alloc(32).toString("base64");
 let matchId: string | null = null;
 let aiMatchIdValue: string | null = null;
+let lifecycleMatchId: string | null = null;
 
 try {
   await createGameInstance(db, {
@@ -524,6 +525,99 @@ try {
   const idle = await runnerWith(scriptedClient([answer({})]).client).runOnce({ limit: 1 });
   assert.deepEqual(idle, { turns: 0, failures: 0 });
 
+  // ─── Administrator lifecycle: the column moves, the record does not ───────────────
+  const lifecycle = await matchService.create({
+    actor,
+    request: {
+      gameId: "undercover",
+      seats: [
+        { key: "p1", control: "human" },
+        { key: "p2", control: "ai" },
+        { key: "p3", control: "ai" },
+      ],
+    },
+  });
+  lifecycleMatchId = lifecycle.instanceId;
+  const seatHolder = { userId: platformUserId, isAdmin: false };
+
+  assert.deepEqual(
+    matchService.listGames().map((game) => game.gameId),
+    ["undercover"],
+  );
+  assert.ok(
+    (await matchService.list({ actor: seatHolder })).some(
+      (match) => match.instanceId === lifecycleMatchId,
+    ),
+    "a seat holder sees the matches it plays in",
+  );
+  assert.ok(
+    (await matchService.list({ actor: { userId: randomUUID(), isAdmin: false } })).every(
+      (match) => match.instanceId !== lifecycleMatchId,
+    ),
+    "a stranger sees nothing of it",
+  );
+  assert.ok(
+    (await matchService.list({ actor })).some((match) => match.instanceId === lifecycleMatchId),
+    "an administrator sees it without holding a seat",
+  );
+
+  let notAdmin = false;
+  try {
+    await matchService.setStatus({ actor: seatHolder, instanceId: lifecycleMatchId, status: "paused" });
+  } catch (error) {
+    notAdmin = error instanceof Error && "code" in error && error.code === "ADMIN_REQUIRED";
+  }
+  assert.equal(notAdmin, true, "a lifecycle change is administrator-only");
+
+  const paused = await matchService.setStatus({ actor, instanceId: lifecycleMatchId, status: "paused" });
+  assert.equal(paused.status, "paused");
+  // Suspended means suspended: the scan skips it and the write path refuses input.
+  assert.ok(
+    !(await findReadyAiSeats(db, 50)).some((seat) => seat.instanceId === lifecycleMatchId),
+    "a paused match is not offered to the worker",
+  );
+  let refused = false;
+  try {
+    await matchService.submit({
+      actor,
+      instanceId: lifecycleMatchId,
+      idempotencyKey: "paused-1",
+      request: { type: "seatMessage", participantKey: "p1", payload: { text: "x" } },
+    });
+  } catch (error) {
+    refused = error instanceof Error && "code" in error && error.code === "MATCH_NOT_RUNNING";
+  }
+  assert.equal(refused, true, "a paused match takes no input");
+
+  // Resume restores the status the game itself chose, not one the platform guessed.
+  const resumed = await matchService.setStatus({ actor, instanceId: lifecycleMatchId, status: "running" });
+  assert.equal(resumed.status, "waiting");
+  assert.ok(
+    (await findReadyAiSeats(db, 50)).some((seat) => seat.instanceId === lifecycleMatchId),
+    "a resumed match is offered again",
+  );
+
+  const rowsBefore = (await matchService.read({ actor, instanceId: lifecycleMatchId })).record.length;
+  assert.equal(
+    (await matchService.setStatus({ actor, instanceId: lifecycleMatchId, status: "cancelled" })).status,
+    "cancelled",
+  );
+  assert.equal(
+    (await matchService.read({ actor, instanceId: lifecycleMatchId })).record.length,
+    rowsBefore,
+    "a lifecycle change is not a game event",
+  );
+  const lifecycleAudit = await db
+    .selectFrom("audit_logs")
+    .select(["action", "metadata"])
+    .where("resource_id", "=", lifecycleMatchId)
+    .orderBy("created_at", "asc")
+    .execute();
+  assert.deepEqual(
+    lifecycleAudit.map((row) => row.action),
+    ["match.paused", "match.waiting", "match.cancelled"],
+  );
+
   // Deleting the models first makes the provider deletable.
   const catalogRows = await db
     .selectFrom("provider_models")
@@ -550,6 +644,7 @@ try {
     secondInstanceId,
     ...(matchId === null ? [] : [matchId]),
     ...(aiMatchIdValue === null ? [] : [aiMatchIdValue]),
+    ...(lifecycleMatchId === null ? [] : [lifecycleMatchId]),
   ];
   await db.deleteFrom("game_instances").where("id", "in", instanceIds).execute();
   await db.deleteFrom("users").where("id", "=", platformUserId).execute();

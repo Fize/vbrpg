@@ -17,7 +17,8 @@ test.describe.serial("Phase 1 browser acceptance", () => {
     await login(page, "e2e-root", initialPassword);
     await expect(page).toHaveURL(/\/lobby$/);
     await expect(page.getByRole("heading", { name: "大厅" })).toBeVisible();
-    await expect(page.getByText("游戏大厅将在后续阶段开放")).toBeVisible();
+    await expect(page.getByText("对局列表")).toBeVisible();
+    await expect(page.getByRole("button", { name: "新建对局" })).toBeVisible();
   });
 
   test("admin provisions a user and provider/model; secrets do not appear in the UI", async ({ page }) => {
@@ -99,7 +100,11 @@ test.describe.serial("Phase 1 browser acceptance", () => {
     await expect(page.getByRole("cell", { name: "e2e-player" })).toHaveCount(0);
 
     // The administrator cannot delete the account it is signed in with.
-    await expect(page.getByRole("button", { name: "删除", exact: true })).toHaveCount(0);
+    await expect(
+      page
+        .getByRole("row", { name: /e2e-root/ })
+        .getByRole("button", { name: "删除", exact: true }),
+    ).toHaveCount(0);
   });
 
   test("login form validates required inputs and displays generic auth errors", async ({ page }) => {
@@ -108,7 +113,9 @@ test.describe.serial("Phase 1 browser acceptance", () => {
     await expect(page.getByText("请输入用户名")).toBeVisible();
     await expect(page.getByText("请输入密码")).toBeVisible();
 
-    await page.getByLabel("用户名").fill("e2e-root");
+    // An unknown account, not a known one: the login limiter is per account and per IP, and this
+    // suite already spends the budget of every account it signs in with.
+    await page.getByLabel("用户名").fill("e2e-ghost");
     await page.getByLabel("密码", { exact: true }).fill("wrong-password");
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByTestId("auth-error")).toContainText("用户名或密码不正确");

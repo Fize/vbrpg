@@ -256,13 +256,30 @@ function fakeMatchService(overrides: Partial<MatchService> = {}): MatchService &
       seen.push(`create:${request.gameId}`);
       return summary;
     },
+    list: async ({ actor }) => {
+      seen.push(`list:${actor.isAdmin ? "admin" : "seated"}`);
+      return [summary];
+    },
+    listGames: () => [{ gameId: "undercover", version: "1.0.0", engineVersion: "core-1" }],
+    setStatus: async ({ instanceId, status }) => {
+      seen.push(`status:${instanceId}:${status}`);
+      return { ...summary, status };
+    },
     submit: async ({ idempotencyKey, request }) => {
       seen.push(`submit:${request.participantKey}:${idempotencyKey}`);
       return { replayed: false, summary, view };
     },
     read: async ({ instanceId }) => {
       seen.push(`read:${instanceId}`);
-      return { summary, seats: [], view: null, record: [] };
+      return {
+        summary,
+        seats: [],
+        waiting: null,
+        view: null,
+        briefing: null,
+        record: [],
+        actions: [],
+      };
     },
     ...overrides,
   };
@@ -938,6 +955,66 @@ describe("match routes", () => {
     assert.equal(created.statusCode, 201, created.body);
     assert.equal(created.json().instanceId, MATCH_ID);
     assert.deepEqual(matchService.seen, ["create:undercover"]);
+  });
+
+  it("lists the games this deployment ships", async () => {
+    const { app, headers } = await seated();
+    const response = await app.inject({ method: "GET", url: "/v1/games", headers });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json().games, [
+      { gameId: "undercover", version: "1.0.0", engineVersion: "core-1" },
+    ]);
+  });
+
+  it("lists matches for a seat holder and for an administrator", async () => {
+    const { app, headers, matchService } = await seated();
+    const response = await app.inject({ method: "GET", url: "/v1/instances", headers });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().matches.length, 1);
+    assert.deepEqual(matchService.seen, ["list:seated"]);
+
+    const anonymous = await app.inject({ method: "GET", url: "/v1/instances" });
+    assert.equal(anonymous.statusCode, 401);
+  });
+
+  it("moves a match lifecycle for an administrator, refusing anything else", async () => {
+    const { app, headers, matchService } = await seated();
+
+    const invalid = await app.inject({
+      method: "PATCH",
+      url: `/v1/instances/${MATCH_ID}/status`,
+      headers,
+      payload: { status: "deleted" },
+    });
+    assert.equal(invalid.statusCode, 400);
+    assert.equal(invalid.json().code, "INVALID_REQUEST");
+
+    const paused = await app.inject({
+      method: "PATCH",
+      url: `/v1/instances/${MATCH_ID}/status`,
+      headers,
+      payload: { status: "paused" },
+    });
+    assert.equal(paused.statusCode, 200, paused.body);
+    assert.equal(paused.json().status, "paused");
+    assert.deepEqual(matchService.seen, [`status:${MATCH_ID}:paused`]);
+
+    // The service owns the rule; the route only forwards its refusal.
+    const refused = await seated({
+      matchService: fakeMatchService({
+        setStatus: async () => {
+          throw new AppError(403, "ADMIN_REQUIRED", "Only administrators may change a match lifecycle");
+        },
+      }),
+    });
+    const denied = await refused.app.inject({
+      method: "PATCH",
+      url: `/v1/instances/${MATCH_ID}/status`,
+      headers: refused.headers,
+      payload: { status: "cancelled" },
+    });
+    assert.equal(denied.statusCode, 403);
+    assert.equal(denied.json().code, "ADMIN_REQUIRED");
   });
 
   it("requires an Idempotency-Key header before submitting anything", async () => {

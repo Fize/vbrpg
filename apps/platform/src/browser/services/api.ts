@@ -4,23 +4,39 @@ const API_BASE = "/v1";
 // copy of these shapes. Web-side aliases keep the call sites readable.
 import type {
   ConnectionTestResult,
+  CreateMatchRequest as CreateMatchInput,
   CreateProviderModelRequest as CreateProviderModelInput,
   CreateUserRequest as CreateUserInput,
+  GameCatalogueEntry,
   LoginResult,
+  MatchDetail,
+  MatchSummary,
   PlatformUser as User,
+  PlayerView,
   Provider,
   ProviderInput as CreateProviderInput,
   ProviderModel,
+  SubmitEventRequest,
+  UpdateMatchStatusRequest,
   UpdateProviderModelRequest as UpdateProviderModelInput,
   UpdateProviderRequest as UpdateProviderInput,
   UpdateUserRequest as UpdateUserInput,
 } from "../../shared/index.js";
 
 export type {
+  ActionArg,
   ConnectionTestResult,
+  CreateMatchRequest as CreateMatchInput,
+  GameAction,
+  GameCatalogueEntry,
   LoginResult,
+  MatchDetail,
+  MatchRecordRow,
+  MatchSeat,
+  MatchSummary,
   PlatformRole as Role,
   PlatformUser as User,
+  PlayerView,
   Provider,
   ProviderErrorCode,
   ProviderModel,
@@ -31,6 +47,13 @@ export type {
   UpdateProviderRequest as UpdateProviderInput,
   UpdateUserRequest as UpdateUserInput,
 } from "../../shared/index.js";
+
+/** The write path's answer: what the match looks like now, from this seat's point of view. */
+export interface SubmitMatchResult {
+  replayed: boolean;
+  summary: MatchSummary;
+  view: PlayerView;
+}
 
 /** Typed failure carrying the platform error envelope. */
 export class ApiError extends Error {
@@ -91,6 +114,8 @@ interface RequestConfig {
   path: string;
   body?: unknown;
   csrf?: boolean;
+  /** Sent as `Idempotency-Key`: a retried submission must not land twice. */
+  idempotencyKey?: string;
   /** Set on the login call: its 401 means wrong credentials, not an expired session. */
   skipAuthRedirect?: boolean;
 }
@@ -127,6 +152,7 @@ async function send(config: RequestConfig): Promise<Response> {
   const headers: Record<string, string> = {};
   if (config.body !== undefined) headers["Content-Type"] = "application/json";
   if (config.csrf === true && csrfToken !== null) headers["X-CSRF-Token"] = csrfToken;
+  if (config.idempotencyKey !== undefined) headers["Idempotency-Key"] = config.idempotencyKey;
   const init: RequestInit = {
     method: config.method,
     credentials: "include",
@@ -206,6 +232,56 @@ export const api = {
     });
     csrfToken = result.csrfToken;
     return result;
+  },
+
+  async listGames(): Promise<GameCatalogueEntry[]> {
+    const result = await execute<{ games: GameCatalogueEntry[] }>({ method: "GET", path: "/games" });
+    return result.games;
+  },
+
+  async listMatches(): Promise<MatchSummary[]> {
+    const result = await execute<{ matches: MatchSummary[] }>({
+      method: "GET",
+      path: "/instances",
+    });
+    return result.matches;
+  },
+
+  createMatch(input: CreateMatchInput): Promise<MatchSummary> {
+    return execute<MatchSummary>({ method: "POST", path: "/instances", body: input, csrf: true });
+  },
+
+  readMatch(instanceId: string): Promise<MatchDetail> {
+    return execute<MatchDetail>({
+      method: "GET",
+      path: `/instances/${encodeURIComponent(instanceId)}`,
+    });
+  },
+
+  submitMatchEvent(
+    instanceId: string,
+    input: SubmitEventRequest,
+    idempotencyKey: string,
+  ): Promise<SubmitMatchResult> {
+    return execute<SubmitMatchResult>({
+      method: "POST",
+      path: `/instances/${encodeURIComponent(instanceId)}/events`,
+      body: input,
+      csrf: true,
+      idempotencyKey,
+    });
+  },
+
+  setMatchStatus(
+    instanceId: string,
+    status: UpdateMatchStatusRequest["status"],
+  ): Promise<MatchSummary> {
+    return execute<MatchSummary>({
+      method: "PATCH",
+      path: `/instances/${encodeURIComponent(instanceId)}/status`,
+      body: { status },
+      csrf: true,
+    });
   },
 
   async listUsers(): Promise<User[]> {

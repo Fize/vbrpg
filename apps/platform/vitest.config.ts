@@ -2,10 +2,10 @@ import { defineConfig } from "vitest/config";
 import vue from "@vitejs/plugin-vue";
 
 export default defineConfig({
-  plugins: [vue()],
   test: {
     projects: [
       {
+        plugins: [vue()],
         test: {
           name: "server",
           environment: "node",
@@ -13,6 +13,7 @@ export default defineConfig({
         },
       },
       {
+        plugins: [vue()],
         test: {
           name: "browser",
           environment: "happy-dom",
