@@ -6,7 +6,6 @@ import { registerHealthRoutes } from "./routes/health.js";
 import { registerPlatformAuthRoutes } from "./routes/platform-auth.js";
 import { registerPlatformAdminRoutes } from "./routes/platform-admin.js";
 import { registerMatchRoutes } from "./routes/matches.js";
-import { registerWordPairRoutes, type WordPairService } from "./routes/word-pairs.js";
 import type { MatchService } from "./match/service.js";
 import type { PlatformStore } from "./store.js";
 import { createPlatformRequestContext } from "./platform-auth.js";
@@ -15,7 +14,6 @@ export interface BuildAppOptions {
   config?: ApiConfig;
   platformStore?: PlatformStore;
   matchService?: MatchService;
-  wordPairService?: WordPairService;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -77,9 +75,6 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     void registerPlatformAdminRoutes(app, platformContext);
     if (options.matchService) {
       void registerMatchRoutes(app, platformContext, options.matchService);
-    }
-    if (options.wordPairService) {
-      void registerWordPairRoutes(app, platformContext, options.wordPairService);
     }
   }
   return app;

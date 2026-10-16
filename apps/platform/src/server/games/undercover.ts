@@ -20,20 +20,19 @@ import type { Visibility } from "../game/projector.js";
 
 const MIN_SEATS = 3;
 
-/** The words are the table's, not the game's: no round is dealt without them. */
+/**
+ * The words are not the game's: the creator gives a category, the platform's model turns it into a
+ * pair, and the pair goes straight into the deal. Nobody sees the words before they are dealt.
+ */
 const SETUP: readonly SetupField[] = [
   {
-    name: "civilianWord",
-    label: "平民的词",
-    description: "大多数席位拿到的词",
-    from: "pair.civilian",
+    name: "category",
+    label: "分类",
+    description: "例如 水果、动物、三国人物",
+    kind: "category",
   },
-  {
-    name: "undercoverWord",
-    label: "卧底的词",
-    description: "与平民的词相近，但不能相同",
-    from: "pair.undercover",
-  },
+  { name: "civilianWord", label: "平民的词", description: "由分类生成", from: "pair.civilian" },
+  { name: "undercoverWord", label: "卧底的词", description: "由分类生成", from: "pair.undercover" },
 ];
 
 function requiredWord(variables: Record<string, unknown>, name: string): string {
@@ -101,6 +100,7 @@ const STEP_NAMES: Readonly<Record<string, string>> = {
 
 const WORD_NAMES: Readonly<Record<string, string>> = {
   word: "你的词",
+  category: "分类",
   phase: "阶段",
   round: "回合",
   alive: "在场席位",
@@ -197,6 +197,7 @@ export const undercover: GameModule = {
    */
   visibility(state: GameState): Visibility {
     const rules: Visibility = {
+      category: "public",
       phase: "public",
       round: "public",
       alive: "public",
@@ -222,7 +223,11 @@ export const undercover: GameModule = {
     const undercoverIndex = hash(`${input.randomSeed}#u`) % input.participants.length;
     const alive = input.participants.map((seat) => seat.participantId);
 
+    const category = input.variables?.["category"];
     const variables: Record<string, unknown> = {
+      ...(typeof category === "string" && category.trim() !== ""
+        ? { category: category.trim() }
+        : {}),
       phase: "describe",
       round: 1,
       alive,

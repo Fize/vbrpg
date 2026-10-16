@@ -7,7 +7,7 @@ import { uiErrorMessage } from "../services/messages";
 import { formatTime, statusLabel, statusTag } from "../services/match-labels";
 import { sessionState } from "../stores/session";
 
-/** Categories are only a prompt hint for the pair helper, so the list lives with the form. */
+/** Suggestions for the category field; the creator can type anything else. */
 const CATEGORIES = [
   "水果",
   "食物",
@@ -48,36 +48,19 @@ const createSeats = ref<SeatDraft[]>([
 const createPersonaPublic = ref(false);
 /** Whatever the selected game asks for at creation, keyed by the game's own field names. */
 const createValues = ref<Record<string, string>>({});
-const createCategory = ref("水果");
-const generating = ref(false);
-const generateError = ref<string | null>(null);
 
 const selectedGame = computed(() => games.value.find((game) => game.gameId === createGame.value));
-const setupFields = computed(() => selectedGame.value?.setup ?? []);
-/** The pair helper only appears for a game that says which fields a generated pair fills. */
-const pairFields = computed(() => setupFields.value.filter((field) => field.from !== undefined));
+/** Fields with `from` are filled by the platform's model, so the creator is never asked for them. */
+const setupFields = computed(() =>
+  (selectedGame.value?.setup ?? []).filter((field) => field.from === undefined),
+);
+const derivedCount = computed(
+  () => (selectedGame.value?.setup ?? []).filter((field) => field.from !== undefined).length,
+);
 
 watch(createGame, () => {
   createValues.value = {};
-  generateError.value = null;
 });
-
-async function generatePair(): Promise<void> {
-  generating.value = true;
-  generateError.value = null;
-  try {
-    const pair = await api.generateWordPair(createCategory.value.trim());
-    const next = { ...createValues.value };
-    for (const field of pairFields.value) {
-      next[field.name] = field.from === "pair.civilian" ? pair.civilian : pair.undercover;
-    }
-    createValues.value = next;
-  } catch (error) {
-    generateError.value = uiErrorMessage(error);
-  } finally {
-    generating.value = false;
-  }
-}
 const creating = ref(false);
 const createError = ref<string | null>(null);
 const createRequestId = ref<string | null>(null);
@@ -326,19 +309,20 @@ async function submitCreate(): Promise<void> {
         </el-form-item>
       </el-form>
 
-      <el-form-item v-if="pairFields.length > 0" label="词对">
-        <div class="pair-row">
-          <el-select v-model="createCategory" class="category-select">
-            <el-option v-for="name in CATEGORIES" :key="name" :label="name" :value="name" />
-          </el-select>
-          <el-button :loading="generating" @click="generatePair">用 AI 生成</el-button>
-          <span class="hint inline">由平台的模型给出一对词，生成后你可以改。</span>
-        </div>
-        <p v-if="generateError" class="field-error">{{ generateError }}</p>
-      </el-form-item>
-
       <el-form-item v-for="field in setupFields" :key="field.name" :label="field.label">
+        <el-select
+          v-if="field.kind === 'category'"
+          v-model="createValues[field.name]"
+          class="category-select"
+          filterable
+          allow-create
+          default-first-option
+          :placeholder="field.description"
+        >
+          <el-option v-for="name in CATEGORIES" :key="name" :label="name" :value="name" />
+        </el-select>
         <el-input
+          v-else
           :model-value="createValues[field.name] ?? ''"
           :placeholder="field.description"
           @update:model-value="
@@ -346,6 +330,9 @@ async function submitCreate(): Promise<void> {
           "
         />
       </el-form-item>
+      <p v-if="derivedCount > 0" class="hint">
+        开局时由平台的模型按分类给出一对词，直接发到席位上，不会先显示给别人看。
+      </p>
 
       <el-form-item label="公开人格">
         <el-switch v-model="createPersonaPublic" />

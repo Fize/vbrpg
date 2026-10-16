@@ -1,7 +1,9 @@
+import type { Kysely } from "kysely";
 import { z } from "zod";
-import { AppError } from "../runtime/index.js";
-import type { ChatMessage, ChatTool, ModelClient } from "./client.js";
-import type { ModelBinding } from "./binding.js";
+import { AppError, type CredentialKey } from "../runtime/index.js";
+import type { Database } from "../db/index.js";
+import { chooseModelBinding, type ModelBinding } from "./binding.js";
+import { createModelClient, type ChatMessage, type ChatTool, type ModelClient } from "./client.js";
 
 /**
  * The platform's own model call: a word pair for a round of 谁是卧底. The words are input, not game
@@ -10,6 +12,9 @@ import type { ModelBinding } from "./binding.js";
  * The reply is requested as a tool call rather than free JSON: a tool schema is the one shape every
  * provider on this platform is already asked to produce.
  */
+/** Generating a pair is a small completion; a create request must not hang on a slow provider. */
+export const WORD_PAIR_TIMEOUT_MS = 15_000;
+
 export const WORD_PAIR_TOOL: ChatTool = {
   name: "giveWordPair",
   description: "给出一对相近但不同的词，用于「谁是卧底」的平民与卧底。",
@@ -49,6 +54,33 @@ export function buildWordPairPrompt(category: string): { messages: ChatMessage[]
   };
 }
 
+/**
+ * The create path's view of the platform's model. With no enabled provider it throws, because a
+ * match asking for words and silently getting none would fail later and less clearly.
+ */
+export function createWordPairGenerator(input: {
+  db: Kysely<Database>;
+  credentialKey: CredentialKey | undefined;
+  client?: ModelClient;
+}): (category: string) => Promise<WordPair> {
+  const client = input.client ?? createModelClient();
+
+  return async (category: string) => {
+    if (!input.credentialKey) {
+      throw new AppError(409, "NO_CREDENTIAL_KEY", "This deployment has no credential key");
+    }
+    const binding = await chooseModelBinding({
+      db: input.db,
+      credentialKey: input.credentialKey,
+      maxTokens: 256,
+    });
+    if (!binding) {
+      throw new AppError(409, "NO_MODEL_CONFIGURED", "No enabled provider and model is configured");
+    }
+    return generateWordPair({ client, binding, category });
+  };
+}
+
 /** One call, one tool call, two words. Anything else is a bad reply, not a retry loop. */
 export async function generateWordPair(input: {
   client: ModelClient;
@@ -63,6 +95,7 @@ export async function generateWordPair(input: {
     messages: prompt.messages,
     tools: [WORD_PAIR_TOOL],
     maxTokens: input.binding.maxTokens,
+    timeoutMs: WORD_PAIR_TIMEOUT_MS,
   });
 
   const call = reply.toolCalls[0];

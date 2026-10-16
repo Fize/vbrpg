@@ -4,7 +4,6 @@ const API_BASE = "/v1";
 // copy of these shapes. Web-side aliases keep the call sites readable.
 import type {
   ConnectionTestResult,
-  WordPair,
   CreateMatchRequest as CreateMatchInput,
   CreateProviderModelRequest as CreateProviderModelInput,
   CreateUserRequest as CreateUserInput,
@@ -48,7 +47,6 @@ export type {
   UpdateProviderModelRequest as UpdateProviderModelInput,
   UpdateProviderRequest as UpdateProviderInput,
   UpdateUserRequest as UpdateUserInput,
-  WordPair,
 } from "../../shared/index.js";
 
 /** The write path's answer: what the match looks like now, from this seat's point of view. */
@@ -235,16 +233,6 @@ export const api = {
     });
     csrfToken = result.csrfToken;
     return result;
-  },
-
-  /** Asks the platform's own model for a word pair; the caller still edits it before creating. */
-  generateWordPair(category: string): Promise<WordPair> {
-    return execute<WordPair>({
-      method: "POST",
-      path: "/word-pairs",
-      body: { category },
-      csrf: true,
-    });
   },
 
   async listGames(): Promise<GameCatalogueEntry[]> {

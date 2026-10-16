@@ -47,6 +47,7 @@ let matchId: string | null = null;
 let aiMatchIdValue: string | null = null;
 let lifecycleMatchId: string | null = null;
 let publishedMatchId: string | null = null;
+let generatedMatchId: string | null = null;
 
 try {
   await createGameInstance(db, {
@@ -635,6 +636,38 @@ try {
   assert.ok(publishedNeighbour?.persona?.style, "a published persona shows how it talks");
   assert.equal(publishedNeighbour?.persona?.mbti, undefined, "even published, MBTI stays private");
 
+  // ─── A category instead of words: the platform's model fills the pair ───────────────
+  // The model is stubbed here; `pnpm check:model-call` exercises the real one.
+  const generated = createMatchService({
+    db,
+    registry: createBuiltInRegistry(),
+    wordPairs: async (category: string) => ({ civilian: `甲${category}`, undercover: `乙${category}` }),
+  });
+  const byCategory = await generated.create({
+    actor,
+    request: {
+      gameId: "undercover",
+      variables: { category: "水果" },
+      seats: [
+        { key: "p1", control: "human" },
+        { key: "p2", control: "ai" },
+        { key: "p3", control: "ai" },
+      ],
+    },
+  });
+  generatedMatchId = byCategory.instanceId;
+  const generatedRead = await generated.read({ actor, instanceId: byCategory.instanceId });
+  const ownWord = Object.values(generatedRead.view.privateState)[0];
+  assert.ok(
+    ownWord === "甲水果" || ownWord === "乙水果",
+    "the creator's category must reach the deal as a generated word",
+  );
+  assert.equal(generatedRead.view.publicState["category"], "水果", "the theme is public");
+  for (const value of Object.values(generatedRead.view.publicState)) {
+    assert.notEqual(value, "甲水果", "the words themselves are never public");
+    assert.notEqual(value, "乙水果", "the words themselves are never public");
+  }
+
   // ─── Administrator lifecycle: the column moves, the record does not ───────────────
   const lifecycle = await matchService.create({
     actor,
@@ -777,6 +810,7 @@ try {
     ...(aiMatchIdValue === null ? [] : [aiMatchIdValue]),
     ...(lifecycleMatchId === null ? [] : [lifecycleMatchId]),
     ...(publishedMatchId === null ? [] : [publishedMatchId]),
+    ...(generatedMatchId === null ? [] : [generatedMatchId]),
   ];
   await db.deleteFrom("game_instances").where("id", "in", instanceIds).execute();
   await db.deleteFrom("users").where("id", "=", platformUserId).execute();

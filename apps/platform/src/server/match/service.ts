@@ -11,6 +11,7 @@ import type {
   MatchSummary,
   PlayerView,
   SubmitEventRequest,
+  WordPair,
   UpdateMatchStatusRequest,
 } from "../../shared/index.js";
 import { platformEventTypes } from "../../shared/index.js";
@@ -123,11 +124,46 @@ export interface MatchService {
   }>;
 }
 
+/** The platform's own model as the create path sees it: one category in, one word pair out. */
+export type WordPairGenerator = (category: string) => Promise<WordPair>;
+
 export function createMatchService(options: {
   db: Kysely<Database>;
   registry: GameRegistry;
+  /** Present when this deployment has a model to configure; absent in tests that supply words. */
+  wordPairs?: WordPairGenerator;
 }): MatchService {
   const { db, registry } = options;
+
+  /**
+   * A game may ask for a category and two derived words. The creator never types or sees the words:
+   * the platform's model produces them here, so nobody at the table knows the answer in advance.
+   * Words the caller supplied explicitly are kept, which is what the tests and replays use.
+   */
+  async function withDerivedWords(
+    game: GameModule,
+    supplied: Record<string, unknown> | undefined,
+  ): Promise<Record<string, unknown> | undefined> {
+    const variables = supplied ?? {};
+    const setup = game.setup ?? [];
+    const categoryField = setup.find((field) => field.kind === "category");
+    const derived = setup.filter((field) => field.from !== undefined);
+    if (categoryField === undefined || derived.length === 0) return supplied;
+    if (derived.every((field) => typeof variables[field.name] === "string")) return supplied;
+
+    const category = variables[categoryField.name];
+    if (typeof category !== "string" || category.trim() === "" || options.wordPairs === undefined) {
+      // No pair to make: the game's own validation refuses the round and says what it is missing.
+      return supplied;
+    }
+
+    const pair = await options.wordPairs(category.trim());
+    const filled: Record<string, unknown> = { ...variables };
+    for (const field of derived) {
+      filled[field.name] = field.from === "pair.civilian" ? pair.civilian : pair.undercover;
+    }
+    return filled;
+  }
 
   function requireGame(gameId: string): GameModule {
     const game = registry.get(gameId);
@@ -273,6 +309,7 @@ export function createMatchService(options: {
       const randomSeed = request.randomSeed ?? randomUUID();
       // Dealt from the seed and independent of roles, so publishing personas cannot hint at who is what.
       const personas = dealPersonas(randomSeed, request.seats.length);
+      const variables = await withDerivedWords(game, request.variables);
 
       return db.transaction().execute(async (transaction) => {
         const planned = await Promise.all(
@@ -313,7 +350,7 @@ export function createMatchService(options: {
               control: seat.control,
               status: "active" as const,
             })),
-            ...(request.variables === undefined ? {} : { variables: request.variables }),
+            ...(variables === undefined ? {} : { variables }),
           }),
         );
 

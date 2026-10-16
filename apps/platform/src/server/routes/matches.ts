@@ -39,6 +39,10 @@ export async function registerMatchRoutes(
   }));
 
   app.post("/v1/instances", { preHandler: write }, async (request, reply) => {
+    const principal = request.platformPrincipal!;
+    if (!context.limiters.matchCreateByUser.allow(principal.userId)) {
+      throw new AppError(429, "RATE_LIMITED", "Too many matches created");
+    }
     const body = parseCreateMatchRequest(request.body);
     const summary = await matchService.create({ actor: actorOf(request), request: body });
     return reply.code(201).send(summary);

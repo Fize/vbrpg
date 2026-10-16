@@ -171,8 +171,12 @@ export const setupFieldSchema = z.object({
   name: idSchema,
   label: z.string().min(1),
   description: z.string().min(1),
-  /** Hint for the form control; today only free text. */
-  kind: z.enum(["text"]).optional(),
+  /**
+   * How the field is produced. `text` is typed by the creator; `category` is typed too, but it is
+   * the prompt the platform's own model turns into a pair; a field with `from` is not asked for at
+   * all — the platform fills it from that pair, so nobody at the table ever sees the words early.
+   */
+  kind: z.enum(["text", "category"]).optional(),
   /**
    * When the field is one half of a generated word pair, which half. The platform defines the pair
    * shape (`{civilian, undercover}`); the game says where each half goes in its own parameters.

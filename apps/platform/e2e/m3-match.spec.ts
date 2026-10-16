@@ -17,6 +17,26 @@ async function login(page: Page, username: string, password: string) {
   await expect(page).toHaveURL(/\/lobby$/);
 }
 
+/**
+ * The console's own creation flow needs a model for the word pair, and no model exists in a test
+ * run (loopback providers are refused by design). So the suite creates matches through the API with
+ * explicit words and asserts the room in the browser; the dialog is asserted structurally.
+ */
+async function createMatch(page: Page, seats: Array<Record<string, unknown>>): Promise<string> {
+  const csrf = await page.request.get("/v1/auth/csrf");
+  const { csrfToken } = (await csrf.json()) as { csrfToken: string };
+  const response = await page.request.post("/v1/instances", {
+    headers: { "x-csrf-token": csrfToken, origin: "http://127.0.0.1:5174" },
+    data: {
+      gameId: "undercover",
+      seats,
+      variables: { civilianWord: "咖啡", undercoverWord: "茶" },
+    },
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  return ((await response.json()) as { instanceId: string }).instanceId;
+}
+
 async function provision(page: Page, username: string, password: string) {
   await page.goto("/admin/users");
   await page.getByLabel("用户名").fill(username);
@@ -36,17 +56,19 @@ test.describe.serial("M3 对局界面", () => {
     await provision(page, watcherName, watcherPassword);
 
     await page.goto("/lobby");
+    // The dialog asks for a category, not for words: the pair is generated during creation.
     await page.getByRole("button", { name: "新建对局" }).click();
-    const seatInputs = page.getByPlaceholder("留空表示自己占该席位");
-    await expect(seatInputs).toHaveCount(2);
-    await seatInputs.nth(1).fill(playerName);
-    // The words are the table's input, so no round can start without them.
-    await page.getByLabel("平民的词").fill("咖啡");
-    await page.getByLabel("卧底的词").fill("茶");
-    await page.getByRole("button", { name: "开局" }).click();
+    await expect(page.getByLabel("分类")).toBeVisible();
+    await expect(page.getByText("由平台的模型按分类给出一对词")).toBeVisible();
+    await expect(page.getByPlaceholder("留空表示自己占该席位")).toHaveCount(2);
+    await page.getByRole("button", { name: "取消" }).click();
 
-    await expect(page).toHaveURL(/\/matches\/[0-9a-f-]{36}$/);
-    matchId = page.url().split("/").pop() ?? "";
+    matchId = await createMatch(page, [
+      { key: "s1", control: "human" },
+      { key: "s2", control: "human", username: playerName },
+      { key: "s3", control: "ai" },
+    ]);
+    await page.goto(`/matches/${matchId}`);
     await expect(page.getByText("当前阶段")).toBeVisible();
     await expect(page.getByText("s3", { exact: true }).first()).toBeVisible();
     await expect(page.getByTestId("my-actions")).toContainText("描述");
