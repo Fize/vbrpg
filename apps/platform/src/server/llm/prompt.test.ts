@@ -78,11 +78,65 @@ describe("seat prompt", () => {
       record: [],
     });
 
-    expect(prompt.tools.map((tool) => tool.name).sort()).toEqual(["seatMessage", "vote"]);
-    expect(prompt.messages.at(-1)?.content).toContain("本步允许的动作：seatMessage");
+    expect(prompt.tools.map((tool) => tool.name).sort()).toEqual([
+      "seatMessage",
+      "skipDiscussion",
+      "vote",
+    ]);
+    expect(prompt.messages.at(-1)?.content).toContain("## 本步允许的动作\nseatMessage");
     expect(prompt.tools.find((tool) => tool.name === "vote")?.parameters.required).toEqual([
       "target",
     ]);
+  });
+
+  it("lays the system out in sections, and the seat's own persona in full", () => {
+    const state = started();
+    const me = seatId(state, 1);
+    const prompt = buildSeatPrompt({
+      game: undercover,
+      state,
+      participantId: me,
+      seatKeys: KEYS,
+      personas: {
+        [seatId(state, 0)]: { gender: "男" },
+        [me]: { mbti: "INFJ", gender: "女", profession: "教师", style: "短句" },
+        [seatId(state, 2)]: { gender: "男", profession: "医生" },
+      },
+      record: [],
+    });
+
+    for (const title of [
+      "规则",
+      "你的角色",
+      "你的位置与席位表",
+      "其他席位与可见人格",
+      "你的人格",
+      "只有你知道的信息",
+      "行动约束",
+    ]) {
+      expect(prompt.system).toContain(`## ${title}`);
+    }
+    // The seat's own MBTI is its own; another seat's slice never carries one.
+    expect(prompt.system).toContain("INFJ");
+    expect(prompt.system).toContain("你在玩「谁是卧底」");
+    expect(prompt.system).toContain("你是「平民」");
+    expect(prompt.system).toContain("- alice：男");
+    expect(prompt.system).toContain("- carol：男 · 医生");
+    expect(prompt.system).toContain("你是「bob」，本桌 4 席中的第 2 席。");
+  });
+
+  it("reads a pass in the game's own words instead of an empty payload", () => {
+    const state = started();
+    const other = seatId(state, 0);
+    const prompt = buildSeatPrompt({
+      game: undercover,
+      state,
+      participantId: seatId(state, 1),
+      seatKeys: KEYS,
+      record: [{ sequence: 2, type: "skipDiscussion", participantId: other, payload: {} }],
+    });
+
+    expect(prompt.messages[0]).toEqual({ role: "user", content: "[alice] （跳过）" });
   });
 
   it("renders speech as user turns, hides secret ballots, and replays its own call", () => {
@@ -161,9 +215,9 @@ describe("seat prompt", () => {
     expect(later.tools).toEqual(first.tools);
     expect(later.system).toBe(first.system);
     // Everything volatile lives in the last message.
-    expect(later.messages.at(-1)?.content).toContain("本步允许的动作：vote");
-    expect(later.messages.at(-1)?.content).toContain('"round":2');
-    expect(JSON.stringify(later.messages.slice(0, -1))).not.toContain('"round"');
-    expect(later.system).toContain("只有你知道自己的私有信息");
+    expect(later.messages.at(-1)?.content).toContain("## 本步允许的动作\nvote");
+    expect(later.messages.at(-1)?.content).toContain("回合：2");
+    expect(JSON.stringify(later.messages.slice(0, -1))).not.toContain("回合");
+    expect(later.system).toContain("## 只有你知道的信息");
   });
 });

@@ -109,4 +109,19 @@ describe("match log", () => {
     expect(entry?.kind).toBe("phase");
     expect(entry?.label).toBe("somethingNew");
   });
+
+  it("lets an action without arguments read by its label alone", () => {
+    const [entry] = buildLog({
+      game,
+      record: [row({ type: "skipDiscussion", participantId: "p-1" })],
+      actions: [
+        ...actions,
+        { name: "skipDiscussion", label: "这轮不说", description: "不发言", audience: "room" },
+      ],
+      seatName,
+    });
+    expect(entry?.kind).toBe("speech");
+    expect(entry?.label).toBe("这轮不说");
+    expect(entry?.text).toBe("");
+  });
 });

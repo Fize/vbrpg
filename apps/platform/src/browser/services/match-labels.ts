@@ -130,3 +130,14 @@ export function describePayload(input: {
     })
     .join(" · ");
 }
+
+/**
+ * Whether there is anything to read. An action with no arguments says everything in its label —
+ * a pass carries no words, so it must not push a speech bubble aside.
+ */
+export function carriesContent(
+  action: GameAction | undefined,
+  payload: Record<string, unknown>,
+): boolean {
+  return Object.keys(action?.args ?? {}).length > 0 || Object.keys(payload).length > 0;
+}

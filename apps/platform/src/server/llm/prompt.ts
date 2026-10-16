@@ -1,9 +1,10 @@
-import type { GameState } from "../../shared/index.js";
+import type { GameState, SeatPersona } from "../../shared/index.js";
 import { aiCallPayloadSchema } from "../../shared/index.js";
 import {
   allowedActions,
   projectPlayerView,
   resolveVisibility,
+  roomAudienceActions,
   type GameModule,
 } from "../game/index.js";
 import type { ChatMessage, ChatTool } from "./client.js";
@@ -12,7 +13,7 @@ import type { ChatMessage, ChatTool } from "./client.js";
  * A seat's prompt, laid out so the prefix survives caching:
  *
  *   tools   — the game's whole action catalogue, identical for the match
- *   system  — the rules plus this seat's own private state, identical for the match
+ *   system  — the rules, who this seat is and what it alone knows, identical for the match
  *   messages— the transcript, then one instruction for the turn being taken
  *
  * Nothing that changes per turn may leak into the first two: the current round, the allowed
@@ -38,16 +39,13 @@ export interface BuildSeatPromptInput {
   /** Seat keys, so the transcript reads as names instead of ids. */
   seatKeys: Record<string, string>;
   record: readonly TranscriptRow[];
+  /** What this reader may see of every seat's persona, its own included. */
+  personas?: Readonly<Record<string, SeatPersona | null>>;
 }
 
 export function buildSeatPrompt(input: BuildSeatPromptInput): SeatPrompt {
   const { game, state, participantId, seatKeys, record } = input;
-  const seatKey = seatKeys[participantId] ?? participantId;
-  const roomTypes = new Set(
-    (game.actions ?? [])
-      .filter((action) => (action.audience ?? "room") === "room")
-      .map((action) => action.name),
-  );
+  const roomTypes = new Set(roomAudienceActions(game));
 
   const tools = toTools(game);
   // The seat's own secrets are stable for the match, so they belong in the cached header.
@@ -56,11 +54,13 @@ export function buildSeatPrompt(input: BuildSeatPromptInput): SeatPrompt {
     participantId,
   });
   const system = [
-    game.briefing?.(state, participantId) ?? "",
-    `只有你知道自己的私有信息：${JSON.stringify(own.privateState)}`,
-    "你正在通过工具行动：每次只能调用一个工具，调用完就结束本轮。",
-    `你的席位居于房间中的名字是「${seatKey}」。`,
-    seatTable(seatKeys),
+    section("规则", game.briefing?.(state, participantId) ?? ""),
+    section("你的角色", roleLine(game, state, participantId)),
+    section("你的位置与席位表", position(input)),
+    section("其他席位与可见人格", otherSeats(input)),
+    section("你的人格", ownPersona(input)),
+    section("只有你知道的信息", ownSecrets(own.privateState, participantId, input)),
+    section("行动约束", "你通过工具行动：每次只能调用一个工具，调用完这一轮就结束。"),
   ]
     .filter((part) => part.length > 0)
     .join("\n\n");
@@ -97,7 +97,7 @@ export function buildSeatPrompt(input: BuildSeatPromptInput): SeatPrompt {
     if (roomTypes.has(row.type)) {
       messages.push({
         role: "user",
-        content: `[${seatKeys[row.participantId ?? ""] ?? "?"}] ${renderPayload(row.payload)}`,
+        content: `[${seatKeys[row.participantId ?? ""] ?? "?"}] ${transcriptText(row, game, seatKeys)}`,
       });
     }
   }
@@ -107,36 +107,163 @@ export function buildSeatPrompt(input: BuildSeatPromptInput): SeatPrompt {
   return { tools, system, messages };
 }
 
+/** One heading and its body, or nothing at all: an empty section reads worse than no section. */
+function section(title: string, body: string): string {
+  const trimmed = body.trim();
+  return trimmed.length === 0 ? "" : `## ${title}\n${trimmed}`;
+}
+
+function seatKeysOf(input: BuildSeatPromptInput): Array<[string, string]> {
+  return Object.entries(input.seatKeys)
+    .filter(([participantId]) => participantId !== input.participantId)
+    .sort((left, right) => left[1].localeCompare(right[1]));
+}
+
+function roleLine(game: GameModule, state: GameState, participantId: string): string {
+  const role = state.participants.find((seat) => seat.participantId === participantId)?.roleId;
+  if (role === undefined) return "";
+  return `你是「${game.words?.[role] ?? role}」。`;
+}
+
 /**
- * The table's seats, in the game's own names. Ids never have to be reproduced by the model: it
- * names a seat, and the platform resolves it (see `resolveSeatReferences`).
+ * The table's seats, in the game's own names, and where this seat sits. Ids never have to be
+ * reproduced by the model: it names a seat, and the platform resolves it (see `resolveSeatReferences`).
  */
-function seatTable(seatKeys: Record<string, string>): string {
-  const seats = Object.entries(seatKeys)
-    .map(([participantId, key]) => ({ key, participantId }))
-    .sort((left, right) => left.key.localeCompare(right.key));
-  if (seats.length === 0) return "";
+function position(input: BuildSeatPromptInput): string {
+  const { seatKeys, participantId } = input;
+  const keys = Object.keys(seatKeys).sort((left, right) =>
+    (seatKeys[left] ?? left).localeCompare(seatKeys[right] ?? right),
+  );
+  const index = keys.indexOf(participantId);
+  const mine = seatKeys[participantId] ?? participantId;
+  const names = keys.map((key) => seatKeys[key] ?? key);
+  if (names.length === 0) return "";
   return [
-    `桌上的席位：${seats.map((seat) => seat.key).join("、")}。`,
+    index === -1
+      ? `你的席位不在本桌的名单里。`
+      : `你是「${mine}」，本桌 ${names.length} 席中的第 ${index + 1} 席。`,
+    `桌上的席位：${names.join("、")}。`,
     "要指定某个席位（例如投票），参数里写它的席位名，例如「s2」；不要写内部 id。",
   ].join("\n");
 }
 
+/** What the table may see of the others. A seat with nothing published is still named. */
+function otherSeats(input: BuildSeatPromptInput): string {
+  const others = seatKeysOf(input);
+  if (others.length === 0) return "";
+  return others
+    .map(([participantId, key]) => {
+      const persona = visibleParts(input.personas?.[participantId] ?? null);
+      return persona.length === 0 ? `- ${key}` : `- ${key}：${persona.join(" · ")}`;
+    })
+    .join("\n");
+}
+
+/** A seat's own persona drives how it talks, so it gets all of it — MBTI included. */
+function ownPersona(input: BuildSeatPromptInput): string {
+  const persona = visibleParts(input.personas?.[input.participantId] ?? null);
+  return persona.length === 0 ? "" : persona.join(" · ");
+}
+
+/** Gender is always public, MBTI never travels to another seat — the slice arrives decided. */
+function visibleParts(persona: SeatPersona | null): string[] {
+  if (persona === null) return [];
+  return [
+    persona.mbti,
+    persona.gender,
+    persona.profession,
+    persona.personality,
+    persona.style,
+  ].filter((part): part is string => part !== undefined && part !== "");
+}
+
+function ownSecrets(
+  privateState: Record<string, unknown>,
+  participantId: string,
+  input: BuildSeatPromptInput,
+): string {
+  const words = input.game.words ?? {};
+  return Object.entries(privateState)
+    .map(([key, value]) => {
+      const suffix = `:${participantId}`;
+      const name = key.endsWith(suffix) ? key.slice(0, key.length - suffix.length) : key;
+      return `${words[name] ?? name}：${renderValue(value, words, input.seatKeys)}`;
+    })
+    .join("\n");
+}
+
+/** A room row with no payload is the game's own word for it: "passed", "voted", whatever it says. */
+function transcriptText(
+  row: TranscriptRow,
+  game: GameModule,
+  seatKeys: Record<string, string>,
+): string {
+  const entries = Object.entries(row.payload);
+  if (entries.length === 0) return game.words?.[row.type] ?? "(无内容)";
+  const words = game.words ?? {};
+  if (entries.length === 1) return renderValue(entries[0]?.[1], words, seatKeys);
+  return entries
+    .map(([key, value]) => `${words[key] ?? key}=${renderValue(value, words, seatKeys)}`)
+    .join(" ");
+}
+
+/**
+ * Values as this table reads them: a seat reads as its name, a word the game named reads in
+ * Chinese. Anything else is shown as it is, so nothing is invented on the way.
+ */
+function renderValue(
+  value: unknown,
+  words: Record<string, string>,
+  seatKeys: Record<string, string>,
+): string {
+  if (typeof value === "string") return seatKeys[value] ?? words[value] ?? value;
+  if (typeof value === "number") return String(value);
+  if (typeof value === "boolean") return value ? "是" : "否";
+  if (value === null) return "—";
+  if (Array.isArray(value)) {
+    return value.length === 0
+      ? "（空）"
+      : value.map((item) => renderValue(item, words, seatKeys)).join("、");
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return "（空）";
+    return entries
+      .map(([key, item]) => `${words[key] ?? key}=${renderValue(item, words, seatKeys)}`)
+      .join("、");
+  }
+  return JSON.stringify(value);
+}
+
 /** The only part of the prompt that moves: what is happening now and what is allowed now. */
 export function turnInstruction(input: BuildSeatPromptInput): string {
-  const { game, state, participantId } = input;
+  const { game, state, participantId, seatKeys } = input;
   const allowed = allowedActions(game, state).map((action) => action.name);
   const view = projectPlayerView(resolveVisibility(game.visibility, state), state, {
     kind: "participant",
     participantId,
   });
+  const words = game.words ?? {};
+  const waiting = (state.waiting?.participantIds ?? [])
+    .filter((seat) => seat !== participantId)
+    .map((seat) => seatKeys[seat] ?? seat);
+  const situation = Object.entries(view.publicState)
+    .map(([key, value]) => `${words[key] ?? key}：${renderValue(value, words, seatKeys)}`)
+    .join("；");
 
   return [
-    "现在轮到你行动。",
-    `当前公开状态：${JSON.stringify(view.publicState)}`,
-    `本步允许的动作：${allowed.length === 0 ? "（无）" : allowed.join(", ")}`,
+    "## 现在",
+    `轮到你行动了。当前步骤：${words[state.stepId] ?? state.stepId}。`,
+    waiting.length > 0 ? `这一步还在等：${waiting.join("、")}。` : "",
+    "## 现在的局面",
+    situation.length === 0 ? "（没有公开状态）" : situation,
+    "## 本步允许的动作",
+    allowed.length === 0 ? "（无）" : allowed.join("、"),
+    "## 输出要求",
     "用一次工具调用来完成你的动作；如果调用的动作现在不被允许，你会收到提示，然后可以重试。",
-  ].join("\n");
+  ]
+    .filter((line) => line.length > 0)
+    .join("\n");
 }
 
 function toTools(game: GameModule): ChatTool[] {
@@ -155,14 +282,4 @@ function toTools(game: GameModule): ChatTool[] {
       },
     };
   });
-}
-
-/** Render a payload for the transcript without inventing semantics: values as they are. */
-function renderPayload(payload: Record<string, unknown>): string {
-  const entries = Object.entries(payload);
-  if (entries.length === 0) return "(无内容)";
-  if (entries.length === 1) return String(entries[0]?.[1]);
-  return entries
-    .map(([key, value]) => `${key}=${typeof value === "string" ? value : JSON.stringify(value)}`)
-    .join(" ");
 }

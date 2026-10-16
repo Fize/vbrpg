@@ -137,7 +137,8 @@ test.describe.serial("M7 房间与对局", () => {
     await expect(watcher.getByRole("button", { name: "提交" })).toHaveCount(0);
     await expect(watcher.getByText("只给你看的信息")).toHaveCount(0);
     await expect(watcher.getByTestId("seat").first()).toBeVisible();
-    await expect(watcher.getByTestId("match-log")).toContainText("描述");
+    // Watching means reading: the shared transcript is there, the seats' own material is not.
+    await expect(watcher.getByTestId("match-log")).toContainText("你要说的话：我这东西很甜");
 
     await watcher.context().close();
   });

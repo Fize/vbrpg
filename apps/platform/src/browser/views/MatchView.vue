@@ -2,9 +2,10 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { ArrowLeft, Refresh } from "@element-plus/icons-vue";
-import { api, apiRequestId, type GameAction, type MatchSeat } from "../services/api";
+import { api, apiRequestId, type MatchSeat } from "../services/api";
 import { uiErrorMessage } from "../services/messages";
 import {
+  carriesContent,
   describePayload,
   isOpen,
   statusLabel,
@@ -70,26 +71,21 @@ function personaLine(persona: MatchSeat["persona"]): string {
 const aliveCount = computed(
   () => (detail.value?.seats ?? []).filter((seat) => seat.status === "active").length,
 );
-const roomActionNames = computed(
-  () =>
-    new Set(
-      (detail.value?.actions ?? [])
-        .filter((action: GameAction) => (action.audience ?? "room") === "room")
-        .map((action) => action.name),
-    ),
-);
 /** Each seat's most recent line in the shared transcript, which is what the table hears. */
 const bubbles = computed(() => {
   const map: Record<string, string> = {};
   for (const row of detail.value?.record ?? []) {
-    if (row.participantId !== null && roomActionNames.value.has(row.type)) {
-      map[row.participantId] = describePayload({
-        payload: row.payload,
-        action: catalogue.value.get(row.type),
-        words: detail.value?.game.words ?? {},
-        seatName,
-      });
-    }
+    if (row.participantId === null) continue;
+    const action = catalogue.value.get(row.type);
+    if (action === undefined || (action.audience ?? "room") !== "room") continue;
+    // A pass carries no words: it must not push aside what the seat already said.
+    if (!carriesContent(action, row.payload)) continue;
+    map[row.participantId] = describePayload({
+      payload: row.payload,
+      action,
+      words: detail.value?.game.words ?? {},
+      seatName,
+    });
   }
   return map;
 });

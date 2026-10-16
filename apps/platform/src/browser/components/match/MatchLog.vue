@@ -99,7 +99,7 @@ watch(
             <span class="label">{{ entry.label }}</span>
           </div>
 
-          <p v-if="entry.kind !== 'model'" class="text">{{ entry.text }}</p>
+          <p v-if="entry.kind !== 'model' && entry.text" class="text">{{ entry.text }}</p>
 
           <template v-else>
             <div v-for="(call, index) in entry.model?.toolCalls ?? []" :key="index" class="call">

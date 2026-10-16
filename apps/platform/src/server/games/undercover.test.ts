@@ -57,6 +57,33 @@ function start(seed = "seed-1", variables: Record<string, unknown> = WORDS): Gam
   });
 }
 
+/** Everyone describes in turn: the first phase owes the table one line per seat. */
+function describeAll(state: GameState): GameState {
+  return apply(
+    state,
+    (state.waiting?.participantIds ?? []).map((seat) => ({
+      type: platformEventTypes.seatMessage,
+      actor: seat,
+      payload: { text: "..." },
+    })),
+  );
+}
+
+/** The table talks through `rounds` discussion rounds; a quiet seat passes instead of speaking. */
+function discussAll(state: GameState, rounds = 3): GameState {
+  let current = state;
+  for (let round = 0; round < rounds; round += 1) {
+    current = apply(
+      current,
+      (current.waiting?.participantIds ?? []).map((seat) => ({
+        type: "skipDiscussion",
+        actor: seat,
+      })),
+    );
+  }
+  return current;
+}
+
 function view(state: GameState, participantId: string) {
   return projectPlayerView(resolveVisibility(undercover.visibility, state), state, {
     kind: "participant",
@@ -88,6 +115,8 @@ describe("undercover rules", () => {
     expect(state.status).toBe("waiting");
     expect(state.stepId).toBe("describe");
     expect(state.waiting?.participantIds).toEqual(["p1", "p2", "p3", "p4"]);
+    // The describe phase owes a line: passing is a discussion move, not a describe move.
+    expect(state.waiting?.actions).toEqual([platformEventTypes.seatMessage]);
     expect(state.participants.filter((seat) => seat.roleId === "undercover")).toHaveLength(1);
   });
 
@@ -100,21 +129,96 @@ describe("undercover rules", () => {
     expect(deals[0]).not.toBe(deals[2]);
   });
 
-  it("moves to the vote phase once every active seat has described", () => {
-    const described = apply(
-      start(),
-      SEATS.map((seat) => ({
-        type: platformEventTypes.seatMessage,
-        actor: seat.participantId,
-        payload: { text: "..." },
+  it("moves to the discussion once every active seat has described", () => {
+    const described = describeAll(start());
+
+    expect(described.stepId).toBe("discuss");
+    expect(described.waiting).toMatchObject({ stepId: "discuss" });
+    expect(described.variables["phase"]).toBe("discuss");
+    expect(described.variables["discussRound"]).toBe(1);
+    // The discussion offers both moves: say something, or pass this round.
+    expect(described.waiting?.actions).toEqual([platformEventTypes.seatMessage, "skipDiscussion"]);
+    // The phase change is its own row, so the record explains why it happened.
+    expect(described.sequence).toBe(SEATS.length + 1);
+  });
+
+  it("ends the discussion after three rounds and narrows the table to a vote", () => {
+    const described = describeAll(start());
+    const roundOne = apply(described, [
+      { type: platformEventTypes.seatMessage, actor: "p1", payload: { text: "第一个说" } },
+      { type: "skipDiscussion", actor: "p2" },
+      { type: "skipDiscussion", actor: "p3" },
+      { type: "skipDiscussion", actor: "p4" },
+    ]);
+
+    expect(roundOne.variables["discussRound"]).toBe(2);
+    // The round change is a row of its own, and it resets who has been heard.
+    expect(roundOne.variables["discussed"]).toEqual([]);
+    expect(roundOne.waiting?.participantIds).toEqual(["p1", "p2", "p3", "p4"]);
+
+    const lastRound = discussAll(described, 2);
+    expect(lastRound.variables["discussRound"]).toBe(3);
+    const voted = discussAll(lastRound, 1);
+    expect(voted.stepId).toBe("vote");
+    expect(voted.variables["phase"]).toBe("vote");
+    expect(voted.waiting?.actions).toEqual(["vote"]);
+  });
+
+  it("refuses a second line in the same discussion round and any line after it", () => {
+    const described = describeAll(start());
+    const spoke = apply(described, [
+      { type: platformEventTypes.seatMessage, actor: "p1", payload: { text: "我说了" } },
+    ]);
+
+    expect(() =>
+      apply(spoke, [
+        { type: platformEventTypes.seatMessage, actor: "p1", payload: { text: "又说" } },
+      ]),
+    ).toThrow(/already spoken this round/);
+    expect(() =>
+      apply(spoke, [
+        { type: "skipDiscussion", actor: "p2" },
+        { type: "skipDiscussion", actor: "p2" },
+      ]),
+    ).toThrow(/already spoken this round/);
+    expect(() =>
+      apply(discussAll(described, 3), [
+        { type: platformEventTypes.seatMessage, actor: "p1", payload: { text: "还想说" } },
+      ]),
+    ).toThrow(/discussion is over/);
+    expect(() =>
+      apply(discussAll(described, 3), [{ type: "skipDiscussion", actor: "p1" }]),
+    ).toThrow(/Only a discussion round can be skipped/);
+    expect(() => apply(start(), [{ type: "skipDiscussion", actor: "p1" }])).toThrow(
+      /Only a discussion round can be skipped/,
+    );
+  });
+
+  it("counts only the seats still in the round, and a round resets on elimination", () => {
+    const described = describeAll(start());
+    const undercoverSeat = described.participants.find((seat) => seat.roleId === "undercover")!;
+    const alive = described.variables["alive"] as string[];
+    const doomed = alive.find((seat) => seat !== undercoverSeat.participantId)!;
+
+    const resolved = apply(
+      discussAll(described, 3),
+      alive.map((seat) => ({
+        type: "vote",
+        actor: seat,
+        payload: { target: seat === doomed ? undercoverSeat.participantId : doomed },
       })),
     );
 
-    expect(described.stepId).toBe("vote");
-    expect(described.waiting).toMatchObject({ stepId: "vote" });
-    expect(described.variables["phase"]).toBe("vote");
-    // The phase change is its own row, so the record explains why it happened.
-    expect(described.sequence).toBe(SEATS.length + 1);
+    expect(resolved.variables["phase"]).toBe("describe");
+    expect(resolved.variables["alive"]).not.toContain(doomed);
+    expect(resolved.variables["discussRound"]).toBe(1);
+    // The seat that left is never waited for again — not in the describe round, not in discussions.
+    expect(resolved.waiting?.participantIds).toEqual(alive.filter((seat) => seat !== doomed));
+    expect(() =>
+      apply(resolved, [
+        { type: platformEventTypes.seatMessage, actor: doomed, payload: { text: "?" } },
+      ]),
+    ).toThrow(/not part of the round/);
   });
 
   it("eliminates the most voted seat and ends the match when the undercover leaves", () => {
@@ -124,10 +228,7 @@ describe("undercover rules", () => {
       (seat) => seat.participantId !== undercoverSeat.participantId,
     );
 
-    const described = apply(
-      started,
-      SEATS.map((seat) => ({ type: platformEventTypes.seatMessage, actor: seat.participantId })),
-    );
+    const described = discussAll(describeAll(started), 3);
     const finished = apply(described, [
       ...others.map((seat) => ({
         type: "vote",
@@ -160,10 +261,7 @@ describe("undercover rules", () => {
     const distinct = new Set(words.map((entry) => Object.values(entry)[0]));
     expect(distinct.size).toBe(2);
 
-    const voted = apply(
-      state,
-      SEATS.map((seat) => ({ type: platformEventTypes.seatMessage, actor: seat.participantId })),
-    );
+    const voted = discussAll(describeAll(state), 3);
     const afterFirstVote = apply(voted, [{ type: "vote", actor: "p1", payload: { target: "p2" } }]);
     for (const seat of state.participants) {
       const projection = view(afterFirstVote, seat.participantId);
@@ -174,11 +272,7 @@ describe("undercover rules", () => {
   });
 
   it("shows the tally to everyone only after the round resolves", () => {
-    const started = start();
-    const described = apply(
-      started,
-      SEATS.map((seat) => ({ type: platformEventTypes.seatMessage, actor: seat.participantId })),
-    );
+    const described = discussAll(describeAll(start()), 3);
     const resolved = apply(described, [
       { type: "vote", actor: "p1", payload: { target: "p2" } },
       { type: "vote", actor: "p2", payload: { target: "p1" } },
@@ -191,10 +285,7 @@ describe("undercover rules", () => {
   });
 
   it("rejects illegal moves with the rule's own code", () => {
-    const described = apply(
-      start(),
-      SEATS.map((seat) => ({ type: platformEventTypes.seatMessage, actor: seat.participantId })),
-    );
+    const described = discussAll(describeAll(start()), 3);
 
     expect(() =>
       apply(described, [{ type: "vote", actor: "p1", payload: { target: "p1" } }]),

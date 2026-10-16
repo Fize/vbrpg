@@ -1,5 +1,5 @@
 import type { GameAction, GameVocabulary, MatchRecordRow } from "./api";
-import { describePayload, eventLabel } from "./match-labels";
+import { carriesContent, describePayload, eventLabel } from "./match-labels";
 
 /**
  * How a row reads in the room's log. The kind comes from the platform's vocabulary and the game's
@@ -89,7 +89,7 @@ export function buildLog(input: {
       label: eventLabel(input.actions, input.game.words, row.type),
       seat: seatName(row.participantId),
       text:
-        kind === "model"
+        kind === "model" || !carriesContent(action, row.payload)
           ? ""
           : describePayload({
               payload: row.payload,

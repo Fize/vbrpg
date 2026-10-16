@@ -12,8 +12,8 @@ import {
 import type { Visibility } from "../game/projector.js";
 
 /**
- * 「谁是卧底」：多数席位拿到同一个词，一名卧底拿到近义词。每回合先轮流描述、再全体投票，
- * 票高者出局；卧底出局则平民胜，卧底与最后两人同场则卧底胜。
+ * 「谁是卧底」：多数席位拿到同一个词，一名卧底拿到近义词。每回合先轮流描述、再讨论至多三轮、
+ * 然后全体投票，票高者出局；卧底出局则平民胜，卧底与最后两人同场则卧底胜。
  *
  * 隐藏信息只有两样：自己的词（`word:<participantId>`，只对该席位可见）与投票内容
  * （`votes` 不写进可见性，任何席位都看不到；只有结算后的 `summary` 公开）。
@@ -21,6 +21,8 @@ import type { Visibility } from "../game/projector.js";
 
 const MIN_SEATS = 3;
 const MAX_SEATS = 12;
+/** Talking stops when the rules say so: after this many rounds comes the vote, not another round. */
+const DISCUSSION_ROUNDS = 3;
 
 /**
  * The words are not the game's: the creator gives a category, the platform's model turns it into a
@@ -50,10 +52,14 @@ function requiredWord(variables: Record<string, unknown>, name: string): string 
 }
 
 type UndercoverVariables = {
-  phase: "describe" | "vote" | "over";
+  phase: "describe" | "discuss" | "vote" | "over";
   round: number;
+  /** Which discussion round is running, 1 to `DISCUSSION_ROUNDS`. */
+  discussRound: number;
   alive: string[];
   spoken: string[];
+  /** Seats handled in the current discussion round — speaking and skipping count the same. */
+  discussed: string[];
   votes: Record<string, string>;
   summary: {
     round: number;
@@ -71,9 +77,16 @@ function variablesOf(state: GameState): UndercoverVariables {
 const ACTIONS: readonly ActionDefinition[] = [
   {
     name: platformEventTypes.seatMessage,
-    label: "描述",
-    description: "用一句话描述你拿到的词，不要直接说出它。",
+    label: "发言",
+    description:
+      "用一句话说给全桌听：描述阶段用一句话描述你的词，讨论阶段可以质疑、辩解、给人理由。不要直接说出自己的词。",
     args: { text: { description: "你要说的话" } },
+    audience: "room",
+  },
+  {
+    name: "skipDiscussion",
+    label: "这轮不说",
+    description: "讨论时你这一轮不发言，直接轮到下一位；轮次照常推进。",
     audience: "room",
   },
   {
@@ -89,6 +102,7 @@ const ACTIONS: readonly ActionDefinition[] = [
 const STEP_NAMES: Readonly<Record<string, string>> = {
   start: "开局",
   describe: "描述阶段",
+  discuss: "讨论阶段",
   vote: "投票阶段",
   resolve: "结算",
   over: "对局结束",
@@ -99,8 +113,10 @@ const WORD_NAMES: Readonly<Record<string, string>> = {
   category: "分类",
   phase: "阶段",
   round: "回合",
+  discussRound: "讨论轮次",
   alive: "在场席位",
   spoken: "已发言",
+  discussed: "本轮已说话",
   votes: "选票",
   summary: "上轮结算",
   winner: "胜方",
@@ -110,20 +126,28 @@ const WORD_NAMES: Readonly<Record<string, string>> = {
   civilian: "平民",
   undercover: "卧底",
   describe: "描述",
+  discuss: "讨论",
   vote: "投票",
   resolve: "结算",
   over: "结束",
   describePhaseEnded: "描述阶段结束",
+  discussRoundEnded: "讨论轮次结束",
+  discussionEnded: "讨论结束",
   votesRevealed: "投票结算",
+  skipDiscussion: "（跳过）",
 };
 
-function waitingFor(stepId: "describe" | "vote", seats: string[]): GameState["waiting"] {
-  return {
-    kind: "collectInput",
-    stepId,
-    participantIds: seats,
-    actions: stepId === "describe" ? [platformEventTypes.seatMessage] : ["vote"],
-  };
+function waitingFor(
+  stepId: "describe" | "discuss" | "vote",
+  seats: string[],
+): GameState["waiting"] {
+  const actions =
+    stepId === "describe"
+      ? [platformEventTypes.seatMessage]
+      : stepId === "discuss"
+        ? [platformEventTypes.seatMessage, "skipDiscussion"]
+        : ["vote"];
+  return { kind: "collectInput", stepId, participantIds: seats, actions };
 }
 
 function withStatus(participants: Participant[], eliminated: string | null): Participant[] {
@@ -182,7 +206,8 @@ export const undercover: GameModule = {
     if (!seat) throw new EngineError("UNKNOWN_SEAT", "That seat is not in this match");
     return [
       "你在玩「谁是卧底」。大多数席位拿到同一个词，只有一名卧底拿到近义词。",
-      "每回合先由所有在世席位轮流用一句话描述自己的词，然后全体投票，得票最多的席位出局。",
+      "每回合分三段：所有在世席位先轮流用一句话描述自己的词；然后讨论至多三轮，每轮每人最多说一次，",
+      "也可以选择这轮不说；最后全体投票，得票最多的席位出局。第三轮讨论结束后只能投票，不能再发言。",
       "卧底出局则平民获胜；卧底留到最后两人则卧底获胜。平票时不淘汰，直接进入下一回合。",
       `你在这局里的角色是 ${seat.roleId === "undercover" ? "卧底" : "平民"}。`,
       "不要直接说出你的词，用一句话让别人猜不出又让同伴认得出。",
@@ -198,7 +223,9 @@ export const undercover: GameModule = {
       category: "public",
       phase: "public",
       round: "public",
+      discussRound: "public",
       alive: "public",
+      discussed: "public",
       summary: "public",
       winner: "public",
     };
@@ -231,8 +258,10 @@ export const undercover: GameModule = {
         : {}),
       phase: "describe",
       round: 1,
+      discussRound: 1,
       alive,
       spoken: [],
+      discussed: [],
       votes: {},
       summary: null,
       winner: null,
@@ -270,42 +299,95 @@ export const undercover: GameModule = {
       }
 
       case platformEventTypes.seatMessage: {
-        if (variables.phase !== "describe") {
-          throw new EngineError(
-            "NOT_DESCRIBING",
-            "Descriptions are only accepted in the describe phase",
-          );
-        }
         const speaker = requireActor(state, event.participantId);
-        const spoken = variables.spoken.includes(speaker)
-          ? variables.spoken
-          : [...variables.spoken, speaker];
-        const pending = variables.alive.filter((seat) => !spoken.includes(seat));
-        if (pending.length > 0) {
+        if (variables.phase === "describe") {
+          const spoken = variables.spoken.includes(speaker)
+            ? variables.spoken
+            : [...variables.spoken, speaker];
+          const pending = variables.alive.filter((seat) => !spoken.includes(seat));
+          if (pending.length > 0) {
+            return {
+              state: {
+                ...state,
+                variables: { ...state.variables, spoken },
+                waiting: waitingFor("describe", pending),
+              },
+              events: [],
+            };
+          }
+          // Everyone has described; the phase change gets its own row so the record explains itself.
           return {
             state: {
               ...state,
-              variables: { ...state.variables, spoken },
-              waiting: waitingFor("describe", pending),
+              stepId: "discuss",
+              waiting: waitingFor("discuss", variables.alive),
+              variables: {
+                ...state.variables,
+                spoken,
+                phase: "discuss",
+                discussRound: 1,
+                discussed: [],
+              },
             },
-            events: [],
+            events: [derived(state, "describePhaseEnded", { round: variables.round })],
           };
         }
-        // Everyone has described; the phase change gets its own row so the record explains itself.
+        if (variables.phase !== "discuss") {
+          throw new EngineError(
+            "NOT_DISCUSSING",
+            "The discussion is over: only votes are accepted now",
+          );
+        }
+        if (variables.discussed.includes(speaker)) {
+          throw new EngineError("ALREADY_DISCUSSED", "That seat has already spoken this round");
+        }
+        return advanceDiscussion(state, [...variables.discussed, speaker]);
+      }
+
+      case "skipDiscussion": {
+        if (variables.phase !== "discuss") {
+          throw new EngineError("NOT_DISCUSSING", "Only a discussion round can be skipped");
+        }
+        const seat = requireActor(state, event.participantId);
+        if (variables.discussed.includes(seat)) {
+          throw new EngineError("ALREADY_DISCUSSED", "That seat has already spoken this round");
+        }
+        return advanceDiscussion(state, [...variables.discussed, seat]);
+      }
+
+      case "describePhaseEnded": {
+        return {
+          state: {
+            ...state,
+            stepId: "discuss",
+            waiting: waitingFor("discuss", variables.alive),
+            variables: { ...state.variables, phase: "discuss", discussRound: 1, discussed: [] },
+          },
+          events: [],
+        };
+      }
+
+      case "discussRoundEnded": {
+        // Derived from the row, not from the state, so re-applying it cannot count a round twice.
+        const round = Number(event.payload["round"] ?? variables.discussRound);
+        return {
+          state: {
+            ...state,
+            waiting: waitingFor("discuss", variables.alive),
+            variables: { ...state.variables, discussRound: round + 1, discussed: [] },
+          },
+          events: [],
+        };
+      }
+
+      case "discussionEnded": {
         return {
           state: {
             ...state,
             stepId: "vote",
             waiting: waitingFor("vote", variables.alive),
-            variables: { ...state.variables, spoken, phase: "vote", votes: {} },
+            variables: { ...state.variables, phase: "vote", votes: {} },
           },
-          events: [derived(state, "describePhaseEnded", { round: variables.round })],
-        };
-      }
-
-      case "describePhaseEnded": {
-        return {
-          state: { ...state, stepId: "vote", waiting: waitingFor("vote", variables.alive) },
           events: [],
         };
       }
@@ -416,13 +498,60 @@ function resolveRound(state: GameState): TransitionResult {
         ...state.variables,
         phase: "describe",
         round: variables.round + 1,
+        discussRound: 1,
         alive,
         spoken: [],
+        discussed: [],
         votes: {},
         summary,
         winner: null,
       },
     },
     events: [],
+  };
+}
+
+/**
+ * One discussion round ends when every seat still in the round has been handled — speaking and
+ * skipping count the same, and seats already out of the round are not waited for at all. The last
+ * round hands the table to the vote: the rules, not the players, decide when talking stops.
+ */
+function advanceDiscussion(state: GameState, discussed: string[]): TransitionResult {
+  const variables = variablesOf(state);
+  const pending = variables.alive.filter((seat) => !discussed.includes(seat));
+  if (pending.length > 0) {
+    return {
+      state: {
+        ...state,
+        variables: { ...state.variables, discussed },
+        waiting: waitingFor("discuss", pending),
+      },
+      events: [],
+    };
+  }
+
+  if (variables.discussRound < DISCUSSION_ROUNDS) {
+    return {
+      state: {
+        ...state,
+        waiting: waitingFor("discuss", variables.alive),
+        variables: {
+          ...state.variables,
+          discussed: [],
+          discussRound: variables.discussRound + 1,
+        },
+      },
+      events: [derived(state, "discussRoundEnded", { round: variables.discussRound })],
+    };
+  }
+
+  return {
+    state: {
+      ...state,
+      stepId: "vote",
+      waiting: waitingFor("vote", variables.alive),
+      variables: { ...state.variables, phase: "vote", discussed, votes: {} },
+    },
+    events: [derived(state, "discussionEnded", { rounds: DISCUSSION_ROUNDS })],
   };
 }

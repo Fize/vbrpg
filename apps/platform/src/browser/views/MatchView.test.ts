@@ -150,6 +150,51 @@ const detail: MatchDetail = {
   ],
 };
 
+/**
+ * The discussion phase: passing is a move of its own, and it carries no words, so a seat that has
+ * already spoken keeps its line on the table.
+ */
+const discussing: MatchDetail = {
+  ...detail,
+  summary: { ...detail.summary, stepId: "discuss", sequence: 5 },
+  waiting: {
+    kind: "collectInput",
+    stepId: "discuss",
+    participantIds: [other],
+    actions: ["seatMessage", "skipDiscussion"],
+  },
+  view: {
+    ...detail.view,
+    sequence: 5,
+    publicState: { phase: "discuss", round: 1, discussRound: 1 },
+    availableActions: [],
+  },
+  record: [
+    ...detail.record,
+    {
+      eventId: "e5",
+      sequence: 5,
+      type: "skipDiscussion",
+      participantId: aiSeat,
+      actorUserId: null,
+      stepId: "discuss",
+      occurredAtMs: 1_760_000_004_000,
+      idempotencyKey: "k5",
+      payload: {},
+      usage: null,
+    },
+  ],
+  actions: [
+    ...detail.actions,
+    {
+      name: "skipDiscussion",
+      label: "这轮不说",
+      description: "这一轮你不发言，直接轮到下一位。",
+      audience: "room",
+    },
+  ],
+};
+
 vi.mock("vue-router", () => ({
   useRoute: () => ({ params: { instanceId } }),
 }));
@@ -302,5 +347,15 @@ describe("match room", () => {
     // A seat argument is a picker over this match's seats, not a free-text field.
     expect(dock.findAll(".el-select")).toHaveLength(1);
     expect(dock.find(".el-select").text()).toContain("要投的席位");
+  });
+
+  it("keeps a seat's line on the table when it passes a discussion round", async () => {
+    current = discussing;
+    const wrapper = await render();
+
+    // The pass is recorded, but it must not push aside what the seat already said.
+    expect(wrapper.find("[data-testid='match-log']").text()).toContain("这轮不说");
+    expect(wrapper.find(".bubble").text()).toContain("我这东西冬天常见");
+    expect(wrapper.text()).not.toContain("（无内容）");
   });
 });
