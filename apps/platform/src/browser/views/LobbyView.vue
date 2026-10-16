@@ -57,6 +57,19 @@ onMounted(async () => {
   }
 });
 
+function entryOf(gameId: string): GameCatalogueEntry | undefined {
+  return games.value.find((game) => game.gameId === gameId);
+}
+
+/** The catalogue names the games and their steps; an unknown word stays as the API sent it. */
+function gameTitle(gameId: string): string {
+  return entryOf(gameId)?.title ?? gameId;
+}
+
+function stepName(row: { gameId: string; stepId: string }): string {
+  return entryOf(row.gameId)?.steps[row.stepId] ?? row.stepId;
+}
+
 function openCreate(): void {
   createGame.value = games.value[0]?.gameId ?? "";
   createError.value = null;
@@ -138,8 +151,11 @@ async function submitCreate(): Promise<void> {
       <p v-if="loadRequestId" class="meta">请求编号 {{ loadRequestId }}</p>
 
       <el-table v-loading="loading" :data="matches" empty-text="还没有对局" row-key="instanceId">
-        <el-table-column label="游戏" min-width="140">
-          <template #default="{ row }">{{ row.gameId }}@{{ row.gameVersion }}</template>
+        <el-table-column label="游戏" min-width="160">
+          <template #default="{ row }">
+            {{ gameTitle(row.gameId) }}
+            <span class="muted mono">@{{ row.gameVersion }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
@@ -159,7 +175,7 @@ async function submitCreate(): Promise<void> {
         <el-table-column label="进度" min-width="150">
           <template #default="{ row }">
             <span class="mono">#{{ row.sequence }}</span>
-            <span class="muted"> · {{ row.stepId }}</span>
+            <span class="muted"> · {{ stepName(row) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="创建时间" min-width="170">
@@ -217,7 +233,7 @@ async function submitCreate(): Promise<void> {
             <el-option
               v-for="game in games"
               :key="game.gameId"
-              :label="`${game.gameId}@${game.version}`"
+              :label="`${game.title}（${game.version}）`"
               :value="game.gameId"
             />
           </el-select>

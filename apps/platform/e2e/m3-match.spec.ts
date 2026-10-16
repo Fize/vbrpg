@@ -46,7 +46,7 @@ test.describe.serial("M3 对局界面", () => {
     matchId = page.url().split("/").pop() ?? "";
     await expect(page.getByText("当前阶段")).toBeVisible();
     await expect(page.getByText("s3", { exact: true }).first()).toBeVisible();
-    await expect(page.getByTestId("my-actions")).toContainText("seatMessage");
+    await expect(page.getByTestId("my-actions")).toContainText("描述");
     await expect(page.getByPlaceholder("你要说的话")).toBeVisible();
 
     await page.getByPlaceholder("你要说的话").fill("我这东西很甜");
@@ -58,13 +58,15 @@ test.describe.serial("M3 对局界面", () => {
     // The record is the room's log, not a separate page.
     const log = page.getByTestId("match-log");
     await expect(log).toContainText("对局创建");
-    await expect(log).toContainText("席位发言");
+    // Rows read in the game's own words, not in event names.
+    await expect(log).toContainText("描述");
+    await expect(log).toContainText("你要说的话：我这东西很甜");
     await expect(log).toContainText("#1");
   });
 
   test("第二个真人在自己的控制台里接着玩", async ({ page }) => {
     await login(page, playerName, playerPassword);
-    await expect(page.getByText("undercover@1.0.0").first()).toBeVisible();
+    await expect(page.getByText("谁是卧底").first()).toBeVisible();
     await page.getByRole("button", { name: "进入房间" }).first().click();
 
     await expect(page).toHaveURL(/\/matches\/[0-9a-f-]{36}$/);
@@ -104,7 +106,7 @@ test.describe.serial("M3 对局界面", () => {
   test("第三个账号能旁观同一局，但拿不到动作", async ({ page }) => {
     await login(page, watcherName, watcherPassword);
     // The lobby is the match hall: every match is listed, and this account holds no seat anywhere.
-    await expect(page.getByText("undercover@1.0.0").first()).toBeVisible();
+    await expect(page.getByText("谁是卧底").first()).toBeVisible();
     await page.getByRole("button", { name: "旁观" }).first().click();
     await expect(page).toHaveURL(new RegExp(`/matches/${matchId}$`));
 
@@ -116,6 +118,6 @@ test.describe.serial("M3 对局界面", () => {
 
     // The table and the record survive the lifecycle change: cancelling is not a game event.
     await expect(page.getByTestId("seat").first()).toBeVisible();
-    await expect(page.getByTestId("match-log")).toContainText("席位发言");
+    await expect(page.getByTestId("match-log")).toContainText("描述");
   });
 });

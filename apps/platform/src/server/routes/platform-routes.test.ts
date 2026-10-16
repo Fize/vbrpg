@@ -261,7 +261,15 @@ function fakeMatchService(overrides: Partial<MatchService> = {}): MatchService &
       seen.push(`list:${actor.isAdmin ? "admin" : "seated"}`);
       return [summary];
     },
-    listGames: () => [{ gameId: "undercover", version: "1.0.0", engineVersion: "core-1" }],
+    listGames: () => [
+      {
+        gameId: "undercover",
+        title: "谁是卧底",
+        version: "1.0.0",
+        engineVersion: "core-1",
+        steps: { describe: "描述阶段" },
+      },
+    ],
     setStatus: async ({ instanceId, status }) => {
       seen.push(`status:${instanceId}:${status}`);
       return { ...summary, status };
@@ -274,6 +282,7 @@ function fakeMatchService(overrides: Partial<MatchService> = {}): MatchService &
       seen.push(`read:${instanceId}`);
       return {
         summary,
+        game: { title: "谁是卧底", steps: {}, words: {} },
         seats: [],
         waiting: null,
         view,
@@ -963,7 +972,13 @@ describe("match routes", () => {
     const response = await app.inject({ method: "GET", url: "/v1/games", headers });
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.json().games, [
-      { gameId: "undercover", version: "1.0.0", engineVersion: "core-1" },
+      {
+        gameId: "undercover",
+        title: "谁是卧底",
+        version: "1.0.0",
+        engineVersion: "core-1",
+        steps: { describe: "描述阶段" },
+      },
     ]);
   });
 

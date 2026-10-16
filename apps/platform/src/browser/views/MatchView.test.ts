@@ -19,6 +19,11 @@ const detail: MatchDetail = {
     createdAt: "2026-10-15T00:00:00.000Z",
     mySeatKeys: ["s1"],
   },
+  game: {
+    title: "谁是卧底",
+    steps: { describe: "描述阶段", vote: "投票阶段" },
+    words: { round: "回合", winner: "胜方", civilian: "平民", text: "你要说的话" },
+  },
   seats: [
     { participantId: me, key: "s1", control: "human", status: "active", actorUserId: me },
     { participantId: other, key: "s2", control: "human", status: "active", actorUserId: null },
@@ -98,12 +103,14 @@ const detail: MatchDetail = {
   actions: [
     {
       name: "seatMessage",
+      label: "描述",
       description: "用一句话描述你拿到的词，不要直接说出它。",
       args: { text: { description: "你要说的话" } },
       audience: "room",
     },
     {
       name: "vote",
+      label: "投票",
       description: "投出你认为最像卧底的席位。",
       args: { target: { description: "要投的席位", kind: "seat" } },
       audience: "seat",
@@ -196,7 +203,7 @@ describe("match room", () => {
     const wrapper = await render();
     const dock = wrapper.find("[data-testid='my-actions']");
 
-    expect(dock.text()).toContain("seatMessage");
+    expect(dock.text()).toContain("描述");
     expect(dock.text()).toContain("用一句话描述你拿到的词");
     expect(wrapper.find("input[placeholder='你要说的话']").exists()).toBe(true);
     expect(dock.find("button").text()).toContain("提交");
@@ -208,9 +215,11 @@ describe("match room", () => {
 
     expect(log.text()).toContain("发言");
     expect(log.text()).toContain("模型");
-    expect(log.text()).toContain("我这东西冬天常见");
-    expect(log.text()).toContain('seatMessage({"text":"我这东西冬天常见"})');
-    expect(log.text()).toContain("test-model · 500/120/620");
+    // Everything a reader sees is in the game's own words: the payload keys are the action's
+    // argument names, and the usage is labelled instead of being three anonymous numbers.
+    expect(log.text()).toContain("你要说的话：我这东西冬天常见");
+    expect(log.text()).toContain("描述");
+    expect(log.text()).toContain("test-model · 输入 500 · 输出 120 · 合计 620");
     // A secret ballot is a seat-audience row, so the log names the seat it came from.
     expect(log.text()).toContain("s2");
     expect(log.text()).not.toContain("冬天常见，但我不确定是不是卧底。");
@@ -246,7 +255,7 @@ describe("match room", () => {
     const wrapper = await render();
 
     const dock = wrapper.find("[data-testid='my-actions']");
-    expect(dock.text()).toContain("vote");
+    expect(dock.text()).toContain("投票");
     expect(dock.text()).toContain("投出你认为最像卧底的席位。");
     expect(dock.text()).toContain("私密");
     // A seat argument is a picker over this match's seats, not a free-text field.

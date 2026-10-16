@@ -152,6 +152,8 @@ export const actionArgSchema = z.object({
 /** The catalogue entry a seat needs to build a form: the action name is the event it produces. */
 export const gameActionSchema = z.object({
   name: idSchema,
+  /** What the table calls this action. The name is a machine word; this is the human one. */
+  label: z.string().min(1),
   description: z.string(),
   args: z.record(actionArgSchema).optional(),
   audience: z.enum(["room", "seat"]).optional(),
@@ -194,8 +196,22 @@ export const matchListSchema = z.object({ matches: z.array(matchSummarySchema) }
 
 export const gameCatalogueEntrySchema = z.object({
   gameId: idSchema,
+  title: z.string().min(1),
   version: z.string().min(1),
   engineVersion: z.string().min(1),
+  /** Its step names, so a list can show what a match is waiting at without a second call. */
+  steps: z.record(z.string().min(1)),
+});
+
+/**
+ * The game's own words, so the platform never invents a name and never shows a machine word to a
+ * player. `steps` names the steps the game advances through, `words` names everything else the
+ * game puts in state (variable names, roles, outcome labels). Anything absent stays as it is.
+ */
+export const gameVocabularySchema = z.object({
+  title: z.string().min(1),
+  steps: z.record(z.string().min(1)),
+  words: z.record(z.string().min(1)),
 });
 
 export const gameCatalogueSchema = z.object({ games: z.array(gameCatalogueEntrySchema) });
@@ -207,6 +223,7 @@ export const gameCatalogueSchema = z.object({ games: z.array(gameCatalogueEntryS
  */
 export const matchDetailSchema = z.object({
   summary: matchSummarySchema,
+  game: gameVocabularySchema,
   seats: z.array(matchSeatSchema),
   /** The point the match is waiting on. Public: it is who the table is waiting for, not a secret. */
   waiting: waitingSchema.nullable(),
@@ -233,6 +250,7 @@ export type SubmitEventRequest = z.infer<typeof submitEventRequestSchema>;
 export type PlayerView = z.infer<typeof playerViewSchema>;
 export type ActionArg = z.infer<typeof actionArgSchema>;
 export type GameAction = z.infer<typeof gameActionSchema>;
+export type GameVocabulary = z.infer<typeof gameVocabularySchema>;
 export type GameCatalogueEntry = z.infer<typeof gameCatalogueEntrySchema>;
 export type MatchSummary = z.infer<typeof matchSummarySchema>;
 export type MatchSeat = z.infer<typeof matchSeatSchema>;

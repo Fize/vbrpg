@@ -2,13 +2,27 @@
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { Refresh } from "@element-plus/icons-vue";
-import { api, apiRequestId, type MatchSummary } from "../services/api";
+import { api, apiRequestId, type GameCatalogueEntry, type MatchSummary } from "../services/api";
 import { uiErrorMessage } from "../services/messages";
 import { formatTime, isOpen, statusLabel, statusTag } from "../services/match-labels";
 
 const router = useRouter();
 
 const matches = ref<MatchSummary[]>([]);
+const games = ref<GameCatalogueEntry[]>([]);
+
+function entryOf(gameId: string): GameCatalogueEntry | undefined {
+  return games.value.find((game) => game.gameId === gameId);
+}
+
+/** The catalogue names the games and their steps; an unknown word stays as the API sent it. */
+function gameTitle(gameId: string): string {
+  return entryOf(gameId)?.title ?? gameId;
+}
+
+function stepName(row: { gameId: string; stepId: string }): string {
+  return entryOf(row.gameId)?.steps[row.stepId] ?? row.stepId;
+}
 const loading = ref(false);
 const loadError = ref<string | null>(null);
 const loadRequestId = ref<string | null>(null);
@@ -27,6 +41,7 @@ async function load(): Promise<void> {
   loadRequestId.value = null;
   try {
     matches.value = await api.listMatches();
+    games.value = await api.listGames();
   } catch (error) {
     loadError.value = uiErrorMessage(error);
     loadRequestId.value = apiRequestId(error);
@@ -112,7 +127,7 @@ async function confirmCancel(): Promise<void> {
         <el-table-column label="对局" min-width="300">
           <template #default="{ row }">
             <div class="mono instance">{{ row.instanceId }}</div>
-            <div class="muted small">{{ row.gameId }}@{{ row.gameVersion }}</div>
+            <div class="muted small">{{ gameTitle(row.gameId) }}@{{ row.gameVersion }}</div>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="110">
@@ -125,7 +140,7 @@ async function confirmCancel(): Promise<void> {
         <el-table-column label="进度" width="150">
           <template #default="{ row }">
             <span class="mono">#{{ row.sequence }}</span>
-            <span class="muted"> · {{ row.stepId }}</span>
+            <span class="muted"> · {{ stepName(row) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="创建时间" min-width="170">

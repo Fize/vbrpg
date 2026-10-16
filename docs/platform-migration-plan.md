@@ -128,6 +128,9 @@ interface GameModule {
 class GameRegistry { get(id); require(id); list(); }   // 启动时注册，重复 id 直接拒绝
 ```
 
+界面上的每个字都归游戏自己命名（`title`、`steps`、`words`、动作的 `label`），平台只按词表渲染：
+没声明的词保持原样，平台不替游戏编中文，也不把机器名当文案给玩家看。
+
 `visibility` 可以是状态函数（`(state) => Visibility`）：每席位的秘密变量只有在席位存在之后才可寻址，游戏据此计算规则。读接口返回的席位表给出 `key ↔ participantId` 映射；事件 payload 里的席位引用一律用 `participantId`。
 
 `transition` 内不能访问数据库、网络、系统时间或直接调用 LLM。随机数、时间与 AI 结果都必须作为显式输入（事件）进来；它只能返回新的状态与要追加的事件，由平台在事务里落库。
@@ -157,7 +160,7 @@ class GameRegistry { get(id); require(id); list(); }   // 启动时注册，重�
 
 **动作即事件**：
 
-- `GameModule.actions`（静态目录）：`{ name, description, args, audience }`，其中 `name` 就是事件类型，`args` 是 payload 的字段与说明，`audience` 决定该动作的内容是进公共转录（`room`，默认）还是只留给席位自己（`seat`，例如秘密投票）。
+- `GameModule.actions`（静态目录）：`{ name, label, description, args, audience }`，其中 `name` 就是事件类型，`label` 是台面上怎么称呼它，`args` 是 payload 的字段、说明与形态（`kind: "seat"` 表示这是个席位选择），`audience` 决定该动作的内容是进公共转录（`room`，默认）还是只留给席位自己（`seat`，例如秘密投票）。
 - `waiting.actions`：当前这一步**允许的名字子集**。
 - 平台执行一次工具调用 = 用 `{ type: name, payload: args }` 走 M1 的写入路径。真人与 AI 从同一个口子进，没有第二条通道。
 - `GameModule.briefing(state, participantId)`：游戏用自己的话写规则；平台再补上该席位的私有状态。两者都是对局内不变的，因此都进 `system`。

@@ -1,5 +1,5 @@
-import type { GameAction, MatchRecordRow } from "./api";
-import { eventLabel, payloadText } from "./match-labels";
+import type { GameAction, GameVocabulary, MatchRecordRow } from "./api";
+import { describePayload, eventLabel } from "./match-labels";
 
 /**
  * How a row reads in the room's log. The kind comes from the platform's vocabulary and the game's
@@ -15,10 +15,10 @@ export interface LogEntry {
   label: string;
   seat: string;
   text: string;
-  /** Set on model rows: what the seat was thinking and what it cost. */
+  /** Set on model rows: what the seat was thinking, what it asked for and what it cost. */
   model: {
     reasoning: string;
-    toolCalls: Array<{ name: string; arguments: string }>;
+    toolCalls: Array<{ name: string; label: string; text: string }>;
     usage: string;
   } | null;
 }
@@ -39,67 +39,76 @@ function textOf(row: MatchRecordRow, key: string): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-function toolCallsOf(row: MatchRecordRow): Array<{ name: string; arguments: string }> {
+function usageText(row: MatchRecordRow): string {
+  if (row.usage === null) return "";
+  return `${row.usage.modelId} · 输入 ${row.usage.promptTokens} · 输出 ${row.usage.completionTokens} · 合计 ${row.usage.totalTokens}`;
+}
+
+function toolsOf(row: MatchRecordRow): Array<{ name: string; id: string; payload: Record<string, unknown> }> {
   const raw = row.payload["toolCalls"];
   if (!Array.isArray(raw)) return [];
-  const calls: Array<{ name: string; arguments: string }> = [];
+  const calls: Array<{ name: string; id: string; payload: Record<string, unknown> }> = [];
   for (const item of raw) {
     if (typeof item !== "object" || item === null) continue;
     const call = item as Record<string, unknown>;
-    calls.push({ name: String(call["name"] ?? ""), arguments: String(call["arguments"] ?? "") });
+    let payload: Record<string, unknown> = {};
+    try {
+      const parsed: unknown = JSON.parse(String(call["arguments"] ?? "{}"));
+      if (typeof parsed === "object" && parsed !== null) payload = parsed as Record<string, unknown>;
+    } catch {
+      payload = {};
+    }
+    calls.push({ name: String(call["name"] ?? ""), id: String(call["id"] ?? ""), payload });
   }
   return calls;
-}
-
-function usageOf(row: MatchRecordRow): string {
-  if (row.usage === null) return "";
-  return `${row.usage.modelId} · ${row.usage.promptTokens}/${row.usage.completionTokens}/${row.usage.totalTokens}`;
 }
 
 export function buildLog(input: {
   record: readonly MatchRecordRow[];
   actions: readonly GameAction[];
+  game: GameVocabulary;
   seatName: (participantId: string | null) => string;
 }): LogEntry[] {
-  const audience = new Map(input.actions.map((action) => [action.name, action.audience ?? "room"]));
-  /** Payload fields the catalogue declares as seats, so a log line reads `target: s2`. */
-  const seatArgs = new Map(
-    input.actions.map((action) => [
-      action.name,
-      new Set(
-        Object.entries(action.args ?? {})
-          .filter(([, arg]) => arg.kind === "seat")
-          .map(([name]) => name),
-      ),
-    ]),
-  );
+  const byName = new Map(input.actions.map((action) => [action.name, action]));
+  const seatName = (participantId: string | null): string =>
+    participantId === null ? "平台" : input.seatName(participantId);
 
   return input.record.map((row) => {
+    const action = byName.get(row.type);
     const kind: LogKind =
       PLATFORM_KINDS[row.type] ??
-      (audience.get(row.type) === "seat" ? "private" : audience.has(row.type) ? "speech" : "phase");
-    const calls = toolCallsOf(row);
+      ((action?.audience ?? "room") === "seat" ? "private" : action ? "speech" : "phase");
 
     return {
       eventId: row.eventId,
       sequence: row.sequence,
       kind,
-      label: eventLabel(row.type),
-      seat: input.seatName(row.participantId),
+      label: eventLabel(input.actions, input.game.words, row.type),
+      seat: seatName(row.participantId),
       text:
         kind === "model"
           ? ""
-          : payloadText(row.payload, (key, value) =>
-              seatArgs.get(row.type)?.has(key) === true && typeof value === "string"
-                ? input.seatName(value)
-                : null,
-            ),
+          : describePayload({
+              payload: row.payload,
+              action,
+              words: input.game.words,
+              seatName,
+            }),
       model:
         kind === "model"
           ? {
               reasoning: textOf(row, "reasoning"),
-              toolCalls: calls,
-              usage: usageOf(row),
+              toolCalls: toolsOf(row).map((call) => ({
+                name: call.name,
+                label: eventLabel(input.actions, input.game.words, call.name),
+                text: describePayload({
+                  payload: call.payload,
+                  action: byName.get(call.name),
+                  words: input.game.words,
+                  seatName,
+                }),
+              })),
+              usage: usageText(row),
             }
           : null,
     };

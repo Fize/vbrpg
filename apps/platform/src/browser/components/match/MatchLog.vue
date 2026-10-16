@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { Bottom, Refresh } from "@element-plus/icons-vue";
-import type { GameAction, MatchRecordRow } from "../../services/api";
+import type { GameAction, GameVocabulary, MatchRecordRow } from "../../services/api";
 import { buildLog, type LogKind } from "../../services/match-log";
 
 const props = defineProps<{
   record: MatchRecordRow[];
   actions: GameAction[];
+  game: GameVocabulary;
   seatName: (participantId: string | null) => string;
   loading: boolean;
 }>();
@@ -19,7 +20,12 @@ const body = ref<HTMLElement | null>(null);
 const pinned = ref(true);
 
 const entries = computed(() =>
-  buildLog({ record: props.record, actions: props.actions, seatName: props.seatName }),
+  buildLog({
+    record: props.record,
+    actions: props.actions,
+    game: props.game,
+    seatName: props.seatName,
+  }),
 );
 
 const KIND_LABELS: Record<LogKind, string> = {
@@ -33,10 +39,6 @@ const KIND_LABELS: Record<LogKind, string> = {
 function rawOf(entryId: string): string {
   const row = props.record.find((candidate) => candidate.eventId === entryId);
   return row === undefined ? "" : JSON.stringify(row, null, 2);
-}
-
-function toolCallText(call: { name: string; arguments: string }): string {
-  return `${call.name}(${call.arguments})`;
 }
 
 function scrollToBottom(): void {
@@ -95,10 +97,11 @@ watch(
           <p v-if="entry.kind !== 'model'" class="text">{{ entry.text }}</p>
 
           <template v-else>
-            <div v-for="(call, index) in entry.model?.toolCalls ?? []" :key="index" class="call mono">
-              → {{ toolCallText(call) }}
+            <div v-for="(call, index) in entry.model?.toolCalls ?? []" :key="index" class="call">
+              <span class="call-name">{{ call.label }}</span>
+              <span class="call-args">{{ call.text }}</span>
             </div>
-            <p v-if="entry.model?.usage" class="usage mono">{{ entry.model.usage }}</p>
+            <p v-if="entry.model?.usage" class="usage">{{ entry.model.usage }}</p>
           </template>
 
           <template v-if="level === 'detailed'">
@@ -231,8 +234,15 @@ watch(
 }
 
 .call {
+  display: flex;
+  gap: var(--space-xs);
   color: var(--fg-2);
   overflow-wrap: anywhere;
+}
+
+.call-name {
+  flex: 0 0 auto;
+  color: var(--accent);
 }
 
 .usage {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { MatchSummary } from "../../services/api";
-import { stateValueText, statusLabel, statusTag } from "../../services/match-labels";
+import type { GameAction, GameVocabulary, MatchSummary } from "../../services/api";
+import { eventLabel, statusLabel, statusTag, stepLabel, wordText } from "../../services/match-labels";
 
 const props = defineProps<{
   summary: MatchSummary;
@@ -10,11 +10,28 @@ const props = defineProps<{
   allowedActions: string[];
   publicEntries: Array<[string, unknown]>;
   seatName: (participantId: string) => string;
+  game: GameVocabulary;
+  actions: GameAction[];
 }>();
 
 function valueText(value: unknown): string {
-  return stateValueText(value, props.seatName);
+  return wordText(value, props.game.words, props.seatName);
 }
+
+function keyText(key: string): string {
+  return props.game.words[key] ?? key;
+}
+
+/** The actions this step allows, in the game's own words. */
+const allowedText = computed(() =>
+  props.allowedActions.length === 0
+    ? "无"
+    : props.allowedActions
+        .map((name) => eventLabel(props.actions, props.game.words, name))
+        .join("、"),
+);
+
+const stepText = computed(() => stepLabel(props.game, props.waitingStepId ?? props.summary.stepId));
 
 /** Who the platform is waiting for, in seat names. */
 const waitingText = computed(() =>
@@ -32,7 +49,7 @@ const waitingText = computed(() =>
     </header>
 
     <div class="step">
-      <span class="step-id mono">{{ waitingStepId ?? summary.stepId }}</span>
+      <span class="step-id">{{ stepText }}</span>
       <span class="seq mono">#{{ summary.sequence }}</span>
     </div>
 
@@ -43,11 +60,11 @@ const waitingText = computed(() =>
       </div>
       <div class="fact">
         <dt>本步允许的动作</dt>
-        <dd>{{ allowedActions.length === 0 ? "无" : allowedActions.join("、") }}</dd>
+        <dd>{{ allowedText }}</dd>
       </div>
       <div class="fact">
         <dt>游戏</dt>
-        <dd class="mono">{{ summary.gameId }}@{{ summary.gameVersion }}</dd>
+        <dd>{{ game.title }}<span class="version mono">@{{ summary.gameVersion }}</span></dd>
       </div>
     </dl>
 
@@ -55,7 +72,7 @@ const waitingText = computed(() =>
       <span class="vars-title">公开状态</span>
       <ul class="vars-list">
         <li v-for="entry in publicEntries" :key="entry[0]">
-          <span class="var-key mono">{{ entry[0] }}</span>
+          <span class="var-key">{{ keyText(entry[0]) }}</span>
           <span class="var-value">{{ valueText(entry[1]) }}</span>
         </li>
       </ul>
@@ -101,6 +118,11 @@ const waitingText = computed(() =>
 
 .seq {
   font-size: var(--text-sm);
+  color: var(--meta);
+}
+
+.version {
+  font-size: var(--text-xs);
   color: var(--meta);
 }
 

@@ -58,6 +58,8 @@ export function resolveVisibility(source: VisibilitySource | undefined, state: G
  */
 export interface ActionDefinition {
   readonly name: string;
+  /** What the table calls it. */
+  readonly label: string;
   readonly description: string;
   /** Argument name to its shape. `kind: "seat"` is the only hint a UI needs; text is the default. */
   readonly args?: Readonly<Record<string, ActionArg>>;
@@ -70,8 +72,14 @@ export interface ActionDefinition {
 
 export interface GameModule {
   readonly id: string;
+  /** What players call this game. */
+  readonly title: string;
   readonly version: string;
   readonly engineVersion: string;
+  /** Step id to the name the table reads. Anything absent is shown as the game wrote it. */
+  readonly steps?: Readonly<Record<string, string>>;
+  /** Every other word the game uses — variables, roles, outcomes, its own event types. */
+  readonly words?: Readonly<Record<string, string>>;
   /** Which variables each viewer may see. Absent means nobody sees them (fail-closed). */
   readonly visibility?: VisibilitySource;
   /** Roles, dealt cards and per-game variables are the game's business, so creation is its hook. */

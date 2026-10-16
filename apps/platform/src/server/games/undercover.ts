@@ -50,17 +50,50 @@ function hash(input: string): number {
 const ACTIONS: readonly ActionDefinition[] = [
   {
     name: platformEventTypes.seatMessage,
+    label: "描述",
     description: "用一句话描述你拿到的词，不要直接说出它。",
     args: { text: { description: "你要说的话" } },
     audience: "room",
   },
   {
     name: "vote",
+    label: "投票",
     description: "投出你认为最像卧底的席位。",
     args: { target: { description: "要投的席位", kind: "seat" } },
     audience: "seat",
   },
 ];
+
+/** The game's own vocabulary, so no screen has to show a machine word. */
+const STEP_NAMES: Readonly<Record<string, string>> = {
+  start: "开局",
+  describe: "描述阶段",
+  vote: "投票阶段",
+  resolve: "结算",
+  over: "对局结束",
+};
+
+const WORD_NAMES: Readonly<Record<string, string>> = {
+  word: "你的词",
+  phase: "阶段",
+  round: "回合",
+  alive: "在场席位",
+  spoken: "已发言",
+  votes: "选票",
+  summary: "上轮结算",
+  winner: "胜方",
+  tally: "票数",
+  eliminated: "出局席位",
+  tie: "平票",
+  civilian: "平民",
+  undercover: "卧底",
+  describe: "描述",
+  vote: "投票",
+  resolve: "结算",
+  over: "结束",
+  describePhaseEnded: "描述阶段结束",
+  votesRevealed: "投票结算",
+};
 
 function waitingFor(stepId: "describe" | "vote", seats: string[]): GameState["waiting"] {
   return {
@@ -111,9 +144,12 @@ function requireActor(state: GameState, participantId: string | null): string {
 
 export const undercover: GameModule = {
   id: "undercover",
+  title: "谁是卧底",
   version: "1.0.0",
   engineVersion: "core-1",
   actions: ACTIONS,
+  steps: STEP_NAMES,
+  words: WORD_NAMES,
 
   /** The rules, in the game's own words. Stable for the match, so it can sit in the prompt head. */
   briefing(state: GameState, participantId: string): string {

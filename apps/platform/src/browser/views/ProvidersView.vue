@@ -33,6 +33,21 @@ interface ProviderDraft {
   testResult: ConnectionTestResult | null;
 }
 
+/** Provider-side failure codes, in the reader's language. */
+const ERROR_CODE_LABELS: Record<string, string> = {
+  timeout: "超时",
+  dns_rejected: "域名不可用",
+  tls_error: "证书错误",
+  unauthorized: "密钥被拒绝",
+  rate_limited: "触发限流",
+  provider_error: "供应商返回错误",
+  invalid_response: "响应无法解析",
+};
+
+function errorCodeLabel(code: string): string {
+  return ERROR_CODE_LABELS[code] ?? code;
+}
+
 const drafts = ref<ProviderDraft[]>([]);
 const loading = ref(false);
 const loadError = ref<string | null>(null);
@@ -414,7 +429,8 @@ async function toggleModel(draft: ProviderDraft, model: ModelDraft): Promise<voi
           {{ draft.testResult.ok ? "连接正常" : "连接失败" }}
         </el-tag>
         <span class="test-detail">
-          {{ draft.testResult.latencyMs }} ms · 错误码 {{ draft.testResult.errorCode ?? "无" }}
+          {{ draft.testResult.latencyMs }} ms ·
+          {{ draft.testResult.errorCode === null ? "没有报错" : `失败原因 ${errorCodeLabel(draft.testResult.errorCode)}` }}
         </span>
       </p>
       <el-alert

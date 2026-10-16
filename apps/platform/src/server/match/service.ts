@@ -377,8 +377,10 @@ export function createMatchService(options: {
     listGames() {
       return registry.list().map((game) => ({
         gameId: game.id,
+        title: game.title,
         version: game.version,
         engineVersion: game.engineVersion,
+        steps: { ...(game.steps ?? {}) },
       }));
     },
 
@@ -628,6 +630,11 @@ export function createMatchService(options: {
       const state = stateOf(instance);
       return {
         summary: summarize(instance, seats.filter((seat) => seat.actor_user_id === actor.userId)),
+        game: {
+          title: game.title,
+          steps: { ...(game.steps ?? {}) },
+          words: { ...(game.words ?? {}) },
+        },
         seats: seats.map((seat) => ({
           participantId: seat.id,
           key: seat.participant_key,
@@ -642,6 +649,7 @@ export function createMatchService(options: {
         record: rows.map(toRecordRow),
         actions: (game.actions ?? []).map((action) => ({
           name: action.name,
+          label: action.label,
           description: action.description,
           ...(action.args ? { args: { ...action.args } } : {}),
           ...(action.audience ? { audience: action.audience } : {}),

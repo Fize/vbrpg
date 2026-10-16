@@ -1,4 +1,4 @@
-import type { MatchSummary } from "./api";
+import type { GameAction, GameVocabulary, MatchSummary } from "./api";
 
 type MatchStatus = MatchSummary["status"];
 
@@ -21,16 +21,20 @@ const STATUS_TAGS: Record<MatchStatus, "success" | "info" | "warning" | "danger"
   cancelled: "danger",
 };
 
-/** Event types a reader sees often; anything else is shown by its own name. */
-const EVENT_LABELS: Record<string, string> = {
+/** Seat status is the platform's word too, so it reads in Chinese everywhere. */
+const SEAT_STATUS_LABELS: Record<string, string> = {
+  active: "在场",
+  eliminated: "出局",
+  disconnected: "掉线",
+  finished: "已结束",
+};
+
+/** Rows the platform writes itself. A game's own events are named by the game's catalogue. */
+const PLATFORM_EVENT_LABELS: Record<string, string> = {
   instanceCreated: "对局创建",
-  seatMessage: "席位发言",
-  vote: "投票",
+  playerInputReceived: "收到输入",
   aiCall: "模型调用",
   aiFailed: "模型失败",
-  playerInputReceived: "收到输入",
-  describePhaseEnded: "描述阶段结束",
-  votesRevealed: "投票结算",
   timerExpired: "超时",
   randomResolved: "随机结算",
   adminCommandApplied: "管理员指令",
@@ -49,8 +53,27 @@ export function isOpen(status: MatchStatus): boolean {
   return status === "created" || status === "running" || status === "waiting";
 }
 
-export function eventLabel(type: string): string {
-  return EVENT_LABELS[type] ?? type;
+export function seatStatusLabel(status: string): string {
+  return SEAT_STATUS_LABELS[status] ?? status;
+}
+
+/** A step the game declared reads by its name; anything else stays as the game wrote it. */
+export function stepLabel(game: GameVocabulary, stepId: string): string {
+  return game.steps[stepId] ?? stepId;
+}
+
+/** An event reads in the game's words when it named them, in the platform's otherwise. */
+export function eventLabel(
+  actions: readonly GameAction[],
+  words: Record<string, string>,
+  type: string,
+): string {
+  return (
+    actions.find((action) => action.name === type)?.label ??
+    words[type] ??
+    PLATFORM_EVENT_LABELS[type] ??
+    type
+  );
 }
 
 export function formatTime(value: number | string): string {
@@ -59,36 +82,51 @@ export function formatTime(value: number | string): string {
 }
 
 /**
- * Payload values as they are: no invented semantics, no hidden fields. `render` may replace a value
- * it knows how to name (a seat declared as such by the action catalogue), and returns null to keep
- * the raw one.
+ * The game's own words, applied to whatever a screen is about to show: a value that is one of this
+ * match's seats reads as its seat key, a word the game named reads in Chinese, and anything else is
+ * shown exactly as it came from the backend.
  */
-export function payloadText(
-  payload: Record<string, unknown>,
-  render?: (key: string, value: unknown) => string | null,
+export function wordText(
+  value: unknown,
+  words: Record<string, string>,
+  seatName: (participantId: string) => string,
 ): string {
-  const entries = Object.entries(payload);
-  if (entries.length === 0) return "（无内容）";
-  return entries
-    .map(([key, value]) => {
-      const named = render?.(key, value) ?? null;
-      if (named !== null) return `${key}: ${named}`;
-      return `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`;
-    })
-    .join(" · ");
-}
-
-/**
- * State values as they are, except that a value which happens to be one of this match's seats is
- * named by its seat key: the platform knows its own ids, so `alive: [uuid, uuid]` reads as seats.
- */
-export function stateValueText(value: unknown, seatName: (participantId: string) => string): string {
-  if (typeof value === "string") return seatName(value);
-  if (Array.isArray(value)) return value.map((item) => stateValueText(item, seatName)).join("、");
-  if (typeof value === "object" && value !== null) {
+  if (typeof value === "string") {
+    const named = seatName(value);
+    return named === value ? (words[value] ?? value) : named;
+  }
+  if (Array.isArray(value)) return value.map((item) => wordText(item, words, seatName)).join("、");
+  if (typeof value === "boolean") return value ? "是" : "否";
+  if (value === null) return "—";
+  if (typeof value === "object") {
     return Object.entries(value as Record<string, unknown>)
-      .map(([key, item]) => `${seatName(key)}: ${stateValueText(item, seatName)}`)
+      .map(([key, item]) => `${words[key] ?? seatName(key)}：${wordText(item, words, seatName)}`)
       .join("、");
   }
   return JSON.stringify(value);
+}
+
+/**
+ * One payload as a sentence: the action's own argument names, its own words, and its seat
+ * arguments read by seat key. Nothing here knows a game.
+ */
+export function describePayload(input: {
+  payload: Record<string, unknown>;
+  action: GameAction | undefined;
+  words: Record<string, string>;
+  seatName: (participantId: string) => string;
+}): string {
+  const entries = Object.entries(input.payload);
+  if (entries.length === 0) return "（无内容）";
+  return entries
+    .map(([key, value]) => {
+      const arg = input.action?.args?.[key];
+      const label = arg?.description ?? input.words[key] ?? key;
+      const text =
+        arg?.kind === "seat" && typeof value === "string"
+          ? input.seatName(value)
+          : wordText(value, input.words, input.seatName);
+      return `${label}：${text}`;
+    })
+    .join(" · ");
 }

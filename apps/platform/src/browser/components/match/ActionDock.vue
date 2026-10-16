@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import type { GameAction, MatchSeat } from "../../services/api";
+import { seatStatusLabel } from "../../services/match-labels";
 
 interface Available {
   actionId: string;
@@ -96,7 +97,7 @@ defineExpose({ reset });
     <template v-else>
       <div v-for="action in available" :key="action.actionId" class="action">
         <div class="action-head">
-          <span class="action-name mono">{{ action.actionId }}</span>
+          <span class="action-name" :title="action.actionId">{{ action.spec?.label ?? action.actionId }}</span>
           <el-tag
             size="small"
             effect="plain"
@@ -119,7 +120,7 @@ defineExpose({ reset });
               <el-option
                 v-for="seat in seats"
                 :key="seat.participantId"
-                :label="`${seat.key}${seat.status === 'active' ? '' : `（${seat.status}）`}`"
+                :label="`${seat.key}${seat.status === 'active' ? '' : `（${seatStatusLabel(seat.status)}）`}`"
                 :value="seat.participantId"
               />
             </el-select>

@@ -29,6 +29,7 @@ export type {
   CreateMatchRequest as CreateMatchInput,
   GameAction,
   GameCatalogueEntry,
+  GameVocabulary,
   LoginResult,
   MatchDetail,
   MatchRecordRow,
@@ -93,7 +94,7 @@ function handleUnauthorized(response: Response, config: RequestConfig): void {
 }
 
 export function apiErrorMessage(error: unknown): string {
-  return error instanceof ApiError ? error.message : "Unexpected error. Please try again.";
+  return error instanceof ApiError ? error.message : "操作没有成功，请重试。";
 }
 
 export function apiRequestId(error: unknown): string | null {

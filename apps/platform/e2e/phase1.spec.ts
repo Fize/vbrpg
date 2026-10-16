@@ -48,7 +48,8 @@ test.describe.serial("Phase 1 browser acceptance", () => {
     await expect(page.getByRole("cell", { name: "Test Model" })).toBeVisible();
 
     await page.getByRole("button", { name: "测试连接" }).click();
-    await expect(page.getByText(/unauthorized|provider_error|rate_limited/i)).toBeVisible();
+    // The connection test reports in the reader's language, not in the provider's error codes.
+    await expect(page.getByText(/密钥被拒绝|触发限流|供应商返回错误|超时|证书错误|域名不可用|响应无法解析/)).toBeVisible();
     await expect(page.getByText(providerApiKey)).toHaveCount(0);
 
     // Deleting follows the same rule as the API: the model goes first.

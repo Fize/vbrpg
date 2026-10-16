@@ -4,7 +4,13 @@ import { useRoute } from "vue-router";
 import { ArrowLeft, Refresh } from "@element-plus/icons-vue";
 import { api, apiRequestId, type GameAction } from "../services/api";
 import { uiErrorMessage } from "../services/messages";
-import { isOpen, payloadText, stateValueText, statusLabel, statusTag } from "../services/match-labels";
+import {
+  describePayload,
+  isOpen,
+  statusLabel,
+  statusTag,
+  wordText,
+} from "../services/match-labels";
 import { sessionState } from "../stores/session";
 import ActionDock from "../components/match/ActionDock.vue";
 import MatchLog from "../components/match/MatchLog.vue";
@@ -69,7 +75,12 @@ const bubbles = computed(() => {
   const map: Record<string, string> = {};
   for (const row of detail.value?.record ?? []) {
     if (row.participantId !== null && roomActionNames.value.has(row.type)) {
-      map[row.participantId] = payloadText(row.payload);
+      map[row.participantId] = describePayload({
+        payload: row.payload,
+        action: catalogue.value.get(row.type),
+        words: detail.value?.game.words ?? {},
+        seatName,
+      });
     }
   }
   return map;
@@ -80,11 +91,11 @@ function seatName(participantId: string | null): string {
   return detail.value?.seats.find((seat) => seat.participantId === participantId)?.key ?? participantId;
 }
 
-/** Private keys are addressed as `name:<participantId>`; only the name is worth showing. */
+/** Private keys are addressed as `name:<participantId>`; the name is what a reader needs. */
 function privateKey(key: string): string {
   const id = mySeat.value?.participantId;
-  if (id === undefined || !key.endsWith(`:${id}`)) return key;
-  return key.slice(0, key.length - id.length - 1);
+  const name = id !== undefined && key.endsWith(`:${id}`) ? key.slice(0, key.length - id.length - 1) : key;
+  return detail.value?.game.words[name] ?? name;
 }
 
 function actorLabel(userId: string | null): string {
@@ -92,7 +103,7 @@ function actorLabel(userId: string | null): string {
 }
 
 function valueText(value: unknown): string {
-  return stateValueText(value, seatName);
+  return wordText(value, detail.value?.game.words ?? {}, seatName);
 }
 
 async function load(): Promise<void> {
@@ -141,7 +152,7 @@ async function submit(payload: { actionId: string; values: Record<string, string
   <section class="room">
     <header class="topbar">
       <el-button text :icon="ArrowLeft" @click="$router.push({ name: 'lobby' })">大厅</el-button>
-      <span class="room-id mono">{{ instanceId }}</span>
+      <span class="room-id mono" :title="instanceId">{{ instanceId.slice(0, 8) }}</span>
       <el-tag v-if="detail" :type="statusTag(detail.summary.status)" effect="plain" size="small">
         {{ statusLabel(detail.summary.status) }}
       </el-tag>
@@ -172,6 +183,8 @@ async function submit(payload: { actionId: string; values: Record<string, string
           :allowed-actions="detail.waiting?.actions ?? []"
           :public-entries="publicEntries"
           :seat-name="seatName"
+          :game="detail.game"
+          :actions="detail.actions"
         />
 
         <section v-if="mySeat" class="panel">
@@ -234,6 +247,7 @@ async function submit(payload: { actionId: string; values: Record<string, string
         <MatchLog
           :record="detail.record"
           :actions="detail.actions"
+          :game="detail.game"
           :seat-name="seatName"
           :loading="loading"
           @refresh="load"
