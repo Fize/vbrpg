@@ -60,14 +60,16 @@ CI 里这些都跑：构建、类型检查、单测、真实 PostgreSQL 集成�
 
 ## 文档
 
-| 文档                                 | 内容                                                                  |
-| ------------------------------------ | --------------------------------------------------------------------- |
-| `docs/platform-migration-plan.md`    | 现状与工作计划（§8，M1–M5）、发布门槛（§10）、决策日志（§16，按轮次） |
-| `docs/adr/`                          | 架构决策记录（001 起，008/009/010 是最近的收敛）                      |
-| `docs/mvp-scope.md`                  | MVP 范围与下一步                                                      |
-| `docs/operations/phase1-platform.md` | 运维手册：环境变量、迁移、回滚、排障                                  |
-| `docs/api/phase1-openapi.yaml`       | 控制面 API 契约                                                       |
-| `docs/design/`、`docs/security/`     | 认证与凭据的安全设计、威胁模型                                        |
+| 文档                                     | 内容                                                                  |
+| ---------------------------------------- | --------------------------------------------------------------------- |
+| `docs/platform-migration-plan.md`        | 现状与工作计划（§8，M1–M5）、发布门槛（§10）、决策日志（§16，按轮次） |
+| `docs/adr/`                              | 架构决策记录（001 起，008/009/010 是最近的收敛）                      |
+| `docs/mvp-scope.md`                      | MVP 范围与下一步                                                      |
+| `docs/operations/deployment.md`          | 部署与运维手册：角色、配置、首次上线、升级回滚、观测、排障            |
+| `docs/operations/backup-restore.md`      | 备份与恢复：策略、步骤、演练脚本与演练记录                            |
+| `docs/operations/credential-rotation.md` | 主密钥轮换：前置条件、六步流程、回滚                                  |
+| `docs/api/phase1-openapi.yaml`           | 控制面 API 契约                                                       |
+| `docs/design/`、`docs/security/`         | 认证与凭据的安全设计、威胁模型                                        |
 
 ## 旧系统
 

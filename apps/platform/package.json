@@ -25,7 +25,8 @@
     "test:db": "tsx scripts/db-integration.ts",
     "test:e2e": "playwright test",
     "check:model-call": "tsx scripts/model-call-check.ts",
-    "rotate-credential-key": "tsx scripts/rotate-credential-key.ts"
+    "rotate-credential-key": "tsx scripts/rotate-credential-key.ts",
+    "backup-restore-drill": "tsx scripts/backup-restore-drill.ts"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

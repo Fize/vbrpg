@@ -334,7 +334,7 @@ DSL 撤除后，这个问题变简单了：**编排库是游戏代码的内部�
 - [x] `M4-02` **密钥轮换流程**：`pnpm rotate-credential-key` + 真库演练 + `docs/operations/credential-rotation.md`。
 - [x] `M4-03` **处置依赖告警**：`fastify` 升级 + `fast-uri` override，`pnpm audit --prod` 归零并进 CI 硬门禁。
 - [x] `M4-04` ~~E2E 进 CI；删除根脚本 `test:golden:legacy`~~ — 已完成：CI 装了 chromium、bootstrap 了 e2e-root 管理员并跑 Playwright；断链脚本已删。
-- [ ] `M4-05` **备份恢复演练**与部署手册更新。
+- [x] `M4-05` **备份恢复演练**（`pnpm backup-restore-drill` + 演练记录）与部署手册重写（`docs/operations/deployment.md`、`backup-restore.md`）。
 
 验收：CI 全绿且包含 lint；密钥轮换演练过一次。
 

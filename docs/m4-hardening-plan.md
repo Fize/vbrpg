@@ -39,6 +39,8 @@
 - [x] `H-03` 密钥轮换：脚本 + 仓库函数 + 真库演练 + 手册。
 - [x] `H-04` CI 硬门禁：lint/format/audit 都不再 `continue-on-error`。
 - [x] `H-05` 门禁全绿：`typecheck`、`test`、`build`、`test:db`、`test:e2e`、`lint`、`format:check`、`audit`。
+- [x] `H-06` 备份恢复演练：`pnpm backup-restore-drill`（真库导出 → 临时库恢复 → 用应用读路径比对）+ 手册与记录。
+- [x] `H-07` 部署手册重写：`docs/operations/deployment.md` 取代旧的英文 phase1 手册（含本地运行、升级回滚、观测、排障）。
 
 ## 完成情况
 
@@ -54,6 +56,12 @@
 - `H-04`：CI 里 `format:check`、`lint`、`audit --prod --audit-level=high` 全部不再是 `continue-on-error`。
 - `H-05`：`format:check`、`lint`、`typecheck`、`test`（160 例）、`build`、`test:db`、`test:e2e`（9 例）、
   `audit --prod` 全绿。
+- `H-06`：演练脚本按「导出 → 重建演练库 → 恢复 → 逐表行数 → 用 `createMatchService().read()` 在两库各读一次
+  比对状态/序号/席位/逐行事件/token」的顺序做，库名不含 `drill` 直接拒绝执行。实测（演示库，6 账号 6 局）：
+  导出 0.05 MiB / 196 ms，恢复 214 ms，9 张表 208 行一致，最新一局 26 行记录逐行一致。
+  明确没验证的是 PITR 与异地损坏副本，手册里写清了。
+- `H-07`：旧英文手册 `phase1-platform.md` 删除，其中仍然成立的内容（角色、配置、本地运行、迁移回滚、
+  供应商出网策略的指向）并入 `deployment.md`；出网与 SSRF 策略本身仍在 `docs/security/`、`docs/design/`。
 
 ## 已知边界
 

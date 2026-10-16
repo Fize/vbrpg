@@ -20,6 +20,7 @@
     "bootstrap-admin": "pnpm --filter @vbrpg/platform bootstrap-admin",
     "check:provider-endpoint": "pnpm --filter @vbrpg/platform check:provider-endpoint",
     "check:model-call": "pnpm --filter @vbrpg/platform check:model-call",
-    "rotate-credential-key": "pnpm --filter @vbrpg/platform rotate-credential-key"
+    "rotate-credential-key": "pnpm --filter @vbrpg/platform rotate-credential-key",
+    "backup-restore-drill": "pnpm --filter @vbrpg/platform backup-restore-drill"
   }
 }
