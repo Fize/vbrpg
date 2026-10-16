@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createBuiltInRegistry } from "../src/server/games/index.js";
 import { createMatchService } from "../src/server/match/service.js";
+import { createRoomService } from "../src/server/room/service.js";
 import { createAiSeatRunner } from "../src/server/match/ai-seat.js";
 import { openCredential, parseCredentialKey, sealCredential } from "../src/server/runtime/secret-box.js";
 import { rotateProviderCredentials } from "../src/server/credential-rotation.js";
@@ -39,6 +40,7 @@ const versionId = `integration-version-${suffix}`;
 const instanceId = `integration-instance-${suffix}`;
 const secondInstanceId = `integration-instance-b-${suffix}`;
 const platformUserId = randomUUID();
+const secondUserId = randomUUID();
 const platformSessionId = randomUUID();
 const providerId = randomUUID();
 const providerName = `integration-provider-${suffix}`;
@@ -48,6 +50,7 @@ let aiMatchIdValue: string | null = null;
 let lifecycleMatchId: string | null = null;
 let publishedMatchId: string | null = null;
 let generatedMatchId: string | null = null;
+let roomIdValue: string | null = null;
 
 try {
   await createGameInstance(db, {
@@ -215,6 +218,12 @@ try {
     username: `integration-admin-${suffix}`,
     passwordHash: "scrypt$v=1$N=32768,r=8,p=1$placeholder$placeholder",
     role: "admin",
+  });
+  await createPlatformUser(db, {
+    id: secondUserId,
+    username: `integration-player-${suffix}`,
+    passwordHash: "scrypt$v=1$N=32768,r=8,p=1$placeholder$placeholder",
+    role: "user",
   });
   assert.equal(platformUser.role, "admin");
   assert.equal((await findPlatformUserByUsername(db, platformUser.username))?.id, platformUserId);
@@ -668,6 +677,161 @@ try {
     assert.notEqual(value, "乙水果", "the words themselves are never public");
   }
 
+  // ─── Rooms: the table exists before a match, and outlives it ──────────────────────
+  const roomService = createRoomService({
+    db,
+    registry: createBuiltInRegistry(),
+    matchService: createMatchService({
+      db,
+      registry: createBuiltInRegistry(),
+      wordPairs: async (category: string) => ({ civilian: `甲${category}`, undercover: `乙${category}` }),
+    }),
+  });
+  const host = { userId: platformUserId, isAdmin: true };
+  const guest = { userId: secondUserId, isAdmin: false };
+
+  let tooFewSeats = false;
+  try {
+    await roomService.create({
+      actor: host,
+      request: {
+        gameId: "undercover",
+        seats: [
+          { key: "s1", control: "human" },
+          { key: "s2", control: "ai" },
+        ],
+      },
+    });
+  } catch (error) {
+    tooFewSeats = error instanceof Error && "code" in error && error.code === "SEATS_OUT_OF_RANGE";
+  }
+  assert.equal(tooFewSeats, true, "a table outside the game's range must be refused");
+
+  const room = await roomService.create({
+    actor: host,
+    request: {
+      gameId: "undercover",
+      variables: { category: "水果" },
+      seats: [
+        { key: "s1", control: "human" },
+        { key: "s2", control: "human" },
+        { key: "s3", control: "ai" },
+        { key: "s4", control: "ai" },
+      ],
+    },
+  });
+  roomIdValue = room.roomId;
+  assert.deepEqual(room.mySeatKeys, ["s1"], "the owner sits down first");
+  assert.equal(room.takenSeats, 1);
+  assert.equal(room.aiSeats, 2);
+  assert.equal(room.playing, false);
+  assert.equal(room.currentInstanceId, null, "no match exists yet: AI seats are placeholders");
+
+  // Nobody may start before everyone is seated and ready.
+  let notReady = false;
+  try {
+    await roomService.start({ actor: host, roomId: room.roomId });
+  } catch (error) {
+    notReady = error instanceof Error && "code" in error && error.code === "SEAT_EMPTY";
+  }
+  assert.equal(notReady, true, "an empty human seat blocks the start");
+
+  const joined = await roomService.join({ actor: guest, roomId: room.roomId });
+  assert.deepEqual(joined.mySeatKeys, ["s2"]);
+  assert.equal(joined.takenSeats, 2);
+
+  let readyRequired = false;
+  try {
+    await roomService.start({ actor: host, roomId: room.roomId });
+  } catch (error) {
+    readyRequired = error instanceof Error && "code" in error && error.code === "NOT_READY";
+  }
+  assert.equal(readyRequired, true, "every seated human must be ready");
+
+  await roomService.setReady({ actor: host, roomId: room.roomId, ready: true });
+  const bothReady = await roomService.setReady({ actor: guest, roomId: room.roomId, ready: true });
+  assert.equal(bothReady.readySeats, 2);
+
+  const firstMatch = await roomService.start({ actor: host, roomId: room.roomId });
+  assert.equal(first.summary.status, "waiting");
+  const afterStart = await roomService.read({ actor: host, roomId: room.roomId });
+  assert.equal(afterStart.playing, true, "a running match is derived from the instance, not stored");
+  assert.equal(afterStart.readySeats, 0, "starting a match clears everyone's readiness");
+  assert.equal(afterStart.currentInstanceId, firstMatch.summary.instanceId);
+
+  const started = await matchService.read({ actor: host, instanceId: firstMatch.summary.instanceId });
+  assert.equal(started.seats.length, 4, "AI placeholders became real seats at the start");
+  assert.equal(started.seats.filter((seat) => seat.control === "ai").length, 2);
+  assert.ok(started.seats.every((seat) => seat.persona !== null), "every seat was dealt a persona");
+
+  let busy = false;
+  try {
+    await roomService.start({ actor: host, roomId: room.roomId });
+  } catch (error) {
+    busy = error instanceof Error && "code" in error && error.code === "ROOM_BUSY";
+  }
+  assert.equal(busy, true, "one match at a time");
+
+  let editWhilePlaying = false;
+  try {
+    await roomService.update({
+      actor: host,
+      roomId: room.roomId,
+      patch: { seats: [{ key: "s1", control: "human" }, { key: "s2", control: "human" }, { key: "s3", control: "ai" }] },
+    });
+  } catch (error) {
+    editWhilePlaying = error instanceof Error && "code" in error && error.code === "ROOM_BUSY";
+  }
+  assert.equal(editWhilePlaying, true, "the layout is fixed while a match is running");
+
+  // Ending the match frees the table: same room, same seats, a second match.
+  await matchService.setStatus({
+    actor: host,
+    instanceId: firstMatch.summary.instanceId,
+    status: "cancelled",
+  });
+  const roomIdle = await roomService.read({ actor: host, roomId: room.roomId });
+  assert.equal(roomIdle.playing, false);
+
+  const reshaped = await roomService.update({
+    actor: host,
+    roomId: room.roomId,
+    patch: {
+      seats: [
+        { key: "s1", control: "human" },
+        { key: "s2", control: "human" },
+        { key: "s3", control: "ai" },
+      ],
+    },
+  });
+  assert.equal(reshaped.seats, 3, "the layout is free to change between matches");
+  assert.equal(reshaped.aiSeats, 1);
+
+  await roomService.setReady({ actor: host, roomId: room.roomId, ready: true });
+  await roomService.setReady({ actor: guest, roomId: room.roomId, ready: true });
+  const second = await roomService.start({ actor: host, roomId: room.roomId });
+  assert.notEqual(second.summary.instanceId, firstMatch.summary.instanceId);
+  const history = await roomService.matches({ actor: host, roomId: room.roomId });
+  assert.equal(history.length, 2, "a room remembers every match it hosted");
+  assert.deepEqual(
+    history.map((row) => row.instanceId),
+    [second.summary.instanceId, firstMatch.summary.instanceId],
+  );
+  await matchService.setStatus({
+    actor: host,
+    instanceId: second.summary.instanceId,
+    status: "cancelled",
+  });
+
+  // Whoever leaves cannot take the table with them: ownership moves to the other human.
+  const hostLeft = await roomService.leave({ actor: host, roomId: room.roomId });
+  assert.equal(hostLeft.isOwner, false);
+  assert.equal(hostLeft.ownerUserId, secondUserId);
+  const guestView = await roomService.read({ actor: guest, roomId: room.roomId });
+  assert.equal(guestView.isOwner, true);
+  const emptyRoom = await roomService.leave({ actor: guest, roomId: room.roomId });
+  assert.equal(emptyRoom.status, "closed", "an empty room closes itself");
+
   // ─── Administrator lifecycle: the column moves, the record does not ───────────────
   const lifecycle = await matchService.create({
     actor,
@@ -813,6 +977,19 @@ try {
     ...(generatedMatchId === null ? [] : [generatedMatchId]),
   ];
   await db.deleteFrom("game_instances").where("id", "in", instanceIds).execute();
+  if (roomIdValue !== null) {
+    // Instances point at their room and the room points at its current instance: break both links
+    // before either row goes away.
+    await db
+      .updateTable("rooms")
+      .set({ current_instance_id: null })
+      .where("id", "=", roomIdValue)
+      .execute();
+    await db.deleteFrom("game_instances").where("room_id", "=", roomIdValue).execute();
+    await db.deleteFrom("room_members").where("room_id", "=", roomIdValue).execute();
+    await db.deleteFrom("rooms").where("id", "=", roomIdValue).execute();
+  }
+  await db.deleteFrom("users").where("id", "=", secondUserId).execute();
   await db.deleteFrom("users").where("id", "=", platformUserId).execute();
   await closeDb(db);
 }

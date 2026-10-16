@@ -11,6 +11,7 @@ import type { sealCredential } from "../runtime/index.js";
 import type { PlatformUserRecord } from "../db/index.js";
 import { AppError } from "../runtime/index.js";
 import type { MatchService } from "../match/service.js";
+import type { RoomService } from "../room/service.js";
 
 const ORIGIN = "http://localhost:5173";
 const MASTER_KEY = randomBytes(32).toString("base64");
@@ -226,7 +227,7 @@ function makeUser(
   };
 }
 
-async function createApp(state: FakeState, matchService?: MatchService) {
+async function createApp(state: FakeState, matchService?: MatchService, roomService?: RoomService) {
   return buildApp({
     config: loadConfig({
       NODE_ENV: "test",
@@ -235,26 +236,29 @@ async function createApp(state: FakeState, matchService?: MatchService) {
     }),
     platformStore: state.store,
     ...(matchService === undefined ? {} : { matchService }),
+    ...(roomService === undefined ? {} : { roomService }),
   });
 }
 
 const MATCH_ID = "11111111-1111-1111-1111-111111111111";
+
+const MATCH_SUMMARY = {
+  instanceId: MATCH_ID,
+  gameId: "undercover",
+  gameVersion: "1.0.0",
+  status: "waiting" as const,
+  sequence: 1,
+  stepId: "describe",
+  createdAt: "2026-10-15T00:00:00.000Z",
+  mySeatKeys: ["p1"],
+};
 
 /** Records what reached the service; the write path itself is covered against real PostgreSQL. */
 function fakeMatchService(
   overrides: Partial<MatchService> = {},
 ): MatchService & { seen: string[] } {
   const seen: string[] = [];
-  const summary = {
-    instanceId: MATCH_ID,
-    gameId: "undercover",
-    gameVersion: "1.0.0",
-    status: "waiting" as const,
-    sequence: 1,
-    stepId: "describe",
-    createdAt: "2026-10-15T00:00:00.000Z",
-    mySeatKeys: ["p1"],
-  };
+  const summary = MATCH_SUMMARY;
   const view = {
     instanceId: MATCH_ID,
     gameVersionId: "undercover@1.0.0",
@@ -929,6 +933,177 @@ describe("deletion", () => {
     for (const response of missing) {
       assert.equal(response.statusCode, 404, response.body);
     }
+  });
+});
+
+const ROOM_ID = "33333333-3333-3333-3333-333333333333";
+
+/** Records what reached the service; the lifecycle itself is covered against real PostgreSQL. */
+function fakeRoomService(overrides: Partial<RoomService> = {}): RoomService & { seen: string[] } {
+  const seen: string[] = [];
+  const summary = {
+    roomId: ROOM_ID,
+    gameId: "undercover",
+    gameTitle: "谁是卧底",
+    gameVersion: "1.0.0",
+    status: "open" as const,
+    playing: false,
+    currentInstanceId: null,
+    ownerUserId: "11111111-1111-1111-1111-111111111111",
+    isOwner: true,
+    mySeatKeys: ["s1"],
+    seats: 3,
+    humanSeats: 2,
+    aiSeats: 1,
+    takenSeats: 1,
+    readySeats: 0,
+    personaPublic: false,
+    createdAt: "2026-10-16T00:00:00.000Z",
+  };
+  const detail = { ...summary, seatPlan: [], variables: {} };
+
+  return {
+    seen,
+    create: async ({ request }) => {
+      seen.push(`create:${request.gameId}`);
+      return detail;
+    },
+    list: async () => {
+      seen.push("list");
+      return [summary];
+    },
+    read: async ({ roomId }) => {
+      seen.push(`read:${roomId}`);
+      return detail;
+    },
+    update: async ({ roomId }) => {
+      seen.push(`update:${roomId}`);
+      return detail;
+    },
+    join: async ({ roomId }) => {
+      seen.push(`join:${roomId}`);
+      return detail;
+    },
+    setReady: async ({ roomId, ready }) => {
+      seen.push(`ready:${roomId}:${ready}`);
+      return detail;
+    },
+    leave: async ({ roomId }) => {
+      seen.push(`leave:${roomId}`);
+      return detail;
+    },
+    start: async ({ roomId }) => {
+      seen.push(`start:${roomId}`);
+      return { summary: MATCH_SUMMARY };
+    },
+    close: async ({ roomId }) => {
+      seen.push(`close:${roomId}`);
+      return detail;
+    },
+    matches: async ({ roomId }) => {
+      seen.push(`matches:${roomId}`);
+      return [];
+    },
+    ...overrides,
+  };
+}
+
+describe("room routes", () => {
+  async function seated(options: { roomService?: RoomService } = {}) {
+    const passwordHash = await hashPassword(PASSWORD);
+    const state = createFakeStore({ passwordHash, users: [makeUser({ passwordHash })] });
+    const roomService = options.roomService ?? fakeRoomService();
+    const app = await createApp(state, fakeMatchService(), roomService);
+    const { cookie, body } = await login(app);
+    return {
+      app,
+      roomService,
+      headers: { cookie, origin: ORIGIN, "x-csrf-token": body.csrfToken as string },
+    };
+  }
+
+  it("creates a room and lists what it can be joined by", async () => {
+    const { app, headers, roomService } = await seated();
+    const body = {
+      gameId: "undercover",
+      seats: [
+        { key: "s1", control: "human" },
+        { key: "s2", control: "human" },
+        { key: "s3", control: "ai" },
+      ],
+    };
+
+    const created = await app.inject({ method: "POST", url: "/v1/rooms", headers, payload: body });
+    assert.equal(created.statusCode, 201, created.body);
+    assert.equal(created.json().roomId, ROOM_ID);
+
+    const listed = await app.inject({ method: "GET", url: "/v1/rooms", headers });
+    assert.equal(listed.json().rooms.length, 1);
+    assert.deepEqual(roomService.seen, ["create:undercover", "list"]);
+
+    const anonymous = await app.inject({ method: "GET", url: "/v1/rooms" });
+    assert.equal(anonymous.statusCode, 401);
+  });
+
+  it("refuses room writes without a session, an origin or a CSRF token", async () => {
+    const { app, headers, roomService } = await seated();
+    const noOrigin = await app.inject({
+      method: "POST",
+      url: `/v1/rooms/${ROOM_ID}/join`,
+      headers: { cookie: headers.cookie, "x-csrf-token": headers["x-csrf-token"] },
+    });
+    assert.equal(noOrigin.statusCode, 403);
+
+    const noCsrf = await app.inject({
+      method: "POST",
+      url: `/v1/rooms/${ROOM_ID}/ready`,
+      headers: { cookie: headers.cookie, origin: ORIGIN },
+      payload: { ready: true },
+    });
+    assert.equal(noCsrf.statusCode, 403);
+    assert.deepEqual(roomService.seen, [], "a refused write must not reach the service");
+  });
+
+  it("forwards readiness and lets service refusals through", async () => {
+    const { app, headers, roomService } = await seated();
+    const ready = await app.inject({
+      method: "POST",
+      url: `/v1/rooms/${ROOM_ID}/ready`,
+      headers,
+      payload: { ready: true },
+    });
+    assert.equal(ready.statusCode, 200, ready.body);
+    assert.deepEqual(roomService.seen, [`ready:${ROOM_ID}:true`]);
+
+    const refused = await seated({
+      roomService: fakeRoomService({
+        start: async () => {
+          throw new AppError(409, "NOT_READY", "Seat s2 is not ready");
+        },
+      }),
+    });
+    const started = await refused.app.inject({
+      method: "POST",
+      url: `/v1/rooms/${ROOM_ID}/start`,
+      headers: refused.headers,
+    });
+    assert.equal(started.statusCode, 409);
+    assert.equal(started.json().code, "NOT_READY");
+  });
+
+  it("caps how often one account can start a match", async () => {
+    const { app, headers } = await seated();
+    const codes: number[] = [];
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: `/v1/rooms/${ROOM_ID}/start`,
+        headers,
+      });
+      codes.push(response.statusCode);
+    }
+    assert.equal(codes.filter((code) => code === 200).length, 10, "ten starts are allowed");
+    assert.equal(codes.at(-1), 429, "the eleventh is refused");
   });
 });
 

@@ -41,8 +41,8 @@ export interface PlatformLimiters {
   loginByAccount: RateLimiter;
   connectionTestByAdmin: RateLimiter;
   connectionTestSlots: Map<string, ConcurrencyLimiter>;
-  /** Creating a match can spend a model call (the word pair), so it is capped per account. */
-  matchCreateByUser: RateLimiter;
+  /** Starting a match can spend a model call (the word pair), so it is capped per account. */
+  matchStartByUser: RateLimiter;
 }
 
 /** Limiters are per-app-instance state, created once alongside the store. */
@@ -58,8 +58,8 @@ export function createPlatformRequestContext(
       loginByAccount: createRateLimiter({ limit: 5, windowMs: 60_000 }),
       connectionTestByAdmin: createRateLimiter({ limit: 5, windowMs: 60_000 }),
       connectionTestSlots: new Map(),
-      // Creating a match can spend a paid model call, so the cap is per account, not per seat.
-      matchCreateByUser: createRateLimiter({ limit: 10, windowMs: 60_000 }),
+      // Starting a match can spend a paid model call, so the cap is per account, not per seat.
+      matchStartByUser: createRateLimiter({ limit: 10, windowMs: 60_000 }),
     },
   };
 }

@@ -292,6 +292,74 @@ export const wordPairSchema = z.object({
   undercover: z.string().min(1),
 });
 
+/** A seat in a room's plan. Humans take theirs, AI seats are placeholders until a match starts. */
+export const roomSeatPlanEntrySchema = z
+  .object({ key: z.string().min(1).max(64), control: z.enum(["human", "ai"]) })
+  .strict();
+
+export const createRoomRequestSchema = z
+  .object({
+    gameId: idSchema,
+    seats: z.array(roomSeatPlanEntrySchema).min(1).max(24),
+    personaPublic: z.boolean().optional(),
+    /** Creation parameters the game asked for, e.g. the category its words come from. */
+    variables: z.record(jsonValueSchema).optional(),
+  })
+  .strict();
+
+export const updateRoomRequestSchema = z
+  .object({
+    seats: z.array(roomSeatPlanEntrySchema).min(1).max(24).optional(),
+    personaPublic: z.boolean().optional(),
+    variables: z.record(jsonValueSchema).optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.seats !== undefined ||
+      value.personaPublic !== undefined ||
+      value.variables !== undefined,
+    { message: "At least one of seats, personaPublic or variables is required" },
+  );
+
+export const roomReadyRequestSchema = z.object({ ready: z.boolean() }).strict();
+
+export const roomSeatSchema = z.object({
+  key: z.string().min(1),
+  seat: z.number().int().positive(),
+  control: z.enum(["human", "ai"]),
+  userId: idSchema.nullable(),
+  username: z.string().min(1).nullable(),
+  ready: z.boolean(),
+  isMe: z.boolean(),
+});
+
+export const roomSummarySchema = z.object({
+  roomId: idSchema,
+  gameId: idSchema,
+  gameTitle: z.string().min(1),
+  gameVersion: z.string().min(1),
+  status: z.enum(["open", "closed", "cancelled"]),
+  /** True while the room's current match is still running: one match at a time, several over time. */
+  playing: z.boolean(),
+  currentInstanceId: idSchema.nullable(),
+  ownerUserId: idSchema,
+  isOwner: z.boolean(),
+  mySeatKeys: z.array(z.string().min(1)),
+  seats: z.number().int().positive(),
+  humanSeats: z.number().int().nonnegative(),
+  aiSeats: z.number().int().nonnegative(),
+  takenSeats: z.number().int().nonnegative(),
+  readySeats: z.number().int().nonnegative(),
+  personaPublic: z.boolean(),
+  createdAt: z.string().min(1),
+});
+
+export const roomDetailSchema = roomSummarySchema.extend({
+  seatPlan: z.array(roomSeatSchema),
+  variables: z.record(jsonValueSchema),
+});
+
 export type GameEvent = z.infer<typeof gameEventSchema>;
 export type GameState = z.infer<typeof gameStateSchema>;
 export type Participant = z.infer<typeof participantSchema>;
@@ -305,6 +373,12 @@ export type SeatPersona = z.infer<typeof seatPersonaSchema>;
 export type SetupField = z.infer<typeof setupFieldSchema>;
 export type GenerateWordPairRequest = z.infer<typeof generateWordPairRequestSchema>;
 export type WordPair = z.infer<typeof wordPairSchema>;
+export type RoomSeatPlanEntry = z.infer<typeof roomSeatPlanEntrySchema>;
+export type CreateRoomRequest = z.infer<typeof createRoomRequestSchema>;
+export type UpdateRoomRequest = z.infer<typeof updateRoomRequestSchema>;
+export type RoomSeat = z.infer<typeof roomSeatSchema>;
+export type RoomSummary = z.infer<typeof roomSummarySchema>;
+export type RoomDetail = z.infer<typeof roomDetailSchema>;
 export type GameAction = z.infer<typeof gameActionSchema>;
 export type GameVocabulary = z.infer<typeof gameVocabularySchema>;
 export type GameCatalogueEntry = z.infer<typeof gameCatalogueEntrySchema>;
@@ -344,4 +418,16 @@ export function parseUpdateMatchStatusRequest(input: unknown): UpdateMatchStatus
 
 export function parseGenerateWordPairRequest(input: unknown): GenerateWordPairRequest {
   return generateWordPairRequestSchema.parse(input);
+}
+
+export function parseCreateRoomRequest(input: unknown): CreateRoomRequest {
+  return createRoomRequestSchema.parse(input);
+}
+
+export function parseUpdateRoomRequest(input: unknown): UpdateRoomRequest {
+  return updateRoomRequestSchema.parse(input);
+}
+
+export function parseRoomReadyRequest(input: unknown): { ready: boolean } {
+  return roomReadyRequestSchema.parse(input);
 }

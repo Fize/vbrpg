@@ -16,6 +16,7 @@ export {
   getPlatformUser,
   getProvider,
   listPlatformUsers,
+  listPlatformUsersByIds,
   listProviderCredentials,
   listProvidersWithModels,
   recordAuditLog,
@@ -48,9 +49,25 @@ export {
   setInstanceStatus,
   updateGameParticipantStatus,
 } from "./repositories.js";
+export {
+  addRoomMember,
+  clearRoomReadiness,
+  createRoom,
+  getRoom,
+  listRoomMatches,
+  listRoomMembers,
+  listRooms,
+  lockRoom,
+  removeRoomMember,
+  setRoomMemberReady,
+  setRoomStatus,
+  updateRoom,
+} from "./room-repositories.js";
 export type { DbExecutor } from "./repositories.js";
 export type {
   AuthSessionsTable,
+  RoomMembersTable,
+  RoomsTable,
   AuditLogsTable,
   Database,
   GameEventsTable,

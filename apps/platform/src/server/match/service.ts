@@ -90,7 +90,12 @@ export type RecordTurnResult =
   | { accepted: false; code: string; message: string; summary: MatchSummary };
 
 export interface MatchService {
-  create(input: { actor: MatchActor; request: CreateMatchRequest }): Promise<MatchSummary>;
+  create(input: {
+    actor: MatchActor;
+    request: CreateMatchRequest;
+    /** Set when a room deals this match: the room's history is read back through it. */
+    roomId?: string;
+  }): Promise<MatchSummary>;
   /** Every match, newest first, each tagged with the seats this actor holds in it. */
   list(input: { actor: MatchActor }): Promise<MatchSummary[]>;
   /** The games this deployment ships, so a client can offer them without hardcoding ids. */
@@ -341,7 +346,7 @@ export function createMatchService(options: {
   }
 
   return {
-    async create({ actor, request }) {
+    async create({ actor, request, roomId }) {
       const game = requireGame(request.gameId);
       const instanceId = randomUUID();
       const randomSeed = request.randomSeed ?? randomUUID();
@@ -403,6 +408,7 @@ export function createMatchService(options: {
           currentSequence: 0,
           stateJson: state as unknown as Record<string, unknown>,
           personaPublic: request.personaPublic ?? false,
+          ...(roomId === undefined ? {} : { roomId }),
         });
 
         await insertGameParticipants(

@@ -9,6 +9,7 @@ import { closeDb, createDb } from "./db/index.js";
 import { createPlatformStore } from "./store.js";
 import { createBuiltInRegistry } from "./games/index.js";
 import { createMatchService } from "./match/service.js";
+import { createRoomService } from "./room/service.js";
 import { createWordPairGenerator } from "./llm/word-pair.js";
 import { createAiSeatRunner } from "./match/ai-seat.js";
 import { createWorker } from "./worker.js";
@@ -78,12 +79,7 @@ async function startHttp(databaseUrl: string | undefined): Promise<void> {
     ...(db
       ? {
           platformStore: createPlatformStore(db),
-          matchService: createMatchService({
-            db,
-            registry: createBuiltInRegistry(),
-            // The platform's own model, used when a game asks for a category instead of words.
-            wordPairs: createWordPairGenerator({ db, credentialKey: config.credentialKey }),
-          }),
+          ...mountedServices(db, config),
         }
       : {}),
   });
@@ -98,6 +94,27 @@ async function startHttp(databaseUrl: string | undefined): Promise<void> {
   }
 
   await app.listen({ host: "0.0.0.0", port: config.port });
+}
+
+/**
+ * The game registry and the services built on it. The API needs the room service, the worker only
+ * the seat runner, so both paths mount the same pieces and pick what they use.
+ */
+function mountedServices(
+  db: ReturnType<typeof createDb>,
+  config: ReturnType<typeof loadConfig>,
+): {
+  matchService: ReturnType<typeof createMatchService>;
+  roomService: ReturnType<typeof createRoomService>;
+} {
+  const registry = createBuiltInRegistry();
+  const matchService = createMatchService({
+    db,
+    registry,
+    // The platform's own model, used when a game asks for a category instead of words.
+    wordPairs: createWordPairGenerator({ db, credentialKey: config.credentialKey }),
+  });
+  return { matchService, roomService: createRoomService({ db, registry, matchService }) };
 }
 
 async function startWorker(databaseUrl: string | undefined): Promise<void> {

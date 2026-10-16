@@ -1,4 +1,5 @@
-import type { Generated } from "kysely";
+import type { ColumnType, Generated } from "kysely";
+import type { RoomSeatPlanEntry } from "../../shared/index.js";
 
 export type JsonObject = Record<string, unknown>;
 export type PlatformRole = "admin" | "user";
@@ -50,6 +51,36 @@ export interface ProviderModelsTable {
   updated_at: Generated<Date>;
 }
 
+export interface RoomsTable {
+  id: string;
+  game_id: string;
+  game_version: string;
+  owner_user_id: string;
+  status: "open" | "closed" | "cancelled";
+  /**
+   * `[{key, control}]`: humans take their seats, AI seats are placeholders until a match starts.
+   * Written as a JSON string because the driver turns a bare array into a Postgres array literal,
+   * which a jsonb column refuses.
+   */
+  seat_plan: ColumnType<RoomSeatPlanEntry[], string, string>;
+  persona_public: Generated<boolean>;
+  variables: JsonObject;
+  current_instance_id: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+  closed_at: Date | null;
+}
+
+export interface RoomMembersTable {
+  id: string;
+  room_id: string;
+  user_id: string;
+  seat_key: string;
+  seat: number;
+  ready: Generated<boolean>;
+  created_at: Generated<Date>;
+}
+
 export interface GameInstancesTable {
   id: string;
   game_id: string;
@@ -57,6 +88,8 @@ export interface GameInstancesTable {
   status: "created" | "running" | "waiting" | "paused" | "completed" | "cancelled";
   current_sequence: number;
   state_json: JsonObject;
+  /** The table this match was played at; null for matches created outside a room. */
+  room_id: string | null;
   /** Whether the table may see each other's personas. Gender and MBTI ignore it. */
   persona_public: Generated<boolean>;
   created_at: Generated<Date>;
@@ -111,6 +144,8 @@ export interface Database {
   auth_sessions: AuthSessionsTable;
   providers: ProvidersTable;
   provider_models: ProviderModelsTable;
+  rooms: RoomsTable;
+  room_members: RoomMembersTable;
   game_instances: GameInstancesTable;
   game_participants: GameParticipantsTable;
   game_events: GameEventsTable;

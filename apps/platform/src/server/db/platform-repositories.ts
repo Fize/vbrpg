@@ -57,6 +57,20 @@ export async function listPlatformUsers(db: DbExecutor): Promise<PlatformUserRec
   return rows.map(toPlatformUser);
 }
 
+/** The usernames behind a room's seats, in one query rather than one per seat. */
+export async function listPlatformUsersByIds(
+  db: DbExecutor,
+  userIds: readonly string[],
+): Promise<PlatformUserRecord[]> {
+  if (userIds.length === 0) return [];
+  const rows = await db
+    .selectFrom("users")
+    .selectAll()
+    .where("id", "in", [...userIds])
+    .execute();
+  return rows.map(toPlatformUser);
+}
+
 export async function createPlatformUser(
   db: DbExecutor,
   input: {

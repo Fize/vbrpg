@@ -60,6 +60,8 @@ export async function createGameInstance(
     stateJson: JsonObject;
     /** Whether the table may see each other's personas; set once, at creation. */
     personaPublic: boolean;
+    /** The room this match is played at, when there is one. */
+    roomId?: string;
   },
 ): Promise<void> {
   await db
@@ -72,6 +74,7 @@ export async function createGameInstance(
       current_sequence: input.currentSequence,
       state_json: input.stateJson,
       persona_public: input.personaPublic,
+      ...(input.roomId === undefined ? {} : { room_id: input.roomId }),
     })
     .execute();
 }
