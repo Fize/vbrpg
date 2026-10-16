@@ -30,12 +30,7 @@ const actionError = ref<string | null>(null);
 const actionRequestId = ref<string | null>(null);
 const values = ref<Record<string, Record<string, string>>>({});
 
-const statusBusy = ref(false);
-const statusError = ref<string | null>(null);
-const cancelOpen = ref(false);
-
 const myUserId = computed(() => sessionState.user?.id ?? null);
-const isAdmin = computed(() => sessionState.user?.role === "admin");
 /** The seat this console acts as: the same one the projection was built for. */
 const mySeat = computed(
   () => detail.value?.seats.find((seat) => seat.actorUserId === myUserId.value) ?? null,
@@ -178,20 +173,6 @@ async function submit(actionId: string, spec: GameAction | null) {
     actingOn.value = null;
   }
 }
-
-async function setStatus(status: "running" | "paused" | "cancelled"): Promise<void> {
-  statusBusy.value = true;
-  statusError.value = null;
-  try {
-    await api.setMatchStatus(instanceId.value, status);
-    cancelOpen.value = false;
-    await load();
-  } catch (error) {
-    statusError.value = uiErrorMessage(error);
-  } finally {
-    statusBusy.value = false;
-  }
-}
 </script>
 
 <template>
@@ -224,6 +205,17 @@ async function setStatus(status: "running" | "paused" | "cancelled"): Promise<vo
 
       <el-tabs v-if="detail" v-model="activeTab">
         <el-tab-pane label="房间" name="room">
+          <el-alert
+            v-if="!mySeat"
+            class="stack"
+            data-testid="watching"
+            type="info"
+            :closable="false"
+            show-icon
+            title="你在旁观这局"
+            description="旁观能看到席位、等待点和完整记录；行动属于占席位的账号。"
+          />
+
           <el-descriptions class="stack" :column="2" border>
             <el-descriptions-item label="游戏">
               {{ detail.summary.gameId }}@{{ detail.summary.gameVersion }}
@@ -234,7 +226,7 @@ async function setStatus(status: "running" | "paused" | "cancelled"): Promise<vo
             </el-descriptions-item>
             <el-descriptions-item label="我的席位">
               <span v-if="mySeat" class="mono">{{ mySeat.key }}</span>
-              <span v-else class="muted">无席位（管理员视角）</span>
+              <span v-else class="muted">旁观</span>
             </el-descriptions-item>
             <el-descriptions-item label="当前等待点">
               <template v-if="detail.waiting">
@@ -295,7 +287,7 @@ async function setStatus(status: "running" | "paused" | "cancelled"): Promise<vo
           </el-card>
 
           <div class="split">
-            <el-card class="inner" shadow="never">
+            <el-card v-if="mySeat" class="inner" shadow="never">
               <template #header>
                 <span class="panel-title">只给你看的信息</span>
               </template>
@@ -335,7 +327,10 @@ async function setStatus(status: "running" | "paused" | "cancelled"): Promise<vo
             />
             <p v-if="actionRequestId" class="meta">请求编号 {{ actionRequestId }}</p>
 
-            <template v-if="!open">
+            <template v-if="!mySeat">
+              <p class="hint">旁观没有动作可提交。</p>
+            </template>
+            <template v-else-if="!open">
               <p class="hint">对局状态为「{{ statusLabel(detail.summary.status) }}」，不接受输入。</p>
             </template>
             <template v-else-if="myActions.length === 0">
@@ -399,35 +394,6 @@ async function setStatus(status: "running" | "paused" | "cancelled"): Promise<vo
             </ul>
           </el-card>
 
-          <el-card v-if="isAdmin" class="stack inner" shadow="never" data-testid="admin-ops">
-            <template #header>
-              <span class="panel-title">管理员运维</span>
-            </template>
-            <el-alert
-              v-if="statusError"
-              class="stack-sm"
-              type="error"
-              :title="statusError"
-              :closable="false"
-              show-icon
-            />
-            <div class="row-actions">
-              <el-button :disabled="!open || statusBusy" @click="setStatus('paused')">暂停</el-button>
-              <el-button :disabled="detail.summary.status !== 'paused' || statusBusy" @click="setStatus('running')">
-                恢复
-              </el-button>
-              <el-button
-                type="danger"
-                plain
-                :disabled="!open && detail.summary.status !== 'paused'"
-                :loading="statusBusy"
-                @click="cancelOpen = true"
-              >
-                取消对局
-              </el-button>
-            </div>
-            <p class="hint">暂停、恢复与取消只改平台状态并写审计，不写成游戏事件；记录里能看出是谁在什么时候动的。</p>
-          </el-card>
         </el-tab-pane>
 
         <el-tab-pane label="记录" name="record">
@@ -492,20 +458,6 @@ async function setStatus(status: "running" | "paused" | "cancelled"): Promise<vo
       </el-tabs>
       <el-skeleton v-else :rows="4" animated />
     </el-card>
-
-    <el-dialog
-      v-model="cancelOpen"
-      title="取消对局"
-      width="420px"
-    >
-      <p class="dialog-note">
-        取消后该对局不再接受输入，记录保留。这是平台运维操作，会写入审计，不会写成游戏事件。
-      </p>
-      <template #footer>
-        <el-button @click="cancelOpen = false">返回</el-button>
-        <el-button type="danger" :loading="statusBusy" @click="setStatus('cancelled')">确认取消</el-button>
-      </template>
-    </el-dialog>
   </section>
 </template>
 
@@ -653,12 +605,6 @@ async function setStatus(status: "running" | "paused" | "cancelled"): Promise<vo
   word-break: break-word;
 }
 
-.row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2xs);
-}
-
 .hint {
   margin-bottom: var(--space-sm);
   font-size: var(--text-sm);
@@ -676,10 +622,5 @@ async function setStatus(status: "running" | "paused" | "cancelled"): Promise<vo
 
 .muted {
   color: var(--muted);
-}
-
-.dialog-note {
-  font-size: var(--text-base);
-  color: var(--fg-2);
 }
 </style>

@@ -17,6 +17,7 @@ const detail: MatchDetail = {
     sequence: 4,
     stepId: "describe",
     createdAt: "2026-10-15T00:00:00.000Z",
+    mySeatKeys: ["s1"],
   },
   seats: [
     { participantId: me, key: "s1", control: "human", status: "active", actorUserId: me },
@@ -125,7 +126,7 @@ vi.mock("../services/api", () => ({
 }));
 
 vi.mock("../stores/session", () => ({
-  sessionState: { user: { id: me, username: "alice", role: "admin", active: true } },
+  sessionState: { user: { id: me, username: "alice", role: "user", active: true } },
 }));
 
 /** The vote phase asks for a seat: the catalogue's `kind` decides the control, not the name. */
@@ -139,6 +140,23 @@ const voting: MatchDetail = {
     publicState: { phase: "vote", round: 1 },
     availableActions: [{ actionId: "vote", input: { participantId: me } }],
   },
+};
+
+/**
+ * What a watcher gets: the same public state, no private state, no actions, no rules.
+ * The summary is the only place that says whether the caller is playing or watching.
+ */
+const watching: MatchDetail = {
+  ...detail,
+  summary: { ...detail.summary, mySeatKeys: [] },
+  // No seat belongs to the caller: s1 and s2 are other people's, s3 is the AI's.
+  seats: detail.seats.map((seat) => ({ ...seat, actorUserId: null })),
+  view: {
+    ...detail.view,
+    privateState: {},
+    availableActions: [],
+  },
+  briefing: null,
 };
 
 let current: MatchDetail = detail;
@@ -186,6 +204,22 @@ describe("match room", () => {
     expect(text).toContain('seatMessage({"text":"我这东西冬天常见"})');
     expect(text).toContain("test-model · 500/120/620");
     expect(text).toContain("s2");
+  });
+
+  it("tells a watcher it is watching and offers it no action", async () => {
+    current = watching;
+    const wrapper = await render();
+
+    expect(wrapper.find("[data-testid='watching']").exists()).toBe(true);
+    expect(wrapper.text()).toContain("旁观");
+    expect(wrapper.text()).not.toContain("只给你看的信息");
+    expect(wrapper.text()).not.toContain("规则与你的处境");
+    expect(wrapper.find("[data-testid='my-actions']").text()).toContain("旁观没有动作可提交");
+    // The seats, the waiting point and the record stay available to a watcher.
+    expect(wrapper.text()).toContain("当前等待点");
+    // The public state is not a seat's secret: `phase`/`round` show, the word does not.
+    expect(wrapper.text()).toContain("describe");
+    expect(wrapper.text()).not.toContain("苹果");
   });
 
   it("renders a seat picker for an action whose catalogue declares one", async () => {

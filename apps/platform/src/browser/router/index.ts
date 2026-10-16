@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import type { RouteRecordRaw } from "vue-router";
+import AdminMatchesView from "../views/AdminMatchesView.vue";
 import ChangePasswordView from "../views/ChangePasswordView.vue";
 import LobbyView from "../views/LobbyView.vue";
 import LoginView from "../views/LoginView.vue";
@@ -25,6 +26,12 @@ const routes: RouteRecordRaw[] = [
     path: "/admin/users",
     name: "admin-users",
     component: UsersView,
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: "/admin/matches",
+    name: "admin-matches",
+    component: AdminMatchesView,
     meta: { requiresAdmin: true },
   },
   {

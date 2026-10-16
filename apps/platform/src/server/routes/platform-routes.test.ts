@@ -240,6 +240,7 @@ function fakeMatchService(overrides: Partial<MatchService> = {}): MatchService &
     sequence: 1,
     stepId: "describe",
     createdAt: "2026-10-15T00:00:00.000Z",
+    mySeatKeys: ["p1"],
   };
   const view = {
     instanceId: MATCH_ID,
@@ -275,7 +276,7 @@ function fakeMatchService(overrides: Partial<MatchService> = {}): MatchService &
         summary,
         seats: [],
         waiting: null,
-        view: null,
+        view,
         briefing: null,
         record: [],
         actions: [],
@@ -966,11 +967,22 @@ describe("match routes", () => {
     ]);
   });
 
-  it("lists matches for a seat holder and for an administrator", async () => {
+  it("lists every match with the seats the caller holds in it", async () => {
     const { app, headers, matchService } = await seated();
     const response = await app.inject({ method: "GET", url: "/v1/instances", headers });
     assert.equal(response.statusCode, 200);
-    assert.equal(response.json().matches.length, 1);
+    assert.deepEqual(response.json().matches, [
+      {
+        instanceId: MATCH_ID,
+        gameId: "undercover",
+        gameVersion: "1.0.0",
+        status: "waiting",
+        sequence: 1,
+        stepId: "describe",
+        createdAt: "2026-10-15T00:00:00.000Z",
+        mySeatKeys: ["p1"],
+      },
+    ]);
     assert.deepEqual(matchService.seen, ["list:seated"]);
 
     const anonymous = await app.inject({ method: "GET", url: "/v1/instances" });
@@ -1047,10 +1059,11 @@ describe("match routes", () => {
     const badId = await app.inject({ method: "GET", url: "/v1/instances/not-a-uuid", headers });
     assert.equal(badId.statusCode, 400);
 
+    // Watching is open to any signed-in account; a missing match is the refusal that remains.
     const refused = await seated({
       matchService: fakeMatchService({
         read: async () => {
-          throw new AppError(403, "NOT_A_PARTICIPANT", "Only this match's seats may read it");
+          throw new AppError(404, "MATCH_NOT_FOUND", "No such match");
         },
       }),
     });
@@ -1059,7 +1072,7 @@ describe("match routes", () => {
       url: `/v1/instances/${MATCH_ID}`,
       headers: refused.headers,
     });
-    assert.equal(response.statusCode, 403);
-    assert.equal(response.json().code, "NOT_A_PARTICIPANT");
+    assert.equal(response.statusCode, 404);
+    assert.equal(response.json().code, "MATCH_NOT_FOUND");
   });
 });

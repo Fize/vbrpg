@@ -33,6 +33,7 @@ import {
   listGameEvents,
   listGameInstances,
   listGameParticipants,
+  listSeatsForUser,
   lockGameInstance,
   recordAuditLog,
   setInstanceStatus,
@@ -86,7 +87,7 @@ export type RecordTurnResult =
 
 export interface MatchService {
   create(input: { actor: MatchActor; request: CreateMatchRequest }): Promise<MatchSummary>;
-  /** Matches this actor may open: its own seats, or every match for an administrator. */
+  /** Every match, newest first, each tagged with the seats this actor holds in it. */
   list(input: { actor: MatchActor }): Promise<MatchSummary[]>;
   /** The games this deployment ships, so a client can offer them without hardcoding ids. */
   listGames(): GameCatalogueEntry[];
@@ -114,7 +115,7 @@ export interface MatchService {
     summary: MatchSummary;
     seats: MatchSeat[];
     waiting: GameState["waiting"];
-    view: PlayerView | null;
+    view: PlayerView;
     briefing: string | null;
     record: MatchRecordRow[];
     actions: GameAction[];
@@ -133,15 +134,18 @@ export function createMatchService(options: {
     return game;
   }
 
-  function summarize(row: {
-    id: string;
-    game_id: string;
-    game_version: string;
-    status: GameState["status"];
-    current_sequence: number;
-    state_json: unknown;
-    created_at: Date;
-  }): MatchSummary {
+  function summarize(
+    row: {
+      id: string;
+      game_id: string;
+      game_version: string;
+      status: GameState["status"];
+      current_sequence: number;
+      state_json: unknown;
+      created_at: Date;
+    },
+    mySeats: ReadonlyArray<{ participant_key: string }> = [],
+  ): MatchSummary {
     const state = row.state_json as GameState;
     return {
       instanceId: row.id,
@@ -151,6 +155,7 @@ export function createMatchService(options: {
       sequence: row.current_sequence,
       stepId: state.stepId,
       createdAt: row.created_at.toISOString(),
+      mySeatKeys: mySeats.map((seat) => seat.participant_key),
     };
   }
 
@@ -158,6 +163,13 @@ export function createMatchService(options: {
     return projectPlayerView(resolveVisibility(game.visibility, state), state, {
       kind: "participant",
       participantId,
+    });
+  }
+
+  /** What a watcher sees: the same public state, no private state, no actions. */
+  function spectatorViewFor(game: GameModule, state: GameState): PlayerView {
+    return projectPlayerView(resolveVisibility(game.visibility, state), state, {
+      kind: "spectator",
     });
   }
 
@@ -348,8 +360,18 @@ export function createMatchService(options: {
     },
 
     async list({ actor }) {
-      const rows = await listGameInstances(db, { userId: actor.userId, isAdmin: actor.isAdmin });
-      return rows.map(summarize);
+      const rows = await listGameInstances(db, { limit: 50 });
+      const seats = await listSeatsForUser(db, {
+        userId: actor.userId,
+        instanceIds: rows.map((row) => row.id),
+      });
+      const byInstance = new Map<string, Array<{ participant_key: string }>>();
+      for (const seat of seats) {
+        const list = byInstance.get(seat.instance_id) ?? [];
+        list.push({ participant_key: seat.participant_key });
+        byInstance.set(seat.instance_id, list);
+      }
+      return rows.map((row) => summarize(row, byInstance.get(row.id) ?? []));
     },
 
     listGames() {
@@ -599,15 +621,13 @@ export function createMatchService(options: {
       if (!instance) throw new AppError(404, "MATCH_NOT_FOUND", "No such match");
       const game = requireGame(instance.game_id);
       const seats = await listGameParticipants(db, instanceId);
+      // Any signed-in account may watch any match; holding a seat is what changes the view.
       const mine = seats.find((seat) => seat.actor_user_id === actor.userId);
-      if (!actor.isAdmin && !mine) {
-        throw new AppError(403, "NOT_A_PARTICIPANT", "Only this match's seats and administrators may read it");
-      }
 
       const rows = await listGameEvents(db, instanceId);
       const state = stateOf(instance);
       return {
-        summary: summarize(instance),
+        summary: summarize(instance, seats.filter((seat) => seat.actor_user_id === actor.userId)),
         seats: seats.map((seat) => ({
           participantId: seat.id,
           key: seat.participant_key,
@@ -615,7 +635,7 @@ export function createMatchService(options: {
           status: seat.status,
           actorUserId: seat.actor_user_id,
         })),
-        view: mine ? viewFor(game, state, mine.id) : null,
+        view: mine ? viewFor(game, state, mine.id) : spectatorViewFor(game, state),
         waiting: state.waiting,
         // The same words an AI seat is given: a human seat deserves the rules it is playing by.
         briefing: mine ? (game.briefing?.(state, mine.id) ?? null) : null,

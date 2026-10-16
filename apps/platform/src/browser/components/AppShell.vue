@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRouter } from "vue-router";
-import { Connection, Grid, Lock, SwitchButton, User as UserIcon } from "@element-plus/icons-vue";
+import { Connection, Grid, Lock, SwitchButton, Tickets, User as UserIcon } from "@element-plus/icons-vue";
 import { logout, sessionState } from "../stores/session";
 
 const router = useRouter();
@@ -38,6 +38,10 @@ async function handleLogout(): Promise<void> {
           <RouterLink v-if="isAdmin" to="/admin/users" class="nav-link">
             <el-icon><UserIcon /></el-icon>
             <span>用户管理</span>
+          </RouterLink>
+          <RouterLink v-if="isAdmin" to="/admin/matches" class="nav-link">
+            <el-icon><Tickets /></el-icon>
+            <span>对局运维</span>
           </RouterLink>
           <RouterLink v-if="isAdmin" to="/admin/providers" class="nav-link">
             <el-icon><Connection /></el-icon>

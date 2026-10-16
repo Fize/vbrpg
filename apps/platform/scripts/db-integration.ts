@@ -358,13 +358,18 @@ try {
   }
   assert.equal(foreignSeat, true, "an AI seat must not accept a human submission");
 
-  let stranger = false;
-  try {
-    await matchService.read({ actor: { userId: randomUUID(), isAdmin: false }, instanceId: matchId });
-  } catch (error) {
-    stranger = error instanceof Error && "code" in error && error.code === "NOT_A_PARTICIPANT";
-  }
-  assert.equal(stranger, true, "a non-participant must not read the match");
+  // Anyone may watch: a watcher gets the public state and the record, never a seat's private state.
+  const holder = await matchService.read({ actor, instanceId: matchId });
+  const watcher = await matchService.read({
+    actor: { userId: randomUUID(), isAdmin: false },
+    instanceId: matchId,
+  });
+  assert.deepEqual(watcher.summary.mySeatKeys, [], "a watcher holds no seat here");
+  assert.equal(watcher.view.availableActions.length, 0);
+  assert.equal(Object.keys(watcher.view.privateState).length, 0, "no seat's secret reaches a watcher");
+  assert.deepEqual(watcher.view.publicState, holder.view.publicState, "the public state is the same");
+  assert.equal(watcher.briefing, null, "the rules belong to the seats playing");
+  assert.equal(watcher.record.length, holder.record.length, "the record is the match's history");
 
   // Two writes at once: the row lock serializes them instead of losing one.
   const parallel = await Promise.allSettled([
@@ -544,21 +549,28 @@ try {
     matchService.listGames().map((game) => game.gameId),
     ["undercover"],
   );
+  // Every match is visible to every signed-in account; the seat tag is what differs.
+  const listed = await matchService.list({ actor: seatHolder });
+  const mine = listed.find((match) => match.instanceId === lifecycleMatchId);
+  assert.deepEqual(mine?.mySeatKeys, ["p1"], "the holder's own seat is marked");
   assert.ok(
-    (await matchService.list({ actor: seatHolder })).some(
+    (await matchService.list({ actor: { userId: randomUUID(), isAdmin: false } })).some(
       (match) => match.instanceId === lifecycleMatchId,
     ),
-    "a seat holder sees the matches it plays in",
+    "a stranger sees the match it may watch",
   );
-  assert.ok(
-    (await matchService.list({ actor: { userId: randomUUID(), isAdmin: false } })).every(
-      (match) => match.instanceId !== lifecycleMatchId,
-    ),
-    "a stranger sees nothing of it",
+  assert.deepEqual(
+    (await matchService.list({ actor })).find((match) => match.instanceId === lifecycleMatchId)
+      ?.mySeatKeys,
+    ["p1"],
+    "an administrator is a player here, not an operator: it holds s1",
   );
-  assert.ok(
-    (await matchService.list({ actor })).some((match) => match.instanceId === lifecycleMatchId),
-    "an administrator sees it without holding a seat",
+  assert.deepEqual(
+    (await matchService.list({ actor: { userId: randomUUID(), isAdmin: true } })).find(
+      (match) => match.instanceId === lifecycleMatchId,
+    )?.mySeatKeys,
+    [],
+    "an administrator with no seat is only watching",
   );
 
   let notAdmin = false;

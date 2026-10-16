@@ -42,6 +42,7 @@ export {
   listGameEvents,
   listGameInstances,
   listGameParticipants,
+  listSeatsForUser,
   lockGameInstance,
   setInstanceStatus,
   updateGameParticipantStatus,

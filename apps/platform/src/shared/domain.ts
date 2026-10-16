@@ -165,6 +165,8 @@ export const matchSummarySchema = z.object({
   sequence: z.number().int().nonnegative(),
   stepId: idSchema,
   createdAt: z.string().min(1),
+  /** Seats the caller holds here. Empty means it is watching, not playing. */
+  mySeatKeys: z.array(z.string().min(1)),
 });
 
 export const matchSeatSchema = z.object({
@@ -199,15 +201,17 @@ export const gameCatalogueEntrySchema = z.object({
 export const gameCatalogueSchema = z.object({ games: z.array(gameCatalogueEntrySchema) });
 
 /**
- * Everything a page needs for one match. `view` and `briefing` are absent for an administrator who
- * holds no seat; `actions` is the game's whole catalogue — the same vocabulary every seat sees.
+ * Everything a page needs for one match. Any signed-in account may read any match, so the projection
+ * is what differs: a seat holder sees its own private state and actions, a watcher sees the same
+ * public state and nothing else. The record is the same for both, because it is the match's history.
  */
 export const matchDetailSchema = z.object({
   summary: matchSummarySchema,
   seats: z.array(matchSeatSchema),
   /** The point the match is waiting on. Public: it is who the table is waiting for, not a secret. */
   waiting: waitingSchema.nullable(),
-  view: playerViewSchema.nullable(),
+  /** Always present: a seat holder's view, or a watcher's public-only view. */
+  view: playerViewSchema,
   /** The game's rules in its own words, plus this seat's private state — what an AI seat is told. */
   briefing: z.string().nullable(),
   record: z.array(matchRecordRowSchema),

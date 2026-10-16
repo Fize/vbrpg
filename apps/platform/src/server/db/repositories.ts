@@ -21,31 +21,31 @@ export async function getGameInstance(
     .executeTakeFirst();
 }
 
-/** Newest first. An administrator sees every match; anyone else sees the ones holding a seat. */
+/** Newest first. Every match is public: the lobby is where people find one to watch or join. */
 export async function listGameInstances(
   db: DbExecutor,
-  input: { userId: string; isAdmin: boolean; limit?: number },
+  input: { limit?: number } = {},
 ): Promise<Array<Selectable<GameInstancesTable>>> {
-  const limit = input.limit ?? 50;
-  if (input.isAdmin) {
-    return db
-      .selectFrom("game_instances")
-      .selectAll()
-      .orderBy("created_at", "desc")
-      .limit(limit)
-      .execute();
-  }
   return db
     .selectFrom("game_instances")
     .selectAll()
-    .where("id", "in", (expression) =>
-      expression
-        .selectFrom("game_participants")
-        .select("instance_id")
-        .where("actor_user_id", "=", input.userId),
-    )
     .orderBy("created_at", "desc")
-    .limit(limit)
+    .limit(input.limit ?? 50)
+    .execute();
+}
+
+/** Which of these matches the account holds a seat in, and under which key. */
+export async function listSeatsForUser(
+  db: DbExecutor,
+  input: { userId: string; instanceIds: readonly string[] },
+): Promise<Array<{ instance_id: string; participant_key: string }>> {
+  if (input.instanceIds.length === 0) return [];
+  return db
+    .selectFrom("game_participants")
+    .select(["instance_id", "participant_key"])
+    .where("actor_user_id", "=", input.userId)
+    .where("instance_id", "in", [...input.instanceIds])
+    .orderBy("seat", "asc")
     .execute();
 }
 

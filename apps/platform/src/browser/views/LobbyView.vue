@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import { Plus, Refresh } from "@element-plus/icons-vue";
 import { api, apiRequestId, type GameCatalogueEntry, type MatchSummary } from "../services/api";
 import { uiErrorMessage } from "../services/messages";
-import { formatTime, isOpen, statusLabel, statusTag } from "../services/match-labels";
+import { formatTime, statusLabel, statusTag } from "../services/match-labels";
 import { sessionState } from "../stores/session";
 
 interface SeatDraft {
@@ -33,14 +33,6 @@ const createSeats = ref<SeatDraft[]>([
 const creating = ref(false);
 const createError = ref<string | null>(null);
 const createRequestId = ref<string | null>(null);
-
-const rowBusyId = ref<string | null>(null);
-const rowError = ref<string | null>(null);
-const rowRequestId = ref<string | null>(null);
-
-const cancelTarget = ref<MatchSummary | null>(null);
-const cancelError = ref<string | null>(null);
-const cancelling = ref(false);
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -114,36 +106,6 @@ async function submitCreate(): Promise<void> {
   }
 }
 
-async function setStatus(instanceId: string, status: "running" | "paused"): Promise<void> {
-  rowBusyId.value = instanceId;
-  rowError.value = null;
-  rowRequestId.value = null;
-  try {
-    await api.setMatchStatus(instanceId, status);
-    await load();
-  } catch (error) {
-    rowError.value = uiErrorMessage(error);
-    rowRequestId.value = apiRequestId(error);
-  } finally {
-    rowBusyId.value = null;
-  }
-}
-
-async function confirmCancel(): Promise<void> {
-  const target = cancelTarget.value;
-  if (!target) return;
-  cancelling.value = true;
-  cancelError.value = null;
-  try {
-    await api.setMatchStatus(target.instanceId, "cancelled");
-    cancelTarget.value = null;
-    await load();
-  } catch (error) {
-    cancelError.value = uiErrorMessage(error);
-  } finally {
-    cancelling.value = false;
-  }
-}
 </script>
 
 <template>
@@ -175,16 +137,6 @@ async function confirmCancel(): Promise<void> {
       />
       <p v-if="loadRequestId" class="meta">请求编号 {{ loadRequestId }}</p>
 
-      <el-alert
-        v-if="rowError"
-        class="stack-sm"
-        data-testid="lobby-row-error"
-        type="error"
-        :title="rowError"
-        :closable="false"
-        show-icon
-      />
-
       <el-table v-loading="loading" :data="matches" empty-text="还没有对局" row-key="instanceId">
         <el-table-column label="游戏" min-width="140">
           <template #default="{ row }">{{ row.gameId }}@{{ row.gameVersion }}</template>
@@ -196,7 +148,15 @@ async function confirmCancel(): Promise<void> {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="进度" min-width="160">
+        <el-table-column label="我的席位" width="130">
+          <template #default="{ row }">
+            <el-tag v-if="row.mySeatKeys.length > 0" type="primary" effect="plain" size="small">
+              {{ row.mySeatKeys.join("、") }}
+            </el-tag>
+            <span v-else class="muted">旁观</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="进度" min-width="150">
           <template #default="{ row }">
             <span class="mono">#{{ row.sequence }}</span>
             <span class="muted"> · {{ row.stepId }}</span>
@@ -205,52 +165,25 @@ async function confirmCancel(): Promise<void> {
         <el-table-column label="创建时间" min-width="170">
           <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" min-width="280">
+        <el-table-column label="操作" width="120">
           <template #default="{ row }">
-            <div class="row-actions">
-              <el-button
-                type="primary"
-                plain
-                size="small"
-                @click="router.push({ name: 'match', params: { instanceId: row.instanceId } })"
-              >
-                进入房间
-              </el-button>
-              <template v-if="isAdmin">
-                <el-button
-                  v-if="isOpen(row.status)"
-                  size="small"
-                  :disabled="rowBusyId === row.instanceId"
-                  @click="setStatus(row.instanceId, 'paused')"
-                >
-                  暂停
-                </el-button>
-                <el-button
-                  v-if="row.status === 'paused'"
-                  size="small"
-                  :disabled="rowBusyId === row.instanceId"
-                  @click="setStatus(row.instanceId, 'running')"
-                >
-                  恢复
-                </el-button>
-                <el-button
-                  v-if="row.status !== 'cancelled' && row.status !== 'completed'"
-                  type="danger"
-                  plain
-                  size="small"
-                  :disabled="rowBusyId === row.instanceId"
-                  @click="cancelTarget = row"
-                >
-                  取消
-                </el-button>
-              </template>
-            </div>
+            <el-button
+              :type="row.mySeatKeys.length > 0 ? 'primary' : 'default'"
+              :plain="row.mySeatKeys.length === 0"
+              size="small"
+              @click="router.push({ name: 'match', params: { instanceId: row.instanceId } })"
+            >
+              {{ row.mySeatKeys.length > 0 ? "进入房间" : "旁观" }}
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
 
       <p class="hint">
-        {{ isAdmin ? "管理员看到全部对局；其他账号只看到自己占席位的对局。" : "只显示你占席位的对局。" }}
+        大厅里的每一局都能进：占席位的进去行动，没有席位的进去旁观，看到的是同一份记录。
+        <template v-if="isAdmin">
+          对局的暂停、恢复与取消在「对局运维」里，不在这里。
+        </template>
       </p>
     </el-card>
 
@@ -331,22 +264,6 @@ async function confirmCancel(): Promise<void> {
         <el-button type="primary" :loading="creating" @click="submitCreate">开局</el-button>
       </template>
     </el-dialog>
-
-    <el-dialog
-      :model-value="cancelTarget !== null"
-      title="取消对局"
-      width="420px"
-      @update:model-value="cancelTarget = null"
-    >
-      <p class="dialog-note">
-        取消后该对局不再接受输入，记录保留。这是一次平台运维操作，会写入审计，不会写成游戏事件。
-      </p>
-      <p v-if="cancelError" class="field-error">{{ cancelError }}</p>
-      <template #footer>
-        <el-button @click="cancelTarget = null">返回</el-button>
-        <el-button type="danger" :loading="cancelling" @click="confirmCancel">确认取消</el-button>
-      </template>
-    </el-dialog>
   </section>
 </template>
 
@@ -382,12 +299,6 @@ async function confirmCancel(): Promise<void> {
 .panel-title {
   font-size: var(--text-base);
   font-weight: 600;
-}
-
-.row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2xs);
 }
 
 .seat-editor {
@@ -442,17 +353,6 @@ async function confirmCancel(): Promise<void> {
 .meta {
   font-size: var(--text-xs);
   color: var(--meta);
-}
-
-.dialog-note {
-  font-size: var(--text-base);
-  color: var(--fg-2);
-}
-
-.field-error {
-  margin-top: var(--space-xs);
-  font-size: var(--text-sm);
-  color: var(--danger);
 }
 
 .stack-sm {
