@@ -1,11 +1,25 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { Plus, Refresh } from "@element-plus/icons-vue";
 import { api, apiRequestId, type GameCatalogueEntry, type MatchSummary } from "../services/api";
 import { uiErrorMessage } from "../services/messages";
 import { formatTime, statusLabel, statusTag } from "../services/match-labels";
 import { sessionState } from "../stores/session";
+
+/** Categories are only a prompt hint for the pair helper, so the list lives with the form. */
+const CATEGORIES = [
+  "水果",
+  "食物",
+  "动物",
+  "日用品",
+  "职业",
+  "交通工具",
+  "影视作品",
+  "地方小吃",
+  "运动",
+  "电子产品",
+];
 
 interface SeatDraft {
   control: "human" | "ai";
@@ -32,6 +46,38 @@ const createSeats = ref<SeatDraft[]>([
 ]);
 /** Whether the table sees each other's personas; the platform deals one to every seat anyway. */
 const createPersonaPublic = ref(false);
+/** Whatever the selected game asks for at creation, keyed by the game's own field names. */
+const createValues = ref<Record<string, string>>({});
+const createCategory = ref("水果");
+const generating = ref(false);
+const generateError = ref<string | null>(null);
+
+const selectedGame = computed(() => games.value.find((game) => game.gameId === createGame.value));
+const setupFields = computed(() => selectedGame.value?.setup ?? []);
+/** The pair helper only appears for a game that says which fields a generated pair fills. */
+const pairFields = computed(() => setupFields.value.filter((field) => field.from !== undefined));
+
+watch(createGame, () => {
+  createValues.value = {};
+  generateError.value = null;
+});
+
+async function generatePair(): Promise<void> {
+  generating.value = true;
+  generateError.value = null;
+  try {
+    const pair = await api.generateWordPair(createCategory.value.trim());
+    const next = { ...createValues.value };
+    for (const field of pairFields.value) {
+      next[field.name] = field.from === "pair.civilian" ? pair.civilian : pair.undercover;
+    }
+    createValues.value = next;
+  } catch (error) {
+    generateError.value = uiErrorMessage(error);
+  } finally {
+    generating.value = false;
+  }
+}
 const creating = ref(false);
 const createError = ref<string | null>(null);
 const createRequestId = ref<string | null>(null);
@@ -98,12 +144,22 @@ async function submitCreate(): Promise<void> {
     createError.value = "至少需要一个席位。";
     return;
   }
+  const variables: Record<string, string> = {};
+  for (const field of setupFields.value) {
+    const value = (createValues.value[field.name] ?? "").trim();
+    if (value.length === 0) {
+      createError.value = `请填写「${field.label}」。`;
+      return;
+    }
+    variables[field.name] = value;
+  }
 
   creating.value = true;
   try {
     const created = await api.createMatch({
       gameId: createGame.value,
       personaPublic: createPersonaPublic.value,
+      ...(setupFields.value.length === 0 ? {} : { variables }),
       seats: createSeats.value.map((seat, index) => ({
         key: `s${index + 1}`,
         control: seat.control,
@@ -270,6 +326,27 @@ async function submitCreate(): Promise<void> {
         </el-form-item>
       </el-form>
 
+      <el-form-item v-if="pairFields.length > 0" label="词对">
+        <div class="pair-row">
+          <el-select v-model="createCategory" class="category-select">
+            <el-option v-for="name in CATEGORIES" :key="name" :label="name" :value="name" />
+          </el-select>
+          <el-button :loading="generating" @click="generatePair">用 AI 生成</el-button>
+          <span class="hint inline">由平台的模型给出一对词，生成后你可以改。</span>
+        </div>
+        <p v-if="generateError" class="field-error">{{ generateError }}</p>
+      </el-form-item>
+
+      <el-form-item v-for="field in setupFields" :key="field.name" :label="field.label">
+        <el-input
+          :model-value="createValues[field.name] ?? ''"
+          :placeholder="field.description"
+          @update:model-value="
+            (value: string) => (createValues = { ...createValues, [field.name]: value })
+          "
+        />
+      </el-form-item>
+
       <el-form-item label="公开人格">
         <el-switch v-model="createPersonaPublic" />
         <span class="hint inline">
@@ -369,6 +446,23 @@ async function submitCreate(): Promise<void> {
   margin: 0 0 0 var(--space-xs);
   font-size: var(--text-sm);
   color: var(--muted);
+}
+
+.pair-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+}
+
+.category-select {
+  width: 160px;
+}
+
+.field-error {
+  margin-top: var(--space-2xs);
+  font-size: var(--text-sm);
+  color: var(--danger);
 }
 
 .mono {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { PERSONA_BANK, dealPersonas, readPersona, visiblePersona } from "./persona.js";
+import { dealPersonas, readPersona, visiblePersona } from "./persona.js";
 
 /** The same hash the games use to deal roles, so the correlation test matches reality. */
 function hash(input: string): number {
@@ -20,10 +20,29 @@ describe("seat personas", () => {
     assert.equal(first.length, 4);
   });
 
-  it("wraps instead of failing when a match has more seats than the bank", () => {
-    const dealt = dealPersonas("seed-a", PERSONA_BANK.length + 3);
-    assert.equal(dealt.length, PERSONA_BANK.length + 3);
-    assert.deepEqual(dealt.slice(PERSONA_BANK.length), dealPersonas("seed-a", 3));
+  it("combines the five dimensions instead of drawing ready-made characters", () => {
+    // 24 fixed personas could never fill 200 seats with distinct people; five independent pools can.
+    const dealt = dealPersonas("wide", 200);
+    assert.equal(dealt.length, 200);
+    const distinct = new Set(
+      dealt.map((persona) =>
+        [persona.mbti, persona.gender, persona.profession, persona.personality, persona.style].join(
+          "|",
+        ),
+      ),
+    );
+    assert.ok(distinct.size > 150, `expected a wide spread, saw ${distinct.size} distinct people`);
+
+    // The dimensions must not travel together: one MBTI has to arrive with several professions.
+    const byMbti = new Map<string, Set<string>>();
+    for (const persona of dealt) {
+      const professions = byMbti.get(persona.mbti) ?? new Set<string>();
+      professions.add(persona.profession);
+      byMbti.set(persona.mbti, professions);
+    }
+    for (const [mbti, professions] of byMbti) {
+      assert.ok(professions.size > 1, `${mbti} only ever came with ${[...professions].join(",")}`);
+    }
   });
 
   it("does not correlate with the seat the game makes the undercover", () => {

@@ -41,6 +41,8 @@ export interface PlatformLimiters {
   loginByAccount: RateLimiter;
   connectionTestByAdmin: RateLimiter;
   connectionTestSlots: Map<string, ConcurrencyLimiter>;
+  /** Each word pair is a paid model call, so it is capped per account. */
+  wordPairByUser: RateLimiter;
 }
 
 /** Limiters are per-app-instance state, created once alongside the store. */
@@ -56,6 +58,8 @@ export function createPlatformRequestContext(
       loginByAccount: createRateLimiter({ limit: 5, windowMs: 60_000 }),
       connectionTestByAdmin: createRateLimiter({ limit: 5, windowMs: 60_000 }),
       connectionTestSlots: new Map(),
+      // Each word pair is a paid model call, so the cap is per account, not per match.
+      wordPairByUser: createRateLimiter({ limit: 10, windowMs: 60_000 }),
     },
   };
 }

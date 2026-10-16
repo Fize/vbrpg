@@ -18,6 +18,7 @@ function started() {
     engineVersion: undercover.engineVersion,
     randomSeed: "seed-1",
     participants: SEATS,
+    variables: { civilianWord: "咖啡", undercoverWord: "茶" },
   });
 }
 

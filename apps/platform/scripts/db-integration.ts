@@ -371,6 +371,7 @@ try {
     actor,
     request: {
       gameId: "undercover",
+      variables: { civilianWord: "咖啡", undercoverWord: "茶" },
       seats: [
         { key: "p1", control: "human" },
         { key: "p2", control: "ai" },
@@ -518,6 +519,7 @@ try {
     actor,
     request: {
       gameId: "undercover",
+      variables: { civilianWord: "咖啡", undercoverWord: "茶" },
       seats: [
         { key: "p1", control: "ai" },
         { key: "p2", control: "ai" },
@@ -617,6 +619,7 @@ try {
     actor,
     request: {
       gameId: "undercover",
+      variables: { civilianWord: "咖啡", undercoverWord: "茶" },
       personaPublic: true,
       seats: [
         { key: "p1", control: "human" },
@@ -637,6 +640,7 @@ try {
     actor,
     request: {
       gameId: "undercover",
+      variables: { civilianWord: "咖啡", undercoverWord: "茶" },
       seats: [
         { key: "p1", control: "human" },
         { key: "p2", control: "ai" },

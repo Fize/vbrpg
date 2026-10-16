@@ -36,6 +36,7 @@ export {
   gameCatalogueSchema,
   gameEventSchema,
   gameVocabularySchema,
+  generateWordPairRequestSchema,
   gameStateSchema,
   matchDetailSchema,
   matchListSchema,
@@ -44,6 +45,7 @@ export {
   matchSummarySchema,
   parseAiCallPayload,
   parseCreateMatchRequest,
+  parseGenerateWordPairRequest,
   parseGameEvent,
   parseGameState,
   parsePlayerView,
@@ -53,9 +55,11 @@ export {
   platformEventTypes,
   playerViewSchema,
   seatPersonaSchema,
+  setupFieldSchema,
   seatRequestSchema,
   submitEventRequestSchema,
   updateMatchStatusRequestSchema,
+  wordPairSchema,
   waitingSchema,
 } from "./domain.js";
 
@@ -67,6 +71,7 @@ export type {
   GameCatalogueEntry,
   GameEvent,
   GameVocabulary,
+  GenerateWordPairRequest,
   GameState,
   MatchDetail,
   MatchRecordRow,
@@ -75,8 +80,10 @@ export type {
   Participant,
   SeatPersona,
   SeatRequest,
+  SetupField,
   SubmitEventRequest,
   UpdateMatchStatusRequest,
+  WordPair,
   PlayerView,
 } from "./domain.js";
 

@@ -44,13 +44,16 @@ function apply(
   return current;
 }
 
-function start(seed = "seed-1"): GameState {
+const WORDS = { civilianWord: "咖啡", undercoverWord: "茶" };
+
+function start(seed = "seed-1", variables: Record<string, unknown> = WORDS): GameState {
   return undercover.initialState({
     instanceId: "instance-1",
     gameVersionId: "undercover@1.0.0",
     engineVersion: undercover.engineVersion,
     randomSeed: seed,
     participants: SEATS,
+    variables,
   });
 }
 
@@ -62,6 +65,24 @@ function view(state: GameState, participantId: string) {
 }
 
 describe("undercover rules", () => {
+  it("refuses to start without the table's words", () => {
+    expect(() => start("seed-1", {})).toThrowError(/civilianWord/);
+    expect(() => start("seed-1", { civilianWord: "咖啡" })).toThrowError(/undercoverWord/);
+    expect(() => start("seed-1", { civilianWord: "  ", undercoverWord: "茶" })).toThrowError(
+      /civilianWord/,
+    );
+    expect(() => start("seed-1", { civilianWord: "咖啡", undercoverWord: "咖啡" })).toThrowError(
+      /must differ/,
+    );
+  });
+
+  it("deals the words it was given", () => {
+    const state = start("seed-1", { civilianWord: "地铁", undercoverWord: "公交" });
+    const words = SEATS.map((seat) => state.variables[`word:${seat.participantId}`]);
+    expect(words.filter((word) => word === "公交")).toHaveLength(1);
+    expect(words.filter((word) => word === "地铁")).toHaveLength(3);
+  });
+
   it("starts with everyone describing and deals exactly one undercover", () => {
     const state = start();
     expect(state.status).toBe("waiting");

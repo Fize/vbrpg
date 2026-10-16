@@ -73,6 +73,15 @@ export interface ActionDefinition {
   readonly audience?: "room" | "seat";
 }
 
+/** A creation parameter the game asks for; the platform renders it and passes the value back. */
+export interface SetupField {
+  readonly name: string;
+  readonly label: string;
+  readonly description: string;
+  readonly kind?: "text";
+  readonly from?: "pair.civilian" | "pair.undercover";
+}
+
 export interface GameModule {
   readonly id: string;
   /** What players call this game. */
@@ -83,6 +92,8 @@ export interface GameModule {
   readonly steps?: Readonly<Record<string, string>>;
   /** Every other word the game uses — variables, roles, outcomes, its own event types. */
   readonly words?: Readonly<Record<string, string>>;
+  /** What the game needs before it can deal, e.g. the words a round is played with. */
+  readonly setup?: readonly SetupField[];
   /** Which variables each viewer may see. Absent means nobody sees them (fail-closed). */
   readonly visibility?: VisibilitySource;
   /** Roles, dealt cards and per-game variables are the game's business, so creation is its hook. */

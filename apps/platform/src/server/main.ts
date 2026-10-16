@@ -9,6 +9,7 @@ import { closeDb, createDb } from "./db/index.js";
 import { createPlatformStore } from "./store.js";
 import { createBuiltInRegistry } from "./games/index.js";
 import { createMatchService } from "./match/service.js";
+import { createWordPairService } from "./routes/word-pairs.js";
 import { createAiSeatRunner } from "./match/ai-seat.js";
 import { createWorker } from "./worker.js";
 
@@ -78,6 +79,7 @@ async function startHttp(databaseUrl: string | undefined): Promise<void> {
       ? {
           platformStore: createPlatformStore(db),
           matchService: createMatchService({ db, registry: createBuiltInRegistry() }),
+          wordPairService: createWordPairService({ db, credentialKey: config.credentialKey }),
         }
       : {}),
   });

@@ -162,6 +162,24 @@ export const actionArgSchema = z.object({
   kind: z.enum(["seat"]).optional(),
 });
 
+/**
+ * One creation parameter a game asks for. The game owns the meaning, the platform only renders a
+ * field for it and hands the values back as `variables` — which is how a word list stays the
+ * game's input instead of the platform's constant.
+ */
+export const setupFieldSchema = z.object({
+  name: idSchema,
+  label: z.string().min(1),
+  description: z.string().min(1),
+  /** Hint for the form control; today only free text. */
+  kind: z.enum(["text"]).optional(),
+  /**
+   * When the field is one half of a generated word pair, which half. The platform defines the pair
+   * shape (`{civilian, undercover}`); the game says where each half goes in its own parameters.
+   */
+  from: z.enum(["pair.civilian", "pair.undercover"]).optional(),
+});
+
 /** The catalogue entry a seat needs to build a form: the action name is the event it produces. */
 export const gameActionSchema = z.object({
   name: idSchema,
@@ -216,6 +234,8 @@ export const gameCatalogueEntrySchema = z.object({
   engineVersion: z.string().min(1),
   /** Its step names, so a list can show what a match is waiting at without a second call. */
   steps: z.record(z.string().min(1)),
+  /** What this game asks for at creation, in the game's own words. */
+  setup: z.array(setupFieldSchema),
 });
 
 /**
@@ -255,6 +275,16 @@ export const updateMatchStatusRequestSchema = z
   .object({ status: z.enum(["running", "paused", "cancelled"]) })
   .strict();
 
+/** Asking the platform's own model for a word pair: one category in, two words out. */
+export const generateWordPairRequestSchema = z
+  .object({ category: z.string().trim().min(1).max(40) })
+  .strict();
+
+export const wordPairSchema = z.object({
+  civilian: z.string().min(1),
+  undercover: z.string().min(1),
+});
+
 export type GameEvent = z.infer<typeof gameEventSchema>;
 export type GameState = z.infer<typeof gameStateSchema>;
 export type Participant = z.infer<typeof participantSchema>;
@@ -265,6 +295,9 @@ export type SubmitEventRequest = z.infer<typeof submitEventRequestSchema>;
 export type PlayerView = z.infer<typeof playerViewSchema>;
 export type ActionArg = z.infer<typeof actionArgSchema>;
 export type SeatPersona = z.infer<typeof seatPersonaSchema>;
+export type SetupField = z.infer<typeof setupFieldSchema>;
+export type GenerateWordPairRequest = z.infer<typeof generateWordPairRequestSchema>;
+export type WordPair = z.infer<typeof wordPairSchema>;
 export type GameAction = z.infer<typeof gameActionSchema>;
 export type GameVocabulary = z.infer<typeof gameVocabularySchema>;
 export type GameCatalogueEntry = z.infer<typeof gameCatalogueEntrySchema>;
@@ -300,4 +333,8 @@ export function parseSubmitEventRequest(input: unknown): SubmitEventRequest {
 
 export function parseUpdateMatchStatusRequest(input: unknown): UpdateMatchStatusRequest {
   return updateMatchStatusRequestSchema.parse(input);
+}
+
+export function parseGenerateWordPairRequest(input: unknown): GenerateWordPairRequest {
+  return generateWordPairRequestSchema.parse(input);
 }

@@ -27,175 +27,103 @@ export interface VisiblePersona {
   style?: string;
 }
 
-export const PERSONA_BANK: readonly Persona[] = [
-  {
-    mbti: "INTJ",
-    gender: "女",
-    profession: "架构师",
-    personality: "冷静、讲究结构，讨厌含糊",
-    style: "句子短，先给结论",
-  },
-  {
-    mbti: "ENFP",
-    gender: "男",
-    profession: "广告文案",
-    personality: "热情、跳脱，联想很多",
-    style: "爱用比喻和感叹",
-  },
-  {
-    mbti: "ISTJ",
-    gender: "男",
-    profession: "审计师",
-    personality: "严谨、按流程，记性好",
-    style: "喜欢引用别人之前说过的话",
-  },
-  {
-    mbti: "ESFJ",
-    gender: "女",
-    profession: "小学老师",
-    personality: "亲和、爱照顾人，怕冷场",
-    style: "语气温和，常先附和再补充",
-  },
-  {
-    mbti: "INTP",
-    gender: "男",
-    profession: "研究生",
-    personality: "好奇、钻细节，容易跑题",
-    style: "喜欢拆解定义",
-  },
-  {
-    mbti: "ESTP",
-    gender: "女",
-    profession: "健身教练",
-    personality: "直爽、敢下判断",
-    style: "说话冲，爱催别人表态",
-  },
-  {
-    mbti: "ISFJ",
-    gender: "女",
-    profession: "护士",
-    personality: "细致、不爱冲突",
-    style: "措辞谨慎，常留余地",
-  },
-  {
-    mbti: "ENTJ",
-    gender: "男",
-    profession: "创业公司老板",
-    personality: "强势、要效率",
-    style: "喜欢总结和分配任务",
-  },
-  {
-    mbti: "INFP",
-    gender: "女",
-    profession: "插画师",
-    personality: "敏感、在意氛围",
-    style: "说得慢，会补充感受",
-  },
-  {
-    mbti: "ESTJ",
-    gender: "男",
-    profession: "车间主管",
-    personality: "务实、讲证据",
-    style: "一次只谈一件事",
-  },
-  {
-    mbti: "ENFJ",
-    gender: "女",
-    profession: "HR",
-    personality: "善于安抚、观察入微",
-    style: "会点出谁和谁的说法冲突",
-  },
-  {
-    mbti: "ISTP",
-    gender: "男",
-    profession: "修理工",
-    personality: "寡言、动手型",
-    style: "话少，一句顶一句",
-  },
-  {
-    mbti: "ESFP",
-    gender: "女",
-    profession: "酒吧驻唱",
-    personality: "张扬、爱表现",
-    style: "夸张，爱开玩笑",
-  },
-  {
-    mbti: "INFJ",
-    gender: "女",
-    profession: "心理咨询师",
-    personality: "安静、善于读人",
-    style: "喜欢问反问句",
-  },
-  {
-    mbti: "ENTP",
-    gender: "男",
-    profession: "产品经理",
-    personality: "爱辩论、不服权威",
-    style: "常用反问与假设",
-  },
-  {
-    mbti: "ISFP",
-    gender: "男",
-    profession: "咖啡师",
-    personality: "温和、凭直觉",
-    style: "短句，偏爱具体例子",
-  },
-  {
-    mbti: "INTJ",
-    gender: "女",
-    profession: "律师",
-    personality: "锋利、抓字眼",
-    style: "逐条回应别人的措辞",
-  },
-  {
-    mbti: "ENFP",
-    gender: "女",
-    profession: "记者",
-    personality: "追问型、话密",
-    style: "连续追问，逼人明确",
-  },
-  {
-    mbti: "ISFP",
-    gender: "女",
-    profession: "花店老板",
-    personality: "柔软、回避对抗",
-    style: "先夸一句再婉转反驳",
-  },
-  {
-    mbti: "ESTP",
-    gender: "男",
-    profession: "二手车销售",
-    personality: "油滑、擅长带节奏",
-    style: "爱用顺口溜和口头禅",
-  },
-  {
-    mbti: "INTP",
-    gender: "女",
-    profession: "数据分析师",
-    personality: "爱算概率、不信感觉",
-    style: "会数说了几条线索",
-  },
-  {
-    mbti: "ENFJ",
-    gender: "男",
-    profession: "中学历史老师",
-    personality: "健谈、爱讲故事",
-    style: "喜欢打历史比方",
-  },
-  {
-    mbti: "ISTJ",
-    gender: "女",
-    profession: "出纳",
-    personality: "保守、不爱冒险",
-    style: "倾向保守描述，避免极端词",
-  },
-  {
-    mbti: "ENTP",
-    gender: "女",
-    profession: "脱口秀演员",
-    personality: "机灵、爱抬杠",
-    style: "带刺的玩笑，节奏快",
-  },
+/**
+ * Five independent pools, combined per seat at creation. They are deliberately not a list of
+ * ready-made characters: 16 × 2 × 24 × 20 × 20 combinations are why a table of twelve rarely
+ * sees the same person twice, and why publishing a persona says little about who is what.
+ */
+export const MBTI_POOL: readonly string[] = [
+  "INTJ",
+  "INTP",
+  "ENTJ",
+  "ENTP",
+  "INFJ",
+  "INFP",
+  "ENFJ",
+  "ENFP",
+  "ISTJ",
+  "ISFJ",
+  "ESTJ",
+  "ESFJ",
+  "ISTP",
+  "ISFP",
+  "ESTP",
+  "ESFP",
+];
+
+export const GENDER_POOL: readonly string[] = ["男", "女"];
+
+export const PROFESSION_POOL: readonly string[] = [
+  "架构师",
+  "广告文案",
+  "审计师",
+  "小学老师",
+  "研究生",
+  "健身教练",
+  "护士",
+  "创业公司老板",
+  "插画师",
+  "车间主管",
+  "HR",
+  "修理工",
+  "酒吧驻唱",
+  "心理咨询师",
+  "产品经理",
+  "咖啡师",
+  "律师",
+  "记者",
+  "花店老板",
+  "二手车销售",
+  "数据分析师",
+  "中学历史老师",
+  "出纳",
+  "脱口秀演员",
+];
+
+export const PERSONALITY_POOL: readonly string[] = [
+  "冷静、讲究结构，讨厌含糊",
+  "热情、跳脱，联想很多",
+  "严谨、按流程，记性好",
+  "亲和、爱照顾人，怕冷场",
+  "好奇、钻细节，容易跑题",
+  "直爽、敢下判断",
+  "细致、不爱冲突",
+  "强势、要效率",
+  "敏感、在意氛围",
+  "务实、讲证据",
+  "善于安抚、观察入微",
+  "寡言、动手型",
+  "张扬、爱表现",
+  "安静、善于读人",
+  "爱辩论、不服权威",
+  "温和、凭直觉",
+  "锋利、抓字眼",
+  "追根究底、话密",
+  "柔软、回避对抗",
+  "油滑、擅长带节奏",
+];
+
+export const STYLE_POOL: readonly string[] = [
+  "句子短，先给结论",
+  "爱用比喻和感叹",
+  "喜欢引用别人之前说过的话",
+  "语气温和，常先附和再补充",
+  "喜欢拆解定义",
+  "说话冲，爱催别人表态",
+  "措辞谨慎，常留余地",
+  "喜欢总结和分配任务",
+  "说得慢，会补充感受",
+  "一次只谈一件事",
+  "会点出谁和谁的说法冲突",
+  "话少，一句顶一句",
+  "夸张，爱开玩笑",
+  "喜欢问反问句",
+  "常用反问与假设",
+  "短句，偏爱具体例子",
+  "逐条回应别人的措辞",
+  "连续追问，逼人明确",
+  "先夸一句再婉转反驳",
+  "爱用顺口溜和口头禅",
 ];
 
 function hash(input: string): number {
@@ -207,21 +135,25 @@ function hash(input: string): number {
   return Math.abs(value);
 }
 
+/** One independent pick per dimension, so the same MBTI can arrive with any job or manner. */
+function pick(pool: readonly string[], seed: string, dimension: string, seat: number): string {
+  return pool[hash(`${seed}#persona#${dimension}#${seat}`) % pool.length] as string;
+}
+
 /**
  * Deterministic from the match seed: same seed, same seats, same people — and no input from roles,
  * which is what keeps a published persona from leaking who is what.
  */
 export function dealPersonas(seed: string, seatCount: number): Persona[] {
-  const shuffled = [...PERSONA_BANK];
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapWith = hash(`${seed}#persona#${index}`) % (index + 1);
-    const held = shuffled[index] as Persona;
-    shuffled[index] = shuffled[swapWith] as Persona;
-    shuffled[swapWith] = held;
-  }
   const dealt: Persona[] = [];
-  for (let index = 0; index < seatCount; index += 1) {
-    dealt.push(shuffled[index % shuffled.length] as Persona);
+  for (let seat = 0; seat < seatCount; seat += 1) {
+    dealt.push({
+      mbti: pick(MBTI_POOL, seed, "mbti", seat),
+      gender: pick(GENDER_POOL, seed, "gender", seat),
+      profession: pick(PROFESSION_POOL, seed, "profession", seat),
+      personality: pick(PERSONALITY_POOL, seed, "personality", seat),
+      style: pick(STYLE_POOL, seed, "style", seat),
+    });
   }
   return dealt;
 }

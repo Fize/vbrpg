@@ -8,16 +8,14 @@ import {
   type ModelClient,
   type ModelUsage,
 } from "../llm/client.js";
+import { chooseModelBinding, type ModelBinding } from "../llm/binding.js";
 import { buildSeatPrompt } from "../llm/prompt.js";
-import { parseProviderEndpoint, type ProviderEndpoint } from "../provider-endpoint.js";
-import { AppError, openCredential, type CredentialKey } from "../runtime/index.js";
+import { AppError, type CredentialKey } from "../runtime/index.js";
 import {
   findReadyAiSeats,
   getGameInstance,
-  getProvider,
   listGameEvents,
   listGameParticipants,
-  listProvidersWithModels,
   type Database,
 } from "../db/index.js";
 import type { MatchService } from "./service.js";
@@ -26,13 +24,8 @@ import type { MatchService } from "./service.js";
 const DEFAULT_MAX_TOKENS = 2048;
 const DEFAULT_MAX_CALLS_PER_TURN = 3;
 
-export interface SeatBinding {
-  providerId: string;
-  modelId: string;
-  endpoint: ProviderEndpoint;
-  apiKey: string;
-  maxTokens: number;
-}
+/** A seat plays with the platform's shared model binding. */
+export type SeatBinding = ModelBinding;
 
 export interface AiSeatRunner {
   runOnce(input?: { limit?: number }): Promise<{ turns: number; failures: number }>;
@@ -54,34 +47,9 @@ export function createAiSeatRunner(deps: {
   const maxTokens = deps.maxTokens ?? DEFAULT_MAX_TOKENS;
   const maxCallsPerTurn = deps.maxCallsPerTurn ?? DEFAULT_MAX_CALLS_PER_TURN;
 
-  /**
-   * Which model an AI seat plays with. Nothing binds a seat to a model yet, so this takes the first
-   * enabled provider and model; the game declaring its own binding replaces this one function.
-   */
+  /** Which model an AI seat plays with: the platform's shared binding. */
   async function chooseBinding(): Promise<SeatBinding | null> {
-    const catalog = await listProvidersWithModels(db, { includeDisabled: false });
-    const entry = catalog[0];
-    const model = entry?.models[0];
-    if (!entry || !model) return null;
-    const provider = await getProvider(db, entry.provider.id);
-    if (!provider) return null;
-    const apiKey = openCredential(
-      {
-        credential_ciphertext: provider.credential_ciphertext,
-        credential_nonce: provider.credential_nonce,
-        credential_tag: provider.credential_tag,
-        credential_key_version: provider.credential_key_version,
-      },
-      provider.id,
-      credentialKey,
-    );
-    return {
-      providerId: provider.id,
-      modelId: model.model_id,
-      endpoint: parseProviderEndpoint(provider.base_url),
-      apiKey,
-      maxTokens,
-    };
+    return chooseModelBinding({ db, credentialKey, maxTokens });
   }
 
   function usageOf(binding: SeatBinding, usage: ModelUsage | null) {

@@ -40,6 +40,9 @@ test.describe.serial("M3 对局界面", () => {
     const seatInputs = page.getByPlaceholder("留空表示自己占该席位");
     await expect(seatInputs).toHaveCount(2);
     await seatInputs.nth(1).fill(playerName);
+    // The words are the table's input, so no round can start without them.
+    await page.getByLabel("平民的词").fill("咖啡");
+    await page.getByLabel("卧底的词").fill("茶");
     await page.getByRole("button", { name: "开局" }).click();
 
     await expect(page).toHaveURL(/\/matches\/[0-9a-f-]{36}$/);

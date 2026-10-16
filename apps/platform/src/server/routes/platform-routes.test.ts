@@ -281,6 +281,7 @@ function fakeMatchService(
         version: "1.0.0",
         engineVersion: "core-1",
         steps: { describe: "描述阶段" },
+        setup: [{ name: "civilianWord", label: "平民的词", description: "多数席位拿到的词" }],
       },
     ],
     setStatus: async ({ instanceId, status }) => {
@@ -1010,6 +1011,7 @@ describe("match routes", () => {
         version: "1.0.0",
         engineVersion: "core-1",
         steps: { describe: "描述阶段" },
+        setup: [{ name: "civilianWord", label: "平民的词", description: "多数席位拿到的词" }],
       },
     ]);
   });

@@ -398,6 +398,7 @@ export function createMatchService(options: {
         version: game.version,
         engineVersion: game.engineVersion,
         steps: { ...(game.steps ?? {}) },
+        setup: (game.setup ?? []).map((field) => ({ ...field })),
       }));
     },
 

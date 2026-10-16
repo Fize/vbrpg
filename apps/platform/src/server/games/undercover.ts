@@ -6,6 +6,7 @@ import {
   type ActionDefinition,
   type CreateInstanceInput,
   type GameModule,
+  type SetupField,
 } from "../game/module.js";
 import type { Visibility } from "../game/projector.js";
 
@@ -17,16 +18,31 @@ import type { Visibility } from "../game/projector.js";
  * （`votes` 不写进可见性，任何席位都看不到；只有结算后的 `summary` 公开）。
  */
 
-const WORDS: ReadonlyArray<readonly [string, string]> = [
-  ["苹果", "梨"],
-  ["咖啡", "茶"],
-  ["猫", "老虎"],
-  ["钢琴", "吉他"],
-  ["地铁", "公交"],
-  ["雪", "冰"],
+const MIN_SEATS = 3;
+
+/** The words are the table's, not the game's: no round is dealt without them. */
+const SETUP: readonly SetupField[] = [
+  {
+    name: "civilianWord",
+    label: "平民的词",
+    description: "大多数席位拿到的词",
+    from: "pair.civilian",
+  },
+  {
+    name: "undercoverWord",
+    label: "卧底的词",
+    description: "与平民的词相近，但不能相同",
+    from: "pair.undercover",
+  },
 ];
 
-const MIN_SEATS = 3;
+function requiredWord(variables: Record<string, unknown>, name: string): string {
+  const value = variables[name];
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new EngineError("WORDS_REQUIRED", `This round needs "${name}" before it can start`);
+  }
+  return value.trim();
+}
 
 type UndercoverVariables = {
   phase: "describe" | "vote" | "over";
@@ -159,6 +175,7 @@ export const undercover: GameModule = {
   engineVersion: "core-1",
   actions: ACTIONS,
   steps: STEP_NAMES,
+  setup: SETUP,
   words: WORD_NAMES,
 
   /** The rules, in the game's own words. Stable for the match, so it can sit in the prompt head. */
@@ -197,7 +214,11 @@ export const undercover: GameModule = {
       throw new EngineError("TOO_FEW_SEATS", `At least ${MIN_SEATS} seats are required`);
     }
 
-    const pair = WORDS[hash(input.randomSeed) % WORDS.length] as readonly [string, string];
+    const civilianWord = requiredWord(input.variables ?? {}, "civilianWord");
+    const undercoverWord = requiredWord(input.variables ?? {}, "undercoverWord");
+    if (civilianWord === undercoverWord) {
+      throw new EngineError("WORDS_IDENTICAL", "The two words must differ");
+    }
     const undercoverIndex = hash(`${input.randomSeed}#u`) % input.participants.length;
     const alive = input.participants.map((seat) => seat.participantId);
 
@@ -211,7 +232,8 @@ export const undercover: GameModule = {
       winner: null,
     };
     for (const [index, seat] of input.participants.entries()) {
-      variables[`word:${seat.participantId}`] = index === undercoverIndex ? pair[1] : pair[0];
+      variables[`word:${seat.participantId}`] =
+        index === undercoverIndex ? undercoverWord : civilianWord;
     }
 
     const state = createBaseState(
