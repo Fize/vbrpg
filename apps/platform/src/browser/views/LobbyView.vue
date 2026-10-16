@@ -57,12 +57,19 @@ const createPersonaPublic = ref(false);
 const createValues = ref<Record<string, string>>({});
 
 const selectedGame = computed(() => games.value.find((game) => game.gameId === createGame.value));
-/** Fields with `from` are filled by the platform's model, so the creator is never asked for them. */
-const setupFields = computed(() =>
-  (selectedGame.value?.setup ?? []).filter((field) => field.from === undefined),
-);
 const derivedCount = computed(
   () => (selectedGame.value?.setup ?? []).filter((field) => field.from !== undefined).length,
+);
+/** A game may offer two ways to get its words: type both, or name a category and let the model do it. */
+const wordFields = computed(() =>
+  (selectedGame.value?.setup ?? []).filter(
+    (field) => field.from === undefined && field.kind === "word",
+  ),
+);
+const askedFields = computed(() =>
+  (selectedGame.value?.setup ?? []).filter(
+    (field) => field.from === undefined && field.kind !== "word",
+  ),
 );
 const seatBounds = computed(() => selectedGame.value?.seats ?? { min: 1, max: 24 });
 
@@ -145,13 +152,26 @@ async function submitCreate(): Promise<void> {
   }
 
   const variables: Record<string, string> = {};
-  for (const field of setupFields.value) {
-    const value = (createValues.value[field.name] ?? "").trim();
-    if (value.length === 0) {
-      createError.value = `请填写「${field.label}」。`;
-      return;
+  const filled = (name: string): string => (createValues.value[name] ?? "").trim();
+
+  // Words are all-or-nothing: both typed, or neither (the category then drives the model).
+  const typedWords = wordFields.value.filter((field) => filled(field.name) !== "");
+  if (typedWords.length > 0 && typedWords.length < wordFields.value.length) {
+    createError.value = "两个词要么都填，要么都留空（留空就按分类生成）。";
+    return;
+  }
+  for (const field of wordFields.value) {
+    if (typedWords.length > 0) variables[field.name] = filled(field.name);
+  }
+  if (typedWords.length === 0) {
+    for (const field of askedFields.value) {
+      const value = filled(field.name);
+      if (value.length === 0) {
+        createError.value = `请填写「${field.label}」或自己填两个词。`;
+        return;
+      }
+      variables[field.name] = value;
     }
-    variables[field.name] = value;
   }
 
   creating.value = true;
@@ -159,7 +179,7 @@ async function submitCreate(): Promise<void> {
     const room = await api.createRoom({
       gameId: createGame.value,
       personaPublic: createPersonaPublic.value,
-      ...(setupFields.value.length === 0 ? {} : { variables }),
+      ...(Object.keys(variables).length === 0 ? {} : { variables }),
       seats: createSeats.value.map((seat, index) => ({
         key: `s${index + 1}`,
         control: seat.control,
@@ -412,7 +432,7 @@ async function join(roomId: string): Promise<void> {
         </el-form-item>
       </el-form>
 
-      <el-form-item v-for="field in setupFields" :key="field.name" :label="field.label">
+      <el-form-item v-for="field in askedFields" :key="field.name" :label="field.label">
         <el-select
           v-if="field.kind === 'category'"
           v-model="createValues[field.name]"
@@ -433,8 +453,26 @@ async function join(roomId: string): Promise<void> {
           "
         />
       </el-form-item>
-      <p v-if="derivedCount > 0" class="hint">
+      <el-form-item v-if="wordFields.length > 0" label="自己出词（可选）">
+        <div class="word-row">
+          <el-input
+            v-for="field in wordFields"
+            :key="field.name"
+            class="word-input"
+            :model-value="createValues[field.name] ?? ''"
+            :placeholder="field.label"
+            @update:model-value="
+              (value: string) => (createValues = { ...createValues, [field.name]: value })
+            "
+          />
+        </div>
+      </el-form-item>
+
+      <p v-if="derivedCount > 0" class="hint" data-testid="word-source">
         开局时由平台的模型按分类给出一对词，直接发到席位上，不会先显示给别人看。
+        <template v-if="wordFields.length > 0">
+          也可以自己填这两个词（都填就用自己的；自己填的会被全桌看到，所以只建议旁观者来填）。
+        </template>
       </p>
 
       <el-form-item label="公开人格">
@@ -555,7 +593,17 @@ async function join(roomId: string): Promise<void> {
 }
 
 .category-select {
-  width: 160px;
+  width: 200px;
+}
+
+.word-row {
+  display: flex;
+  gap: var(--space-xs);
+  width: 100%;
+}
+
+.word-input {
+  flex: 1;
 }
 
 .field-error {
