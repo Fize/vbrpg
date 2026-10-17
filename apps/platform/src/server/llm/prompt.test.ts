@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { platformEventTypes } from "../../shared/index.js";
 import { projectPlayerView, resolveVisibility } from "../game/index.js";
 import { undercover } from "../games/undercover.js";
-import { buildSeatPrompt } from "./prompt.js";
+import { buildSeatPrompt, retryInstruction } from "./prompt.js";
 
 const SEATS = ["p1", "p2", "p3", "p4"].map((key) => ({
   participantId: key,
@@ -35,6 +35,7 @@ describe("seat prompt", () => {
       state,
       participantId: me,
       seatKeys: KEYS,
+      attempt: { index: 1, limit: 3 },
       record: [],
     });
 
@@ -59,6 +60,7 @@ describe("seat prompt", () => {
       state,
       participantId: seatId(state, 1),
       seatKeys: KEYS,
+      attempt: { index: 1, limit: 3 },
       record: [],
     });
     expect(built.system).toContain("桌上的席位：alice、bob、carol、dave");
@@ -75,6 +77,7 @@ describe("seat prompt", () => {
       state,
       participantId: seatId(state, 0),
       seatKeys: KEYS,
+      attempt: { index: 1, limit: 3 },
       record: [],
     });
 
@@ -97,6 +100,7 @@ describe("seat prompt", () => {
       state,
       participantId: me,
       seatKeys: KEYS,
+      attempt: { index: 1, limit: 3 },
       personas: {
         [seatId(state, 0)]: { gender: "男" },
         [me]: { mbti: "INFJ", gender: "女", profession: "教师", style: "短句" },
@@ -133,6 +137,7 @@ describe("seat prompt", () => {
       state,
       participantId: seatId(state, 1),
       seatKeys: KEYS,
+      attempt: { index: 1, limit: 3 },
       record: [{ sequence: 2, type: "skipDiscussion", participantId: other, payload: {} }],
     });
 
@@ -148,6 +153,7 @@ describe("seat prompt", () => {
       state,
       participantId: me,
       seatKeys: KEYS,
+      attempt: { index: 1, limit: 3 },
       record: [
         { sequence: 1, type: "instanceCreated", participantId: null, payload: {} },
         {
@@ -189,6 +195,7 @@ describe("seat prompt", () => {
       state,
       participantId: me,
       seatKeys: KEYS,
+      attempt: { index: 1, limit: 3 },
       record: [],
     });
 
@@ -201,6 +208,7 @@ describe("seat prompt", () => {
       },
       participantId: me,
       seatKeys: KEYS,
+      attempt: { index: 1, limit: 3 },
       record: [
         {
           sequence: 2,
@@ -219,5 +227,62 @@ describe("seat prompt", () => {
     expect(later.messages.at(-1)?.content).toContain("回合：2");
     expect(JSON.stringify(later.messages.slice(0, -1))).not.toContain("回合");
     expect(later.system).toContain("## 只有你知道的信息");
+  });
+
+  it("keeps the hard limit in the header and only the try count in the last message", () => {
+    const state = started();
+    const prompt = buildSeatPrompt({
+      game: undercover,
+      state,
+      participantId: seatId(state, 1),
+      seatKeys: KEYS,
+      attempt: { index: 2, limit: 3 },
+      record: [],
+    });
+
+    // The limit never moves, so it is a rule and rides in the cached header.
+    expect(prompt.system).toContain("## 行动约束");
+    expect(prompt.system).toContain("每次只能调用一个工具");
+    expect(prompt.system).toContain("最多尝试 3 次");
+    expect(prompt.system).toContain("这一步就作废");
+
+    const instruction = prompt.messages.at(-1)?.content ?? "";
+    expect(instruction).toContain("## 你的尝试预算");
+    expect(instruction).toContain("现在是这次行动的第 2 次，还剩 2 次");
+    expect(instruction).not.toContain("最多尝试");
+  });
+
+  it("does not move the header when only the try count changes", () => {
+    const base = {
+      game: undercover,
+      state: started(),
+      participantId: "p2",
+      seatKeys: KEYS,
+      record: [],
+    };
+    const first = buildSeatPrompt({ ...base, attempt: { index: 1, limit: 3 } });
+    const retried = buildSeatPrompt({ ...base, attempt: { index: 3, limit: 3 } });
+
+    expect(retried.system).toBe(first.system);
+    expect(retried.tools).toEqual(first.tools);
+    expect(retried.messages.at(-1)?.content).not.toBe(first.messages.at(-1)?.content);
+  });
+
+  it("carries the same budget block into a retry, with the reason and the allowed actions", () => {
+    const text = retryInstruction(
+      {
+        game: undercover,
+        state: started(),
+        participantId: "p2",
+        seatKeys: KEYS,
+        attempt: { index: 3, limit: 3 },
+        record: [],
+      },
+      "「vote」不在本步允许的动作里。",
+    );
+
+    expect(text).toContain("## 上一次没有成功\n「vote」不在本步允许的动作里。");
+    expect(text).toContain("## 本步允许的动作\nseatMessage");
+    expect(text).toContain("现在是这次行动的第 3 次，还剩 1 次");
   });
 });

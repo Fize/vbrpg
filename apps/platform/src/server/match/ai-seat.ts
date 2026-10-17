@@ -9,7 +9,7 @@ import {
   type ModelUsage,
 } from "../llm/client.js";
 import { chooseModelBinding, type ModelBinding } from "../llm/binding.js";
-import { buildSeatPrompt } from "../llm/prompt.js";
+import { buildSeatPrompt, retryInstruction } from "../llm/prompt.js";
 import { AppError, type CredentialKey } from "../runtime/index.js";
 import {
   findReadyAiSeats,
@@ -19,6 +19,7 @@ import {
   type Database,
 } from "../db/index.js";
 import type { MatchService } from "./service.js";
+import { seatPersonas } from "./persona.js";
 
 /** A reasoning model spends a few hundred tokens thinking before it acts; leave room for both. */
 const DEFAULT_MAX_TOKENS = 2048;
@@ -87,23 +88,40 @@ export function createAiSeatRunner(deps: {
 
     const rows = await listGameEvents(db, target.instanceId);
     const seatKeys = Object.fromEntries(seats.map((row) => [row.id, row.participant_key]));
-    const prompt = buildSeatPrompt({
+    // The same slices a human at the table gets: its own persona in full, the others as published.
+    const personas = seatPersonas(seats, {
+      ownSeatId: seat.id,
+      published: instance.persona_public,
+    });
+    const promptInput = {
       game,
       state,
       participantId: seat.id,
       seatKeys,
+      personas,
       record: rows.map((row) => ({
         sequence: row.sequence,
         type: row.type,
         participantId: row.participant_id,
         payload: row.payload,
       })),
-    });
+      attempt: { index: 1, limit: maxCallsPerTurn },
+    };
+    const prompt = buildSeatPrompt(promptInput);
 
     // Deterministic per turn: a retry, or a second worker racing on the same turn, replays.
     const turnKey = `ai:${seat.id}:${instance.current_sequence}:${state.stepId}`;
     const allowed = allowedActions(game, state).map((action) => action.name);
     let messages: ChatMessage[] = [{ role: "system", content: prompt.system }, ...prompt.messages];
+
+    /** Advances the counter the prompt reads, so every retry states its own remaining budget. */
+    function nextAttempt(reason: string): string {
+      promptInput.attempt.index += 1;
+      return retryInstruction(promptInput, reason);
+    }
+
+    /** Never worth another call: the next one would be the (limit + 1)th. */
+    const exhausted = (callIndex: number) => callIndex + 1 >= maxCallsPerTurn;
 
     for (let callIndex = 0; callIndex < maxCallsPerTurn; callIndex += 1) {
       const result = await client.call({
@@ -146,10 +164,11 @@ export function createAiSeatRunner(deps: {
           return "failed";
         }
         // It answered in prose: record the call and ask for an action once more.
+        if (exhausted(callIndex)) break;
         messages = [
           ...messages,
           { role: "assistant", content: result.content, reasoningContent: result.reasoning },
-          { role: "user", content: "请用一次工具调用完成你的动作，不要用普通文字回答。" },
+          { role: "user", content: nextAttempt("你用普通文字回答，没有调用任何工具。") },
         ];
         continue;
       }
@@ -162,6 +181,7 @@ export function createAiSeatRunner(deps: {
           callIndex,
           call,
         });
+        if (exhausted(callIndex)) break;
         messages = [
           ...messages,
           {
@@ -173,7 +193,7 @@ export function createAiSeatRunner(deps: {
           {
             role: "tool",
             toolCallId: toolCall.id,
-            content: `「${toolCall.name}」现在不可用。本步允许的动作：${allowed.join(", ")}。`,
+            content: nextAttempt(`「${toolCall.name}」不在本步允许的动作里。`),
           },
         ];
         continue;
@@ -190,6 +210,7 @@ export function createAiSeatRunner(deps: {
       if (outcome.accepted) return "acted";
 
       // The rule refused the action: the call is kept, and the model gets the reason to try again.
+      if (exhausted(callIndex)) break;
       messages = [
         ...messages,
         {
@@ -198,7 +219,11 @@ export function createAiSeatRunner(deps: {
           toolCalls: [toolCall],
           reasoningContent: result.reasoning,
         },
-        { role: "tool", toolCallId: toolCall.id, content: `动作被拒绝：${outcome.message}` },
+        {
+          role: "tool",
+          toolCallId: toolCall.id,
+          content: nextAttempt(`动作被拒绝：${outcome.message}`),
+        },
       ];
     }
 

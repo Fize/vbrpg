@@ -41,6 +41,11 @@ export interface BuildSeatPromptInput {
   record: readonly TranscriptRow[];
   /** What this reader may see of every seat's persona, its own included. */
   personas?: Readonly<Record<string, SeatPersona | null>>;
+  /**
+   * Which try this is at the current step, and how many the platform allows. `limit` is fixed for
+   * the match and belongs in the cached header; `index` moves, so only it reaches the last message.
+   */
+  attempt: { index: number; limit: number };
 }
 
 export function buildSeatPrompt(input: BuildSeatPromptInput): SeatPrompt {
@@ -60,7 +65,7 @@ export function buildSeatPrompt(input: BuildSeatPromptInput): SeatPrompt {
     section("其他席位与可见人格", otherSeats(input)),
     section("你的人格", ownPersona(input)),
     section("只有你知道的信息", ownSecrets(own.privateState, participantId, input)),
-    section("行动约束", "你通过工具行动：每次只能调用一个工具，调用完这一轮就结束。"),
+    section("行动约束", actionLimits(input.attempt.limit)),
   ]
     .filter((part) => part.length > 0)
     .join("\n\n");
@@ -257,13 +262,57 @@ export function turnInstruction(input: BuildSeatPromptInput): string {
     waiting.length > 0 ? `这一步还在等：${waiting.join("、")}。` : "",
     "## 现在的局面",
     situation.length === 0 ? "（没有公开状态）" : situation,
-    "## 本步允许的动作",
-    allowed.length === 0 ? "（无）" : allowed.join("、"),
+    allowedSection(allowed),
+    budgetSection(input.attempt),
     "## 输出要求",
-    "用一次工具调用来完成你的动作；如果调用的动作现在不被允许，你会收到提示，然后可以重试。",
+    "用一次工具调用完成你的动作，参数按工具定义填写。",
   ]
     .filter((line) => line.length > 0)
     .join("\n");
+}
+
+/**
+ * What the seat gets after a try that did not land. Same budget block as the opening
+ * instruction, so the countdown is never the model's job to guess.
+ */
+export function retryInstruction(input: BuildSeatPromptInput, reason: string): string {
+  const allowed = allowedActions(input.game, input.state).map((action) => action.name);
+  return [
+    "## 上一次没有成功",
+    reason,
+    allowedSection(allowed),
+    budgetSection(input.attempt),
+    "## 输出要求",
+    allowed.length === 0
+      ? "本步没有可用的动作。"
+      : `改为调用「${allowed.join("、")}」之一，不要重复刚才那个动作。`,
+  ].join("\n");
+}
+
+function allowedSection(allowed: readonly string[]): string {
+  const body = allowed.length === 0 ? "（无）" : allowed.join("、");
+  return `## 本步允许的动作\n${body}\n除此之外的动作现在一律无效，调用会被拒绝。`;
+}
+
+/**
+ * The platform's hard limits, stated once. `limit` is fixed for the whole match, so it sits in the
+ * cached header with the rules; only the tries already spent move (see `budgetSection`).
+ */
+function actionLimits(limit: number): string {
+  return [
+    "你只能通过工具行动：每次只能调用一个工具。",
+    `这次行动最多尝试 ${limit} 次；次数用完仍没有一个动作被接受，这一步就作废，你会失去这次行动，本局继续。`,
+    "只有最后一条消息里「本步允许的动作」列出的动作现在有效，其余动作会被拒绝。",
+  ].join("\n");
+}
+
+/** Just the moving part of the budget: the limit itself is a rule and never travels here. */
+function budgetSection(attempt: { index: number; limit: number }): string {
+  const left = Math.max(attempt.limit - attempt.index + 1, 0);
+  return [
+    "## 你的尝试预算",
+    `现在是这次行动的第 ${attempt.index} 次，还剩 ${left} 次（含这一次）。`,
+  ].join("\n");
 }
 
 function toTools(game: GameModule): ChatTool[] {
