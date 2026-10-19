@@ -275,7 +275,8 @@ describe("match room", () => {
     // The word leads the column at display size — it is the seat's identity for the match.
     const secret = wrapper.find("[data-testid='my-secret']");
     expect(secret.text()).toContain("苹果");
-    expect(secret.text()).not.toContain("只给你看的信息");
+    // No heading announces that a panel is private: the word's own name is the heading.
+    expect(wrapper.text()).not.toContain("只有你");
     // The rules are folded away: a wall of text must not push the word down the column.
     expect(wrapper.find("[data-testid='my-seat']").text()).toContain("这一局的规则");
     // Its latest line in the shared transcript is on the seat.
@@ -301,7 +302,7 @@ describe("match room", () => {
     const wrapper = await render();
 
     expect(wrapper.find("[data-testid='my-secret']").exists()).toBe(false);
-    expect(wrapper.text()).toContain("其他只有你知道的信息");
+    expect(wrapper.text()).not.toContain("只有你");
     expect(wrapper.text()).toContain("苹果");
     expect(wrapper.text()).toContain("水果");
   });
@@ -344,7 +345,7 @@ describe("match room", () => {
 
     const text = wrapper.text();
     expect(text).toContain("观战中");
-    expect(text).not.toContain("只给你看的信息");
+    expect(text).not.toContain("只有你");
     expect(text).not.toContain("你在玩「谁是卧底」");
     expect(wrapper.find("[data-testid='my-actions']").text()).toContain("旁观没有动作可提交");
     expect(wrapper.find("[data-testid='my-actions'] button").exists()).toBe(false);

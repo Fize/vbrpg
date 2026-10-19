@@ -214,7 +214,6 @@ async function submit(payload: {
             <span class="panel-title">{{ primarySecret.key }}</span>
           </header>
           <p class="secret-value">{{ valueText(primarySecret.value) }}</p>
-          <p class="hint">别直接说出它——用一句话让别人猜不出、又让同伴认得出。</p>
         </section>
 
         <section v-if="mySeat" class="panel" data-testid="my-seat">
@@ -227,13 +226,9 @@ async function submit(payload: {
               <p class="briefing">{{ detail.briefing }}</p>
             </el-collapse-item>
           </el-collapse>
-          <p v-else class="hint">这局没有给你单独的规则文本。</p>
         </section>
 
         <section v-if="otherPrivateEntries.length > 0" class="panel">
-          <header class="panel-head">
-            <span class="panel-title">其他只有你知道的信息</span>
-          </header>
           <el-descriptions :column="1" border size="small">
             <el-descriptions-item
               v-for="entry in otherPrivateEntries"
@@ -243,10 +238,6 @@ async function submit(payload: {
               {{ valueText(entry.value) }}
             </el-descriptions-item>
           </el-descriptions>
-        </section>
-
-        <section v-if="mySeat && privateEntries.length === 0" class="panel">
-          <p class="hint">当前没有单独的私有信息。</p>
         </section>
 
         <section v-if="myPersona" class="panel" data-testid="my-persona">
@@ -275,7 +266,6 @@ async function submit(payload: {
               <dd>{{ myPersona.style }}</dd>
             </div>
           </dl>
-          <p class="hint">人格影响你怎么说话；MBTI 只有你自己知道。</p>
         </section>
 
         <ActionDock
