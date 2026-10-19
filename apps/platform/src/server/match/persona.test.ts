@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { dealPersonas, readPersona, seatPersonas, visiblePersona } from "./persona.js";
+import { dealPersonas, readPersona, visiblePersona } from "./persona.js";
 
 /** The same hash the games use to deal roles, so the correlation test matches reality. */
 function hash(input: string): number {
@@ -81,24 +81,5 @@ describe("seat personas", () => {
     assert.equal(readPersona({ ...dealPersonas("seed-a", 1)[0], mbti: "" }), null);
     const [persona] = dealPersonas("seed-a", 1);
     assert.deepEqual(readPersona(persona), persona);
-  });
-
-  it("assembles the table from one seat's point of view", () => {
-    const [own, other] = dealPersonas("seed-a", 2);
-    const seats = [
-      { id: "p1", persona: own },
-      { id: "p2", persona: other },
-      { id: "p3", persona: null },
-    ];
-
-    const hidden = seatPersonas(seats, { ownSeatId: "p1", published: false });
-    // Its own persona arrives whole, MBTI included; nobody else's does.
-    assert.deepEqual(hidden["p1"], { ...own });
-    assert.deepEqual(hidden["p2"], { gender: other?.gender });
-    assert.equal(hidden["p3"], null);
-
-    const published = seatPersonas(seats, { ownSeatId: "p1", published: true });
-    assert.equal(published["p2"]?.profession, other?.profession);
-    assert.equal(published["p2"]?.mbti, undefined);
   });
 });

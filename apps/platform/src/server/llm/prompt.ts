@@ -39,8 +39,11 @@ export interface BuildSeatPromptInput {
   /** Seat keys, so the transcript reads as names instead of ids. */
   seatKeys: Record<string, string>;
   record: readonly TranscriptRow[];
-  /** What this reader may see of every seat's persona, its own included. */
-  personas?: Readonly<Record<string, SeatPersona | null>>;
+  /**
+   * This seat's own persona, and nothing else. Who at the table has one must not reach the prompt:
+   * only AI seats are dealt personas, so "has a persona" would read as "is an AI seat".
+   */
+  persona?: SeatPersona | null;
   /**
    * Which try this is at the current step, and how many the platform allows. `limit` is fixed for
    * the match and belongs in the cached header; `index` moves, so only it reaches the last message.
@@ -62,7 +65,6 @@ export function buildSeatPrompt(input: BuildSeatPromptInput): SeatPrompt {
     section("规则", game.briefing?.(state, participantId) ?? ""),
     section("你的角色", roleLine(game, state, participantId)),
     section("你的位置与席位表", position(input)),
-    section("其他席位与可见人格", otherSeats(input)),
     section("你的人格", ownPersona(input)),
     section("只有你知道的信息", ownSecrets(own.privateState, participantId, input)),
     section("行动约束", actionLimits(input.attempt.limit)),
@@ -118,12 +120,6 @@ function section(title: string, body: string): string {
   return trimmed.length === 0 ? "" : `## ${title}\n${trimmed}`;
 }
 
-function seatKeysOf(input: BuildSeatPromptInput): Array<[string, string]> {
-  return Object.entries(input.seatKeys)
-    .filter(([participantId]) => participantId !== input.participantId)
-    .sort((left, right) => left[1].localeCompare(right[1]));
-}
-
 function roleLine(game: GameModule, state: GameState, participantId: string): string {
   const role = state.participants.find((seat) => seat.participantId === participantId)?.roleId;
   if (role === undefined) return "";
@@ -152,25 +148,13 @@ function position(input: BuildSeatPromptInput): string {
   ].join("\n");
 }
 
-/** What the table may see of the others. A seat with nothing published is still named. */
-function otherSeats(input: BuildSeatPromptInput): string {
-  const others = seatKeysOf(input);
-  if (others.length === 0) return "";
-  return others
-    .map(([participantId, key]) => {
-      const persona = visibleParts(input.personas?.[participantId] ?? null);
-      return persona.length === 0 ? `- ${key}` : `- ${key}：${persona.join(" · ")}`;
-    })
-    .join("\n");
-}
-
 /** A seat's own persona drives how it talks, so it gets all of it — MBTI included. */
 function ownPersona(input: BuildSeatPromptInput): string {
-  const persona = visibleParts(input.personas?.[input.participantId] ?? null);
+  const persona = visibleParts(input.persona ?? null);
   return persona.length === 0 ? "" : persona.join(" · ");
 }
 
-/** Gender is always public, MBTI never travels to another seat — the slice arrives decided. */
+/** Its own persona in full — nobody else's ever reaches the prompt, so there is no slice to make. */
 function visibleParts(persona: SeatPersona | null): string[] {
   if (persona === null) return [];
   return [

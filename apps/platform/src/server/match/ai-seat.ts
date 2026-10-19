@@ -19,7 +19,7 @@ import {
   type Database,
 } from "../db/index.js";
 import type { MatchService } from "./service.js";
-import { seatPersonas } from "./persona.js";
+import { readPersona } from "./persona.js";
 
 /** A reasoning model spends a few hundred tokens thinking before it acts; leave room for both. */
 const DEFAULT_MAX_TOKENS = 2048;
@@ -88,17 +88,14 @@ export function createAiSeatRunner(deps: {
 
     const rows = await listGameEvents(db, target.instanceId);
     const seatKeys = Object.fromEntries(seats.map((row) => [row.id, row.participant_key]));
-    // The same slices a human at the table gets: its own persona in full, the others as published.
-    const personas = seatPersonas(seats, {
-      ownSeatId: seat.id,
-      published: instance.persona_public,
-    });
+    // Only its own persona: a seat that could see the others' would learn who here is not an AI.
+    const persona = readPersona(seat.persona);
     const promptInput = {
       game,
       state,
       participantId: seat.id,
       seatKeys,
-      personas,
+      persona,
       record: rows.map((row) => ({
         sequence: row.sequence,
         type: row.type,

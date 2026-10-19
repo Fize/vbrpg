@@ -170,25 +170,6 @@ export function visiblePersona(
   };
 }
 
-/**
- * One reader's view of the whole table: its own persona in full, everyone else's as published.
- * Assembles what `visiblePersona` decides per seat, so callers never re-derive the switch.
- */
-export function seatPersonas(
-  seats: ReadonlyArray<{ id: string; persona: unknown }>,
-  input: { ownSeatId: string; published: boolean },
-): Record<string, VisiblePersona | null> {
-  return Object.fromEntries(
-    seats.map((seat) => [
-      seat.id,
-      visiblePersona(readPersona(seat.persona), {
-        own: seat.id === input.ownSeatId,
-        published: input.published,
-      }),
-    ]),
-  );
-}
-
 /** A broken or missing persona must not break a read: it degrades to "no persona". */ export function readPersona(
   value: unknown,
 ): Persona | null {

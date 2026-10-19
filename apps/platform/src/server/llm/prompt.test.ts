@@ -92,7 +92,7 @@ describe("seat prompt", () => {
     ]);
   });
 
-  it("lays the system out in sections, and the seat's own persona in full", () => {
+  it("lays the system out in sections, and gives the seat only its own persona", () => {
     const state = started();
     const me = seatId(state, 1);
     const prompt = buildSeatPrompt({
@@ -101,11 +101,7 @@ describe("seat prompt", () => {
       participantId: me,
       seatKeys: KEYS,
       attempt: { index: 1, limit: 3 },
-      personas: {
-        [seatId(state, 0)]: { gender: "男" },
-        [me]: { mbti: "INFJ", gender: "女", profession: "教师", style: "短句" },
-        [seatId(state, 2)]: { gender: "男", profession: "医生" },
-      },
+      persona: { mbti: "INFJ", gender: "女", profession: "教师", style: "短句" },
       record: [],
     });
 
@@ -113,20 +109,35 @@ describe("seat prompt", () => {
       "规则",
       "你的角色",
       "你的位置与席位表",
-      "其他席位与可见人格",
       "你的人格",
       "只有你知道的信息",
       "行动约束",
     ]) {
       expect(prompt.system).toContain(`## ${title}`);
     }
-    // The seat's own MBTI is its own; another seat's slice never carries one.
     expect(prompt.system).toContain("INFJ");
     expect(prompt.system).toContain("你在玩「谁是卧底」");
     expect(prompt.system).toContain("你是「平民」");
-    expect(prompt.system).toContain("- alice：男");
-    expect(prompt.system).toContain("- carol：男 · 医生");
     expect(prompt.system).toContain("你是「bob」，本桌 4 席中的第 2 席。");
+    // Nobody else's persona can appear: only AI seats hold one, so it would mark them as AI.
+    expect(prompt.system).not.toContain("其他席位与可见人格");
+  });
+
+  it("shows every seat alike when the seat holds no persona", () => {
+    const state = started();
+    const prompt = buildSeatPrompt({
+      game: undercover,
+      state,
+      participantId: seatId(state, 1),
+      seatKeys: KEYS,
+      attempt: { index: 1, limit: 3 },
+      record: [],
+    });
+
+    expect(prompt.system).not.toContain("## 你的人格");
+    expect(prompt.system).toContain("桌上的席位：alice、bob、carol、dave。");
+    // No gender either: a seat with a persona would stand out from one without.
+    expect(prompt.system).not.toContain("性别");
   });
 
   it("reads a pass in the game's own words instead of an empty payload", () => {
