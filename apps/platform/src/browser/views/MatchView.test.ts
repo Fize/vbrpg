@@ -272,6 +272,12 @@ describe("match room", () => {
     // The seat's own material: the rules it is playing by and its private word.
     expect(text).toContain("你在玩「谁是卧底」");
     expect(text).toContain("苹果");
+    // The word leads the column at display size — it is the seat's identity for the match.
+    const secret = wrapper.find("[data-testid='my-secret']");
+    expect(secret.text()).toContain("苹果");
+    expect(secret.text()).not.toContain("只给你看的信息");
+    // The rules are folded away: a wall of text must not push the word down the column.
+    expect(wrapper.find("[data-testid='my-seat']").text()).toContain("这一局的规则");
     // Its latest line in the shared transcript is on the seat.
     expect(wrapper.find(".bubble").text()).toContain("我这东西冬天常见");
     // Its own persona, MBTI included; the table only ever sees the gender of the others.
@@ -282,6 +288,22 @@ describe("match room", () => {
     expect(wrapper.findAll("[data-testid='seat']").map((seat) => seat.text())).toContainEqual(
       expect.stringContaining("男"),
     );
+  });
+
+  it("promotes nothing when a seat holds more than one secret", async () => {
+    current = {
+      ...detail,
+      view: {
+        ...detail.view,
+        privateState: { [`word:${me}`]: "苹果", [`hint:${me}`]: "水果" },
+      },
+    };
+    const wrapper = await render();
+
+    expect(wrapper.find("[data-testid='my-secret']").exists()).toBe(false);
+    expect(wrapper.text()).toContain("其他只有你知道的信息");
+    expect(wrapper.text()).toContain("苹果");
+    expect(wrapper.text()).toContain("水果");
   });
 
   it("offers the seat's own action and describes it from the catalogue", async () => {

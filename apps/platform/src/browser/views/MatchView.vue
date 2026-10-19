@@ -58,6 +58,16 @@ const privateEntries = computed(() =>
     value,
   })),
 );
+/**
+ * A seat holding exactly one secret is holding its identity for the match — the word it has to
+ * describe. That one leads the column; anything else is a footnote.
+ */
+const primarySecret = computed(() =>
+  privateEntries.value.length === 1 ? (privateEntries.value[0] ?? null) : null,
+);
+const otherPrivateEntries = computed(() =>
+  primarySecret.value === null ? privateEntries.value : privateEntries.value.slice(1),
+);
 const myPersona = computed(() => mySeat.value?.persona ?? null);
 
 /** One line per seat: a persona the reader may see, never including MBTI for someone else. */
@@ -199,29 +209,44 @@ async function submit(payload: {
           :actions="detail.actions"
         />
 
-        <section v-if="mySeat" class="panel">
+        <section v-if="primarySecret" class="panel secret" data-testid="my-secret">
+          <header class="panel-head">
+            <span class="panel-title">{{ primarySecret.key }}</span>
+          </header>
+          <p class="secret-value">{{ valueText(primarySecret.value) }}</p>
+          <p class="hint">别直接说出它——用一句话让别人猜不出、又让同伴认得出。</p>
+        </section>
+
+        <section v-if="mySeat" class="panel" data-testid="my-seat">
           <header class="panel-head">
             <span class="panel-title">我的席位</span>
             <span class="mono seat-key">{{ mySeat.key }}</span>
           </header>
-          <pre v-if="detail.briefing" class="briefing">{{ detail.briefing }}</pre>
+          <el-collapse v-if="detail.briefing" class="rules">
+            <el-collapse-item title="这一局的规则" name="rules">
+              <p class="briefing">{{ detail.briefing }}</p>
+            </el-collapse-item>
+          </el-collapse>
           <p v-else class="hint">这局没有给你单独的规则文本。</p>
         </section>
 
-        <section v-if="mySeat" class="panel">
+        <section v-if="otherPrivateEntries.length > 0" class="panel">
           <header class="panel-head">
-            <span class="panel-title">只给你看的信息</span>
+            <span class="panel-title">其他只有你知道的信息</span>
           </header>
-          <el-descriptions v-if="privateEntries.length > 0" :column="1" border size="small">
+          <el-descriptions :column="1" border size="small">
             <el-descriptions-item
-              v-for="entry in privateEntries"
+              v-for="entry in otherPrivateEntries"
               :key="entry.key"
               :label="entry.key"
             >
               {{ valueText(entry.value) }}
             </el-descriptions-item>
           </el-descriptions>
-          <p v-else class="hint">当前没有单独的私有信息。</p>
+        </section>
+
+        <section v-if="mySeat && privateEntries.length === 0" class="panel">
+          <p class="hint">当前没有单独的私有信息。</p>
         </section>
 
         <section v-if="myPersona" class="panel" data-testid="my-persona">
@@ -381,6 +406,49 @@ async function submit(payload: {
 
 .seat-key {
   color: var(--accent);
+}
+
+/* The match's one secret: the word this seat has to describe. It leads, at display size. */
+.secret {
+  gap: var(--space-2xs);
+  background: var(--surface-raised);
+  border-color: var(--border-accent);
+}
+
+.secret .panel-title {
+  color: var(--accent);
+  letter-spacing: 0.08em;
+}
+
+.secret-value {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  color: var(--fg);
+}
+
+.rules {
+  --el-collapse-border-color: transparent;
+  border: none;
+}
+
+.rules :deep(.el-collapse-item__header) {
+  height: auto;
+  padding: var(--space-2xs) 0;
+  background: transparent;
+  border: none;
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+}
+
+.rules :deep(.el-collapse-item__wrap) {
+  background: transparent;
+  border: none;
+}
+
+.rules :deep(.el-collapse-item__content) {
+  padding-bottom: 0;
 }
 
 .briefing {
