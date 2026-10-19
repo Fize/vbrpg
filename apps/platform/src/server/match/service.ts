@@ -351,7 +351,8 @@ export function createMatchService(options: {
       const game = requireGame(request.gameId);
       const instanceId = randomUUID();
       const randomSeed = request.randomSeed ?? randomUUID();
-      // Dealt from the seed and independent of roles, so publishing personas cannot hint at who is what.
+      // Only AI seats get a persona — a way of speaking, not a character to play. Dealing stays a
+      // pure function of (seed, seat index), so skipping humans never shifts an AI seat's persona.
       const personas = dealPersonas(randomSeed, request.seats.length);
       const variables = await resolvePair(game, {
         variables: request.variables,
@@ -427,7 +428,10 @@ export function createMatchService(options: {
               control: seat.control,
               status: dealt?.status ?? "active",
               seat: seat.seat,
-              persona: (personas[index] ?? null) as unknown as Record<string, unknown> | null,
+              persona:
+                seat.control === "ai"
+                  ? ((personas[index] ?? null) as unknown as Record<string, unknown> | null)
+                  : null,
               created_at: new Date(),
             };
           }),

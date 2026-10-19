@@ -1,8 +1,8 @@
 import { seededIndex } from "../game/seeded.js";
 
 /**
- * Seat personas are platform flavour, not game rules: they give an AI seat a way of speaking and a
- * human seat a character to play. Two rules make them safe to show:
+ * Seat personas are platform flavour, not game rules: they give an AI seat a way of speaking. A
+ * human seat brings its own voice, so it is dealt none. Two rules make them safe to show:
  *
  * - Dealing is a pure function of (match seed, seat count). It never looks at roles, so a public
  *   persona cannot become a shortcut to guessing who is what.

@@ -770,7 +770,10 @@ try {
   const started = await matchService.read({ actor: host, instanceId: firstMatch.summary.instanceId });
   assert.equal(started.seats.length, 4, "AI placeholders became real seats at the start");
   assert.equal(started.seats.filter((seat) => seat.control === "ai").length, 2);
-  assert.ok(started.seats.every((seat) => seat.persona !== null), "every seat was dealt a persona");
+  assert.ok(
+    started.seats.every((seat) => (seat.control === "ai") === (seat.persona !== null)),
+    "only AI seats are dealt a persona",
+  );
 
   let busy = false;
   try {
