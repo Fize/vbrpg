@@ -65,7 +65,6 @@ export interface RoomsTable {
    * which a jsonb column refuses.
    */
   seat_plan: ColumnType<RoomSeatPlanEntry[], string, string>;
-  persona_public: Generated<boolean>;
   variables: JsonObject;
   current_instance_id: string | null;
   created_at: Generated<Date>;
@@ -92,8 +91,6 @@ export interface GameInstancesTable {
   state_json: JsonObject;
   /** The table this match was played at; null for matches created outside a room. */
   room_id: string | null;
-  /** Whether the table may see each other's personas. Gender and MBTI ignore it. */
-  persona_public: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   completed_at: Date | null;

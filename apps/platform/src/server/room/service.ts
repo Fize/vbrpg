@@ -71,7 +71,6 @@ interface RoomRow {
   code: string;
   status: "open" | "closed" | "cancelled";
   seat_plan: RoomSeatPlanEntry[];
-  persona_public: boolean;
   variables: Record<string, unknown>;
   current_instance_id: string | null;
   created_at: Date;
@@ -197,7 +196,6 @@ export function createRoomService(options: {
       aiSeats: seats.filter((seat) => seat.control === "ai").length,
       takenSeats: seats.filter((seat) => seat.userId !== null).length,
       readySeats: seats.filter((seat) => seat.userId !== null && seat.ready).length,
-      personaPublic: room.persona_public,
       createdAt: room.created_at.toISOString(),
     };
   }
@@ -275,7 +273,6 @@ export function createRoomService(options: {
               ownerUserId: actor.userId,
               code: generateRoomCode(),
               seatPlan: request.seats,
-              personaPublic: request.personaPublic ?? false,
               variables: request.variables ?? {},
             });
             // The owner sits down first: a table with nobody in it is a table nobody can start.
@@ -347,7 +344,6 @@ export function createRoomService(options: {
 
         await updateRoom(transaction, roomId, {
           ...(patch.seats === undefined ? {} : { seatPlan: patch.seats }),
-          ...(patch.personaPublic === undefined ? {} : { personaPublic: patch.personaPublic }),
           ...(patch.variables === undefined ? {} : { variables: patch.variables }),
         });
 
@@ -463,7 +459,6 @@ export function createRoomService(options: {
         request: {
           gameId: room.game_id,
           seats,
-          ...(room.persona_public ? { personaPublic: true } : {}),
           ...(Object.keys(room.variables).length === 0 ? {} : { variables: room.variables }),
         },
       });

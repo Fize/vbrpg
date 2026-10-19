@@ -624,13 +624,12 @@ try {
   const idle = await runnerWith(scriptedClient([answer({})]).client).runOnce({ limit: 1 });
   assert.deepEqual(idle, { turns: 0, failures: 0 });
 
-  // A match that publishes personas shows the table the flavour, but still never the MBTI.
+  // Personas reach the table as a gender tag and nothing more.
   const published = await matchService.create({
     actor,
     request: {
       gameId: "undercover",
       variables: { civilianWord: "咖啡", undercoverWord: "茶" },
-      personaPublic: true,
       seats: [
         { key: "p1", control: "human" },
         { key: "p2", control: "ai" },
@@ -641,9 +640,11 @@ try {
   publishedMatchId = published.instanceId;
   const publishedRead = await matchService.read({ actor, instanceId: published.instanceId });
   const [, publishedNeighbour] = publishedRead.seats;
-  assert.ok(publishedNeighbour?.persona?.profession, "a published persona shows its profession");
-  assert.ok(publishedNeighbour?.persona?.style, "a published persona shows how it talks");
-  assert.equal(publishedNeighbour?.persona?.mbti, undefined, "even published, MBTI stays private");
+  assert.deepEqual(
+    Object.keys(publishedNeighbour?.persona ?? {}),
+    ["gender"],
+    "the table sees the gender tag and nothing else",
+  );
   assert.equal(publishedRead.seats[0]?.persona, null, "a human seat is dealt no persona");
 
   // Matches created before the deal was restricted still carry a human persona in the row; the

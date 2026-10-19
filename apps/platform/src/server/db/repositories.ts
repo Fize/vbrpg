@@ -58,8 +58,6 @@ export async function createGameInstance(
     status: "created" | "running" | "waiting" | "paused" | "completed" | "cancelled";
     currentSequence: number;
     stateJson: JsonObject;
-    /** Whether the table may see each other's personas; set once, at creation. */
-    personaPublic: boolean;
     /** The room this match is played at, when there is one. */
     roomId?: string;
   },
@@ -73,7 +71,6 @@ export async function createGameInstance(
       status: input.status,
       current_sequence: input.currentSequence,
       state_json: input.stateJson,
-      persona_public: input.personaPublic,
       ...(input.roomId === undefined ? {} : { room_id: input.roomId }),
     })
     .execute();

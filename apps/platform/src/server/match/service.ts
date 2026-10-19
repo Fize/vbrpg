@@ -24,7 +24,7 @@ import {
   type SetupField,
 } from "../game/index.js";
 import { AppError } from "../runtime/index.js";
-import { dealPersonas, readPersona, visiblePersona } from "./persona.js";
+import { dealPersonas, publicPersona, readPersona } from "./persona.js";
 import { resolveSeatReferences } from "./seat-reference.js";
 import { seededIndex } from "../game/seeded.js";
 import {
@@ -409,7 +409,6 @@ export function createMatchService(options: {
           status: state.status,
           currentSequence: 0,
           stateJson: state as unknown as Record<string, unknown>,
-          personaPublic: request.personaPublic ?? false,
           ...(roomId === undefined ? {} : { roomId }),
         });
 
@@ -784,15 +783,9 @@ export function createMatchService(options: {
           control: seat.control,
           status: seat.status,
           actorUserId: seat.actor_user_id,
-          // Matches created before the deal was restricted still carry a human persona in the row;
-          // the read hides it, so an old match looks like a new one.
-          persona:
-            seat.control === "ai"
-              ? visiblePersona(readPersona(seat.persona), {
-                  own: seat.actor_user_id === actor.userId,
-                  published: instance.persona_public,
-                })
-              : null,
+          // A human seat is dealt none, and matches created before that rule still carry one in the
+          // row: the read hides it, so an old match looks like a new one.
+          persona: seat.control === "ai" ? publicPersona(readPersona(seat.persona)) : null,
         })),
         view: mine ? viewFor(game, state, mine.id) : spectatorViewFor(game, state),
         waiting: state.waiting,

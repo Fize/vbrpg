@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { dealPersonas, readPersona, visiblePersona } from "./persona.js";
+import { dealPersonas, publicPersona, readPersona } from "./persona.js";
 
 /** The same hash the games use to deal roles, so the correlation test matches reality. */
 function hash(input: string): number {
@@ -59,20 +59,12 @@ describe("seat personas", () => {
     assert.ok(seen.size > 12, `expected a spread of personas, saw ${seen.size}`);
   });
 
-  it("shows a seat its own persona and hides MBTI from everyone else", () => {
+  it("publishes the gender tag and nothing else", () => {
     const [persona] = dealPersonas("seed-a", 1);
     assert.ok(persona);
-    const own = visiblePersona(persona, { own: true, published: false });
-    assert.deepEqual(own, { ...persona });
-
-    const otherPublished = visiblePersona(persona, { own: false, published: true });
-    assert.equal(otherPublished?.gender, persona.gender);
-    assert.equal(otherPublished?.profession, persona.profession);
-    assert.equal(otherPublished?.mbti, undefined);
-
-    const otherHidden = visiblePersona(persona, { own: false, published: false });
-    assert.deepEqual(otherHidden, { gender: persona.gender });
-    assert.equal(visiblePersona(null, { own: true, published: true }), null);
+    // A persona is how its seat talks; the table gets one word, so nothing can leak from it.
+    assert.deepEqual(publicPersona(persona), { gender: persona.gender });
+    assert.equal(publicPersona(null), null);
   });
 
   it("degrades to no persona when the stored one is broken", () => {

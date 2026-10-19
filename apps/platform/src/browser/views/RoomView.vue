@@ -262,10 +262,6 @@ function seatLabel(seat: RoomSeat): string {
               {{ room.gameTitle }}<span class="muted mono">@{{ room.gameVersion }}</span>
             </dd>
           </div>
-          <div>
-            <dt>人格</dt>
-            <dd>{{ room.personaPublic ? "公开（性别始终公开，MBTI 只有自己可见）" : "不公开" }}</dd>
-          </div>
           <div v-for="[key, value] in shownVariables" :key="key">
             <dt>{{ key }}</dt>
             <dd>{{ String(value) }}</dd>

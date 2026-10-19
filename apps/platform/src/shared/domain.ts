@@ -128,8 +128,6 @@ export const createMatchRequestSchema = z
     seats: z.array(seatRequestSchema).min(1).max(24),
     randomSeed: z.string().min(1).max(128).optional(),
     variables: z.record(jsonValueSchema).optional(),
-    /** Whether the table may see each other's personas. Gender and MBTI ignore this. */
-    personaPublic: z.boolean().optional(),
   })
   .strict();
 
@@ -301,7 +299,6 @@ export const createRoomRequestSchema = z
   .object({
     gameId: idSchema,
     seats: z.array(roomSeatPlanEntrySchema).min(1).max(24),
-    personaPublic: z.boolean().optional(),
     /** Creation parameters the game asked for, e.g. the category its words come from. */
     variables: z.record(jsonValueSchema).optional(),
   })
@@ -310,17 +307,12 @@ export const createRoomRequestSchema = z
 export const updateRoomRequestSchema = z
   .object({
     seats: z.array(roomSeatPlanEntrySchema).min(1).max(24).optional(),
-    personaPublic: z.boolean().optional(),
     variables: z.record(jsonValueSchema).optional(),
   })
   .strict()
-  .refine(
-    (value) =>
-      value.seats !== undefined ||
-      value.personaPublic !== undefined ||
-      value.variables !== undefined,
-    { message: "At least one of seats, personaPublic or variables is required" },
-  );
+  .refine((value) => value.seats !== undefined || value.variables !== undefined, {
+    message: "At least one of seats or variables is required",
+  });
 
 export const roomReadyRequestSchema = z.object({ ready: z.boolean() }).strict();
 
@@ -358,7 +350,6 @@ export const roomSummarySchema = z.object({
   aiSeats: z.number().int().nonnegative(),
   takenSeats: z.number().int().nonnegative(),
   readySeats: z.number().int().nonnegative(),
-  personaPublic: z.boolean(),
   createdAt: z.string().min(1),
 });
 

@@ -53,7 +53,6 @@ const createSeats = ref<SeatDraft[]>([
   { control: "human" },
   { control: "ai" },
 ]);
-const createPersonaPublic = ref(false);
 const createValues = ref<Record<string, string>>({});
 
 const selectedGame = computed(() => games.value.find((game) => game.gameId === createGame.value));
@@ -220,7 +219,6 @@ async function submitCreate(): Promise<void> {
   try {
     const room = await api.createRoom({
       gameId: createGame.value,
-      personaPublic: createPersonaPublic.value,
       ...(Object.keys(variables).length === 0 ? {} : { variables }),
       seats: createSeats.value.map((seat, index) => ({
         key: `s${index + 1}`,
@@ -329,7 +327,6 @@ async function submitCreate(): Promise<void> {
           <p class="room-line">
             <span v-if="room.humanSeats > 0">已坐 {{ room.takenSeats }}/{{ room.humanSeats }}</span>
             <span v-if="room.readySeats > 0"> · 已准备 {{ room.readySeats }}</span>
-            <span v-if="room.personaPublic"> · 人格公开</span>
             <span v-if="room.status === 'open' && !room.playing" class="muted">
               · 房主开局时才生成对局与 AI 席位
             </span>
@@ -487,13 +484,6 @@ async function submitCreate(): Promise<void> {
             也可以自己填这两个词（都填就用自己的；自己填的会被全桌看到，所以只建议旁观者来填）。
           </template>
         </p>
-
-        <el-form-item label="公开人格">
-          <el-switch v-model="createPersonaPublic" />
-          <span class="hint inline">
-            打开后全桌能看到彼此的职业、性格与说话风格；性别始终公开，MBTI 始终只有自己可见。
-          </span>
-        </el-form-item>
       </el-form>
 
       <p class="hint">

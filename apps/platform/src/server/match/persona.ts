@@ -6,8 +6,8 @@ import { seededIndex } from "../game/seeded.js";
  *
  * - Dealing is a pure function of (match seed, seat count). It never looks at roles, so a public
  *   persona cannot become a shortcut to guessing who is what.
- * - Visibility is fixed: gender is always public, MBTI never is, the rest follows the match's
- *   `personaPublic` switch.
+ * - Visibility is fixed: the table sees a gender tag, and each seat reads its own persona in full.
+ *   Nothing else about a persona ever leaves the seat that holds it.
  */
 export interface Persona {
   /** Never shown to anyone else. */
@@ -20,13 +20,9 @@ export interface Persona {
   style: string;
 }
 
-/** What a reader may see: gender always, the rest only when the match publishes personas. */
+/** What a reader may see of someone else's persona: the gender tag on their seat. */
 export interface VisiblePersona {
   gender: string;
-  mbti?: string;
-  profession?: string;
-  personality?: string;
-  style?: string;
 }
 
 /**
@@ -151,23 +147,12 @@ export function dealPersonas(seed: string, seatCount: number): Persona[] {
   return dealt;
 }
 
-/** The slice of a persona a given reader may see. `own` means the reader holds that seat. */
-export function visiblePersona(
-  persona: Persona | null,
-  input: { own: boolean; published: boolean },
-): VisiblePersona | null {
-  if (persona === null) return null;
-  if (input.own) return { ...persona };
-  return {
-    gender: persona.gender,
-    ...(input.published
-      ? {
-          profession: persona.profession,
-          personality: persona.personality,
-          style: persona.style,
-        }
-      : {}),
-  };
+/**
+ * What the table sees of a seat: its gender, nothing more. A persona is how a seat talks, and each
+ * seat only ever reads its own — so there is nothing else to publish.
+ */
+export function publicPersona(persona: Persona | null): VisiblePersona | null {
+  return persona === null ? null : { gender: persona.gender };
 }
 
 /** A broken or missing persona must not break a read: it degrades to "no persona". */ export function readPersona(

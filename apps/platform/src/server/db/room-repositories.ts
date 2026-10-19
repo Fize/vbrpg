@@ -16,7 +16,6 @@ export async function createRoom(
     ownerUserId: string;
     code: string;
     seatPlan: readonly RoomSeatPlanEntry[];
-    personaPublic: boolean;
     variables: Record<string, unknown>;
   },
 ): Promise<void> {
@@ -30,7 +29,6 @@ export async function createRoom(
       code: input.code,
       status: "open",
       seat_plan: JSON.stringify(input.seatPlan),
-      persona_public: input.personaPublic,
       variables: input.variables,
     })
     .execute();
@@ -88,7 +86,6 @@ export async function updateRoom(
   roomId: string,
   patch: {
     seatPlan?: readonly RoomSeatPlanEntry[];
-    personaPublic?: boolean;
     variables?: Record<string, unknown>;
     currentInstanceId?: string;
   },
@@ -97,7 +94,6 @@ export async function updateRoom(
     .updateTable("rooms")
     .set({
       ...(patch.seatPlan === undefined ? {} : { seat_plan: JSON.stringify(patch.seatPlan) }),
-      ...(patch.personaPublic === undefined ? {} : { persona_public: patch.personaPublic }),
       ...(patch.variables === undefined ? {} : { variables: patch.variables }),
       ...(patch.currentInstanceId === undefined
         ? {}

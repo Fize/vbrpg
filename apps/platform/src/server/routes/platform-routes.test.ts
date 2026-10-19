@@ -957,7 +957,6 @@ function fakeRoomService(overrides: Partial<RoomService> = {}): RoomService & { 
     aiSeats: 1,
     takenSeats: 1,
     readySeats: 0,
-    personaPublic: false,
     createdAt: "2026-10-16T00:00:00.000Z",
   };
   const detail = { ...summary, seatPlan: [], variables: {} };
