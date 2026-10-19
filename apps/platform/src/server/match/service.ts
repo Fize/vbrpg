@@ -84,6 +84,8 @@ export interface RecordFailureInput {
   turnKey: string;
   code: string;
   message: string;
+  /** The last thing the platform told the seat before giving up — the reason diagnosis needs. */
+  lastFeedback?: string;
 }
 
 export type RecordTurnResult =
@@ -666,7 +668,11 @@ export function createMatchService(options: {
             stepId: stateOf(instance).stepId,
             occurredAtMs: Date.now(),
             idempotencyKey: key,
-            payload: { code: input.code, message: input.message },
+            payload: {
+              code: input.code,
+              message: input.message,
+              ...(input.lastFeedback === undefined ? {} : { lastFeedback: input.lastFeedback }),
+            },
             usage: null,
           },
         });

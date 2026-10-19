@@ -258,6 +258,8 @@ describe("seat prompt", () => {
     expect(prompt.system).toContain("这一步就作废");
 
     const instruction = prompt.messages.at(-1)?.content ?? "";
+    // Tone markers are allowed: the platform plays the text back as written.
+    expect(instruction).toContain("（笑）");
     expect(instruction).toContain("## 你的尝试预算");
     expect(instruction).toContain("现在是这次行动的第 2 次，还剩 2 次");
     expect(instruction).not.toContain("最多尝试");

@@ -463,19 +463,34 @@ try {
   assert.equal(watcher.briefing, null, "the rules belong to the seats playing");
   assert.equal(watcher.record.length, holder.record.length, "the record is the match's history");
 
-  // Two writes at once: the row lock serializes them instead of losing one.
+  // Two writes at once: the row lock serializes them instead of losing one. Recording a model call
+  // does not touch the rules, so both land — this checks the lock, not the phase order.
+  const aiSeatId = opened.seats.find((seat) => seat.control === "ai")?.participantId;
+  assert.ok(aiSeatId);
+  const idleCall = {
+    payload: {
+      content: null,
+      reasoning: null,
+      reasoningSignature: null,
+      finishReason: "stop",
+      toolCalls: [],
+    },
+    usage: null,
+  };
   const parallel = await Promise.allSettled([
-    matchService.submit({
-      actor,
+    matchService.recordTurn({
       instanceId: matchId,
-      idempotencyKey: "parallel-a",
-      request: { type: "seatMessage", participantKey: "p1", payload: { text: "a" } },
+      participantId: aiSeatId,
+      turnKey: "lock-a",
+      callIndex: 0,
+      call: idleCall,
     }),
-    matchService.submit({
-      actor,
+    matchService.recordTurn({
       instanceId: matchId,
-      idempotencyKey: "parallel-b",
-      request: { type: "seatMessage", participantKey: "p1", payload: { text: "b" } },
+      participantId: aiSeatId,
+      turnKey: "lock-b",
+      callIndex: 0,
+      call: idleCall,
     }),
   ]);
   assert.equal(parallel.filter((entry) => entry.status === "fulfilled").length, 2);
@@ -488,19 +503,21 @@ try {
   ).map((row) => row.sequence);
   assert.equal(new Set(sequences).size, sequences.length, "sequences must stay unique and gapless");
 
-  // The same key twice at once still lands as one row.
+  // The same turn twice at once still lands as one row.
   const races = await Promise.allSettled([
-    matchService.submit({
-      actor,
+    matchService.recordTurn({
       instanceId: matchId,
-      idempotencyKey: "parallel-same",
-      request: { type: "seatMessage", participantKey: "p1", payload: { text: "same" } },
+      participantId: aiSeatId,
+      turnKey: "lock-same",
+      callIndex: 0,
+      call: idleCall,
     }),
-    matchService.submit({
-      actor,
+    matchService.recordTurn({
       instanceId: matchId,
-      idempotencyKey: "parallel-same",
-      request: { type: "seatMessage", participantKey: "p1", payload: { text: "same" } },
+      participantId: aiSeatId,
+      turnKey: "lock-same",
+      callIndex: 0,
+      call: idleCall,
     }),
   ]);
   assert.equal(races.filter((entry) => entry.status === "fulfilled").length, 2);
@@ -508,7 +525,7 @@ try {
     .selectFrom("game_events")
     .select("sequence")
     .where("instance_id", "=", matchId)
-    .where("idempotency_key", "=", "parallel-same")
+    .where("idempotency_key", "=", "lock-same:call:0")
     .execute();
   assert.equal(sameKey.length, 1, "one key, one row, even under a race");
 
@@ -924,6 +941,19 @@ try {
     notAdmin = error instanceof Error && "code" in error && error.code === "ADMIN_REQUIRED";
   }
   assert.equal(notAdmin, true, "a lifecycle change is administrator-only");
+
+  // The description phase asks one seat at a time, so the worker only sees this match once the
+  // queue has reached an AI seat. p1 speaks first and hands the turn over.
+  await matchService.submit({
+    actor,
+    instanceId: lifecycleMatchId,
+    idempotencyKey: "lifecycle-turn-1",
+    request: { type: "seatMessage", participantKey: "p1", payload: { text: "苹果" } },
+  });
+  assert.ok(
+    (await findReadyAiSeats(db, 50)).some((seat) => seat.instanceId === lifecycleMatchId),
+    "the queue reached an AI seat",
+  );
 
   const paused = await matchService.setStatus({
     actor,

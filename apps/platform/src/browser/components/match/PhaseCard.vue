@@ -28,6 +28,41 @@ function keyText(key: string): string {
   return props.game.words[key] ?? key;
 }
 
+interface Table {
+  columns: string[];
+  rows: string[][];
+}
+
+/**
+ * A list of same-shaped objects is a table, not a sentence: a per-seat report read as one comma
+ * list repeats every column name and hides the comparison the table exists for.
+ */
+function tableOf(value: unknown): Table | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const records = value.filter(
+    (item): item is Record<string, unknown> =>
+      typeof item === "object" && item !== null && !Array.isArray(item),
+  );
+  if (records.length !== value.length) return null;
+  const [first] = records;
+  if (first === undefined) return null;
+  const columns = Object.keys(first);
+  if (records.some((record) => Object.keys(record).length !== columns.length)) return null;
+  return {
+    columns,
+    rows: records.map((record) => columns.map((column) => valueText(record[column]))),
+  };
+}
+
+const publicRows = computed(() =>
+  props.publicEntries.map(([key, value]) => ({
+    key,
+    label: keyText(key),
+    table: tableOf(value),
+    text: valueText(value),
+  })),
+);
+
 /** The actions this step allows, in the game's own words. */
 const allowedText = computed(() =>
   props.allowedActions.length === 0
@@ -79,9 +114,21 @@ const waitingText = computed(() =>
     <div v-if="publicEntries.length > 0" class="vars">
       <span class="vars-title">公开状态</span>
       <ul class="vars-list">
-        <li v-for="entry in publicEntries" :key="entry[0]">
-          <span class="var-key">{{ keyText(entry[0]) }}</span>
-          <span class="var-value">{{ valueText(entry[1]) }}</span>
+        <li v-for="entry in publicRows" :key="entry.key">
+          <span class="var-key">{{ entry.label }}</span>
+          <span v-if="entry.table === null" class="var-value">{{ entry.text }}</span>
+          <table v-else class="var-table">
+            <thead>
+              <tr>
+                <th v-for="column in entry.table.columns" :key="column">{{ keyText(column) }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, index) in entry.table.rows" :key="index">
+                <td v-for="(cell, cellIndex) in row" :key="cellIndex">{{ cell }}</td>
+              </tr>
+            </tbody>
+          </table>
         </li>
       </ul>
     </div>
@@ -199,6 +246,26 @@ const waitingText = computed(() =>
 .var-value {
   color: var(--fg-2);
   overflow-wrap: anywhere;
+}
+
+.var-table {
+  margin-top: var(--space-2xs);
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+}
+
+.var-table th,
+.var-table td {
+  padding: 2px var(--space-xs);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+
+.var-table th {
+  color: var(--fg);
+  font-weight: 600;
 }
 
 .empty {

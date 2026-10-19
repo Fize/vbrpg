@@ -250,6 +250,7 @@ export function turnInstruction(input: BuildSeatPromptInput): string {
     budgetSection(input.attempt),
     "## 输出要求",
     "用一次工具调用完成你的动作，参数按工具定义填写。",
+    "发言会原样播给全桌，包括（笑）（小声）（叹气）这类括号语气。",
   ]
     .filter((line) => line.length > 0)
     .join("\n");

@@ -109,6 +109,11 @@ export const aiCallPayloadSchema = z.object({
   toolCalls: z
     .array(z.object({ id: z.string(), name: z.string(), arguments: z.string() }))
     .default([]),
+  /**
+   * Why this call had to be made at all: the feedback the platform gave the previous try. Without it
+   * a failed turn can only be re-read from the timeline.
+   */
+  retryReason: z.string().nullish(),
 });
 
 export const seatRequestSchema = z

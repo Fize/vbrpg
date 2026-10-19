@@ -111,9 +111,16 @@ export function createAiSeatRunner(deps: {
     const allowed = allowedActions(game, state).map((action) => action.name);
     let messages: ChatMessage[] = [{ role: "system", content: prompt.system }, ...prompt.messages];
 
+    /**
+     * What the platform told this seat after the previous try. Kept so the next `aiCall` row says why
+     * it exists, and a failed turn can be read back without reconstructing the timeline.
+     */
+    let lastFeedback: string | undefined;
+
     /** Advances the counter the prompt reads, so every retry states its own remaining budget. */
     function nextAttempt(reason: string): string {
       promptInput.attempt.index += 1;
+      lastFeedback = reason;
       return retryInstruction(promptInput, reason);
     }
 
@@ -137,6 +144,7 @@ export function createAiSeatRunner(deps: {
           reasoningSignature: null,
           finishReason: result.finishReason,
           toolCalls: result.toolCalls,
+          retryReason: lastFeedback ?? null,
         },
         usage: usageOf(binding, result.usage),
       };
@@ -157,6 +165,7 @@ export function createAiSeatRunner(deps: {
             turnKey,
             code: "TOKEN_BUDGET_EXHAUSTED",
             message: "The model ran out of tokens while thinking and never acted",
+            ...(lastFeedback === undefined ? {} : { lastFeedback }),
           });
           return "failed";
         }
@@ -230,6 +239,7 @@ export function createAiSeatRunner(deps: {
       turnKey,
       code: "ITERATION_LIMIT",
       message: `The seat did not produce an accepted action in ${maxCallsPerTurn} calls`,
+      ...(lastFeedback === undefined ? {} : { lastFeedback }),
     });
     return "failed";
   }

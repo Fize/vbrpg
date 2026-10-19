@@ -12,8 +12,9 @@ import {
 import type { Visibility } from "../game/projector.js";
 
 /**
- * 「谁是卧底」：多数席位拿到同一个词，一名卧底拿到近义词。每回合先轮流描述、再讨论至多三轮、
- * 然后全体投票，票高者出局；卧底出局则平民胜，卧底与最后两人同场则卧底胜。
+ * 「谁是卧底」：多数席位拿到同一个词，一名卧底拿到近义词。每回合先按席位顺序轮流描述、再讨论
+ * 至多三轮、然后全体投票，票高者出局（平票则重投一次，仍平票不淘汰）；卧底出局则平民胜，
+ * 卧底留到最后两人则卧底胜。
  *
  * 隐藏信息只有两样：自己的词（`word:<participantId>`，只对该席位可见）与投票内容
  * （`votes` 不写进可见性，任何席位都看不到；只有结算后的 `summary` 公开）。
@@ -61,13 +62,30 @@ type UndercoverVariables = {
   /** Seats handled in the current discussion round — speaking and skipping count the same. */
   discussed: string[];
   votes: Record<string, string>;
+  /** A tie sends the table back to the vote once; the second tie lets the round go by. */
+  revoted: boolean;
+  /** When a revote is running, only the seats that tied may be voted for. */
+  revoteTargets: string[];
+  /** What each seat did, so the end of the match can be read back seat by seat. */
+  stats: Record<string, { spoke: number; votesAgainst: number; survivedRounds: number }>;
   summary: {
     round: number;
     tally: Record<string, number>;
     eliminated: string | null;
+    eliminatedRole: string | null;
     tie: boolean;
+    revote: boolean;
   } | null;
   winner: string | null;
+  /** Seat-by-seat report, written once when the match ends. */
+  scores: Array<{
+    seat: string;
+    role: string;
+    spoke: number;
+    votesAgainst: number;
+    survivedRounds: number;
+    won: boolean;
+  }> | null;
 };
 
 function variablesOf(state: GameState): UndercoverVariables {
@@ -122,7 +140,17 @@ const WORD_NAMES: Readonly<Record<string, string>> = {
   winner: "胜方",
   tally: "票数",
   eliminated: "出局席位",
+  eliminatedRole: "出局身份",
   tie: "平票",
+  revoted: "已重投",
+  revoteTargets: "重投候选人",
+  scores: "表现",
+  seat: "席位",
+  role: "身份",
+  spoke: "发言次数",
+  votesAgainst: "被投票",
+  survivedRounds: "存活回合",
+  won: "胜负",
   civilian: "平民",
   undercover: "卧底",
   describe: "描述",
@@ -133,6 +161,7 @@ const WORD_NAMES: Readonly<Record<string, string>> = {
   describePhaseEnded: "描述阶段结束",
   discussRoundEnded: "讨论轮次结束",
   discussionEnded: "讨论结束",
+  revoteStarted: "开始重投",
   votesRevealed: "投票结算",
   skipDiscussion: "（跳过）",
 };
@@ -148,6 +177,24 @@ function waitingFor(
         ? [platformEventTypes.seatMessage, "skipDiscussion"]
         : ["vote"];
   return { kind: "collectInput", stepId, participantIds: seats, actions };
+}
+
+/** Speaking is what the end-of-match report counts; sitting out a discussion round is not. */
+function countSpeak(
+  stats: UndercoverVariables["stats"],
+  seat: string,
+): UndercoverVariables["stats"] {
+  const current = stats[seat] ?? { spoke: 0, votesAgainst: 0, survivedRounds: 0 };
+  return { ...stats, [seat]: { ...current, spoke: current.spoke + 1 } };
+}
+
+/**
+ * The description phase runs in a fixed order: only the next seat in line is asked, so nobody can
+ * jump the queue and no seat is asked for a line it already gave.
+ */
+function describeWaiting(alive: string[], spoken: string[]): GameState["waiting"] {
+  const next = alive.find((seat) => !spoken.includes(seat));
+  return waitingFor("describe", next === undefined ? alive : [next]);
 }
 
 function withStatus(participants: Participant[], eliminated: string | null): Participant[] {
@@ -206,11 +253,13 @@ export const undercover: GameModule = {
     if (!seat) throw new EngineError("UNKNOWN_SEAT", "That seat is not in this match");
     return [
       "你在玩「谁是卧底」。大多数席位拿到同一个词，只有一名卧底拿到近义词。",
-      "每回合分三段：所有在世席位先轮流用一句话描述自己的词；然后讨论至多三轮，每轮每人最多说一次，",
+      "每回合分三段：所有在世席位按席位表顺序、一人一句描述自己的词；然后讨论至多三轮，每轮每人最多说一次，",
       "也可以选择这轮不说；最后全体投票，得票最多的席位出局。第三轮讨论结束后只能投票，不能再发言。",
-      "卧底出局则平民获胜；卧底留到最后两人则卧底获胜。平票时不淘汰，直接进入下一回合。",
+      "投票出现平票时立刻重投一次，且只能投平票的那几个席位；重投仍然平票就不淘汰，直接进入下一回合。",
+      "出局的席位身份会公开，之后不再发言。卧底出局则平民获胜；卧底留到最后两人则卧底获胜。",
       `你在这局里的角色是 ${seat.roleId === "undercover" ? "卧底" : "平民"}。`,
       "不要直接说出你的词，用一句话让别人猜不出又让同伴认得出。",
+      "说话可以带（笑）（小声）（叹气）这类括号语气，平台会原样播出。",
     ].join("\n");
   },
 
@@ -228,6 +277,7 @@ export const undercover: GameModule = {
       discussed: "public",
       summary: "public",
       winner: "public",
+      scores: "public",
     };
     for (const seat of state.participants) {
       rules[`word:${seat.participantId}`] = { participant: seat.participantId };
@@ -252,6 +302,10 @@ export const undercover: GameModule = {
     const alive = input.participants.map((seat) => seat.participantId);
 
     const category = input.variables?.["category"];
+    const stats: UndercoverVariables["stats"] = {};
+    for (const seat of alive) {
+      stats[seat] = { spoke: 0, votesAgainst: 0, survivedRounds: 0 };
+    }
     const variables: Record<string, unknown> = {
       ...(typeof category === "string" && category.trim() !== ""
         ? { category: category.trim() }
@@ -263,8 +317,12 @@ export const undercover: GameModule = {
       spoken: [],
       discussed: [],
       votes: {},
+      revoted: false,
+      revoteTargets: [],
+      stats,
       summary: null,
       winner: null,
+      scores: null,
     };
     for (const [index, seat] of input.participants.entries()) {
       variables[`word:${seat.participantId}`] =
@@ -286,7 +344,7 @@ export const undercover: GameModule = {
       ...state,
       status: "waiting",
       stepId: "describe",
-      waiting: waitingFor("describe", alive),
+      waiting: describeWaiting(alive, []),
     };
   },
 
@@ -300,17 +358,20 @@ export const undercover: GameModule = {
 
       case platformEventTypes.seatMessage: {
         const speaker = requireActor(state, event.participantId);
+        const stats = countSpeak(variables.stats, speaker);
         if (variables.phase === "describe") {
-          const spoken = variables.spoken.includes(speaker)
-            ? variables.spoken
-            : [...variables.spoken, speaker];
+          const next = variables.alive.find((seat) => !variables.spoken.includes(seat));
+          if (next !== speaker) {
+            throw new EngineError("OUT_OF_ORDER", "The description phase runs in seat order");
+          }
+          const spoken = [...variables.spoken, speaker];
           const pending = variables.alive.filter((seat) => !spoken.includes(seat));
           if (pending.length > 0) {
             return {
               state: {
                 ...state,
-                variables: { ...state.variables, spoken },
-                waiting: waitingFor("describe", pending),
+                variables: { ...state.variables, spoken, stats },
+                waiting: describeWaiting(variables.alive, spoken),
               },
               events: [],
             };
@@ -324,6 +385,7 @@ export const undercover: GameModule = {
               variables: {
                 ...state.variables,
                 spoken,
+                stats,
                 phase: "discuss",
                 discussRound: 1,
                 discussed: [],
@@ -341,7 +403,10 @@ export const undercover: GameModule = {
         if (variables.discussed.includes(speaker)) {
           throw new EngineError("ALREADY_DISCUSSED", "That seat has already spoken this round");
         }
-        return advanceDiscussion(state, [...variables.discussed, speaker]);
+        return advanceDiscussion({ ...state, variables: { ...state.variables, stats } }, [
+          ...variables.discussed,
+          speaker,
+        ]);
       }
 
       case "skipDiscussion": {
@@ -404,6 +469,9 @@ export const undercover: GameModule = {
         if (target === voter) {
           throw new EngineError("SELF_VOTE", "A seat cannot vote for itself");
         }
+        if (variables.revoteTargets.length > 0 && !variables.revoteTargets.includes(target)) {
+          throw new EngineError("NOT_ON_BALLOT", "A revote may only pick a seat that tied");
+        }
         if (variables.votes[voter] !== undefined) {
           throw new EngineError("ALREADY_VOTED", "That seat already voted this round");
         }
@@ -456,6 +524,39 @@ function resolveRound(state: GameState): TransitionResult {
   );
   const top = ranked[0];
   const tied = top !== undefined && ranked[1] !== undefined && ranked[1][1] === top[1];
+  const stats = countVotes(variables);
+
+  // A tie gets one revote, restricted to the seats that tied. A second tie lets the round go by:
+  // the table has said what it thinks, and repeating it forever is not a rule.
+  if (tied && top !== undefined && !variables.revoted) {
+    const targets = ranked.filter(([, count]) => count === top[1]).map(([seat]) => seat);
+    return {
+      state: {
+        ...state,
+        stepId: "vote",
+        waiting: waitingFor("vote", variables.alive),
+        variables: {
+          ...state.variables,
+          phase: "vote",
+          votes: {},
+          revoted: true,
+          revoteTargets: targets,
+          stats,
+          // The table has to see why it is voting again, and over whom.
+          summary: {
+            round: variables.round,
+            tally,
+            eliminated: null,
+            eliminatedRole: null,
+            tie: true,
+            revote: false,
+          },
+        },
+      },
+      events: [derived(state, "revoteStarted", { round: variables.round, targets, tally })],
+    };
+  }
+
   const eliminated = top === undefined || tied ? null : top[0];
 
   const alive =
@@ -463,16 +564,20 @@ function resolveRound(state: GameState): TransitionResult {
   const undercoverAlive = state.participants.some(
     (seat) => seat.roleId === "undercover" && alive.includes(seat.participantId),
   );
-  const summary = { round: variables.round, tally, eliminated, tie: tied };
+  const summary = {
+    round: variables.round,
+    tally,
+    eliminated,
+    eliminatedRole:
+      eliminated === null
+        ? null
+        : (state.participants.find((seat) => seat.participantId === eliminated)?.roleId ?? null),
+    tie: tied,
+    revote: variables.revoted,
+  };
 
-  const winner =
-    eliminated === null
-      ? null
-      : !undercoverAlive
-        ? "civilian"
-        : alive.length <= 2
-          ? "undercover"
-          : null;
+  // Whitespace for the reader: the winner is decided by who is left, not by who was voted out.
+  const winner = !undercoverAlive ? "civilian" : alive.length <= 2 ? "undercover" : null;
 
   if (winner !== null) {
     return {
@@ -482,7 +587,16 @@ function resolveRound(state: GameState): TransitionResult {
         stepId: "over",
         waiting: null,
         participants: withStatus(state.participants, eliminated),
-        variables: { ...state.variables, phase: "over", alive, votes: {}, summary, winner },
+        variables: {
+          ...state.variables,
+          phase: "over",
+          alive,
+          votes: {},
+          stats,
+          summary,
+          winner,
+          scores: buildScores(state, stats, winner),
+        },
       },
       events: [],
     };
@@ -493,7 +607,7 @@ function resolveRound(state: GameState): TransitionResult {
       ...state,
       participants: withStatus(state.participants, eliminated),
       stepId: "describe",
-      waiting: waitingFor("describe", alive),
+      waiting: describeWaiting(alive, []),
       variables: {
         ...state.variables,
         phase: "describe",
@@ -503,12 +617,50 @@ function resolveRound(state: GameState): TransitionResult {
         spoken: [],
         discussed: [],
         votes: {},
+        revoted: false,
+        revoteTargets: [],
+        stats,
         summary,
         winner: null,
       },
     },
     events: [],
   };
+}
+
+/** Tally and rounds survived are facts about the round, so it is the round's job to add them up. */
+function countVotes(variables: UndercoverVariables): UndercoverVariables["stats"] {
+  const stats: UndercoverVariables["stats"] = { ...variables.stats };
+  for (const target of Object.values(variables.votes)) {
+    const current = stats[target] ?? { spoke: 0, votesAgainst: 0, survivedRounds: 0 };
+    stats[target] = { ...current, votesAgainst: current.votesAgainst + 1 };
+  }
+  for (const seat of variables.alive) {
+    const current = stats[seat] ?? { spoke: 0, votesAgainst: 0, survivedRounds: 0 };
+    stats[seat] = { ...current, survivedRounds: current.survivedRounds + 1 };
+  }
+  return stats;
+}
+
+/** The report a finished match publishes: what each seat did, and whether it was on the winning side. */
+function buildScores(
+  state: GameState,
+  stats: UndercoverVariables["stats"],
+  winner: string,
+): NonNullable<UndercoverVariables["scores"]> {
+  return state.participants.map((seat) => {
+    const own = stats[seat.participantId] ?? { spoke: 0, votesAgainst: 0, survivedRounds: 0 };
+    const undercover = seat.roleId === "undercover";
+    // Field order is the column order: the reader scans seat by seat, verdict last.
+    return {
+      seat: seat.participantId,
+      role: seat.roleId ?? "civilian",
+      spoke: own.spoke,
+      votesAgainst: own.votesAgainst,
+      survivedRounds: own.survivedRounds,
+      won: winner === "undercover" ? undercover : !undercover,
+    };
+  });
 }
 
 /**

@@ -22,7 +22,19 @@ const detail: MatchDetail = {
   game: {
     title: "谁是卧底",
     steps: { describe: "描述阶段", vote: "投票阶段" },
-    words: { round: "回合", winner: "胜方", civilian: "平民", text: "你要说的话" },
+    words: {
+      round: "回合",
+      winner: "胜方",
+      civilian: "平民",
+      undercover: "卧底",
+      text: "你要说的话",
+      seat: "席位",
+      role: "身份",
+      spoke: "发言次数",
+      votesAgainst: "被投票",
+      survivedRounds: "存活回合",
+      won: "胜负",
+    },
   },
   seats: [
     {
@@ -337,6 +349,47 @@ describe("match room", () => {
     expect(wrapper.find("[data-testid='match-log']").text()).toContain(
       "冬天常见，但我不确定是不是卧底。",
     );
+  });
+
+  it("reads a per-seat report as a table instead of one long sentence", async () => {
+    current = {
+      ...detail,
+      view: {
+        ...detail.view,
+        publicState: {
+          ...detail.view.publicState,
+          scores: [
+            { seat: me, role: "civilian", spoke: 3, votesAgainst: 1, survivedRounds: 1, won: true },
+            {
+              seat: other,
+              role: "undercover",
+              spoke: 4,
+              votesAgainst: 2,
+              survivedRounds: 1,
+              won: false,
+            },
+          ],
+        },
+      },
+    };
+    const wrapper = await render();
+
+    const table = wrapper.find(".var-table");
+    expect(table.exists()).toBe(true);
+    expect(table.findAll("th").map((cell) => cell.text())).toEqual([
+      "席位",
+      "身份",
+      "发言次数",
+      "被投票",
+      "存活回合",
+      "胜负",
+    ]);
+    const rows = table.findAll("tbody tr");
+    expect(rows).toHaveLength(2);
+    // Seats read as their keys, not as ids; the verdict reads as a word.
+    expect(rows[0]?.text()).toContain("s1");
+    expect(rows[1]?.text()).toContain("卧底");
+    expect(rows[1]?.text()).toContain("否");
   });
 
   it("tells a watcher it is watching and offers it no action", async () => {

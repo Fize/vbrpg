@@ -57,16 +57,17 @@ function start(seed = "seed-1", variables: Record<string, unknown> = WORDS): Gam
   });
 }
 
-/** Everyone describes in turn: the first phase owes the table one line per seat. */
+/** Everyone describes in turn: the phase asks one seat at a time, in seat order. */
 function describeAll(state: GameState): GameState {
-  return apply(
-    state,
-    (state.waiting?.participantIds ?? []).map((seat) => ({
-      type: platformEventTypes.seatMessage,
-      actor: seat,
-      payload: { text: "..." },
-    })),
-  );
+  let current = state;
+  for (let guard = 0; current.stepId === "describe" && guard < 24; guard += 1) {
+    const [next] = current.waiting?.participantIds ?? [];
+    if (next === undefined) break;
+    current = apply(current, [
+      { type: platformEventTypes.seatMessage, actor: next, payload: { text: "..." } },
+    ]);
+  }
+  return current;
 }
 
 /** The table talks through `rounds` discussion rounds; a quiet seat passes instead of speaking. */
@@ -114,7 +115,8 @@ describe("undercover rules", () => {
     const state = start();
     expect(state.status).toBe("waiting");
     expect(state.stepId).toBe("describe");
-    expect(state.waiting?.participantIds).toEqual(["p1", "p2", "p3", "p4"]);
+    // The description phase is a queue, not a pool: only the first seat in line is asked.
+    expect(state.waiting?.participantIds).toEqual(["p1"]);
     // The describe phase owes a line: passing is a discussion move, not a describe move.
     expect(state.waiting?.actions).toEqual([platformEventTypes.seatMessage]);
     expect(state.participants.filter((seat) => seat.roleId === "undercover")).toHaveLength(1);
@@ -213,7 +215,7 @@ describe("undercover rules", () => {
     expect(resolved.variables["alive"]).not.toContain(doomed);
     expect(resolved.variables["discussRound"]).toBe(1);
     // The seat that left is never waited for again — not in the describe round, not in discussions.
-    expect(resolved.waiting?.participantIds).toEqual(alive.filter((seat) => seat !== doomed));
+    expect(resolved.waiting?.participantIds).toEqual([alive.filter((seat) => seat !== doomed)[0]]);
     expect(() =>
       apply(resolved, [
         { type: platformEventTypes.seatMessage, actor: doomed, payload: { text: "?" } },
@@ -303,5 +305,86 @@ describe("undercover rules", () => {
     const after = apply(started, [{ type: "aiCall", payload: { content: "thinking" } }]);
     expect(after.variables).toEqual(started.variables);
     expect(after.stepId).toBe(started.stepId);
+  });
+
+  it("asks one seat at a time and refuses a seat that jumps the queue", () => {
+    const fresh = start();
+    expect(() =>
+      apply(fresh, [
+        { type: platformEventTypes.seatMessage, actor: "p2", payload: { text: "抢先" } },
+      ]),
+    ).toThrow(/seat order/);
+    // Describing in order is the only way through: the phase ends once the last seat has spoken.
+    expect(describeAll(fresh).stepId).toBe("discuss");
+  });
+
+  it("revotes once over the tied seats, then lets the round go by on a second tie", () => {
+    const described = describeAll(start());
+    const alive = described.variables["alive"] as string[];
+    const [first, second, third, fourth] = alive as [string, string, string, string];
+
+    const tied = apply(discussAll(described, 3), [
+      { type: "vote", actor: first, payload: { target: second } },
+      { type: "vote", actor: second, payload: { target: first } },
+      { type: "vote", actor: third, payload: { target: first } },
+      { type: "vote", actor: fourth, payload: { target: second } },
+    ]);
+
+    // 2:2 sends the table straight back to the vote, over the seats that tied.
+    expect(tied.variables["phase"]).toBe("vote");
+    expect(tied.variables["revoted"]).toBe(true);
+    expect(tied.variables["revoteTargets"]).toEqual([first, second]);
+    expect(tied.variables["summary"]).toMatchObject({ tie: true, eliminated: null });
+
+    expect(() => apply(tied, [{ type: "vote", actor: first, payload: { target: third } }])).toThrow(
+      /tied/,
+    );
+
+    const again = apply(tied, [
+      { type: "vote", actor: first, payload: { target: second } },
+      { type: "vote", actor: second, payload: { target: first } },
+      { type: "vote", actor: third, payload: { target: first } },
+      { type: "vote", actor: fourth, payload: { target: second } },
+    ]);
+    // A second tie does not eliminate anyone: the round moves on and the revote is forgotten.
+    expect(again.variables["phase"]).toBe("describe");
+    expect(again.variables["revoted"]).toBe(false);
+    expect(again.variables["revoteTargets"]).toEqual([]);
+  });
+
+  it("publishes who left, what they were, and how each seat played", () => {
+    const described = describeAll(start());
+    const undercoverSeat = described.participants.find((seat) => seat.roleId === "undercover")!;
+    const alive = described.variables["alive"] as string[];
+    const civilian = alive.find((seat) => seat !== undercoverSeat.participantId)!;
+
+    const resolved = apply(
+      discussAll(described, 3),
+      alive.map((seat) => ({
+        type: "vote",
+        actor: seat,
+        payload: {
+          target: seat === undercoverSeat.participantId ? civilian : undercoverSeat.participantId,
+        },
+      })),
+    );
+
+    expect(resolved.status).toBe("completed");
+    expect(resolved.variables["winner"]).toBe("civilian");
+    expect(resolved.variables["summary"]).toMatchObject({
+      eliminated: undercoverSeat.participantId,
+      eliminatedRole: "undercover",
+    });
+
+    const scores = view(resolved, civilian).publicState["scores"] as Array<Record<string, unknown>>;
+    expect(scores).toHaveLength(alive.length);
+    const undercoverRow = scores.find((row) => row["seat"] === undercoverSeat.participantId)!;
+    expect(undercoverRow).toMatchObject({ role: "undercover", won: false });
+    expect(undercoverRow["spoke"]).toBeGreaterThan(0);
+    expect(undercoverRow["survivedRounds"]).toBe(1);
+    // Everyone who is not the undercover is on the winning side.
+    expect(
+      scores.filter((row) => row["role"] === "civilian").every((row) => row["won"] === true),
+    ).toBe(true);
   });
 });

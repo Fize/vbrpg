@@ -118,7 +118,8 @@ test.describe.serial("M7 房间与对局", () => {
     await expect(player.getByText("对局中")).toBeVisible();
     await player.getByRole("button", { name: "进入" }).click();
     await expect(player).toHaveURL(new RegExp(`/matches/${matchId}$`));
-    await expect(player.getByText("等 s2、s3")).toBeVisible();
+    // The description phase asks one seat at a time, in seat order: s2 is next in line.
+    await expect(player.getByText("等 s2")).toBeVisible();
     await player.getByPlaceholder("你要说的话").fill("我这东西长在树上");
     await player.getByRole("button", { name: "提交" }).click();
     await expect(player.getByText("我这东西长在树上").first()).toBeVisible();
