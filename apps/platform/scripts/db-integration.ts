@@ -644,6 +644,31 @@ try {
   assert.ok(publishedNeighbour?.persona?.profession, "a published persona shows its profession");
   assert.ok(publishedNeighbour?.persona?.style, "a published persona shows how it talks");
   assert.equal(publishedNeighbour?.persona?.mbti, undefined, "even published, MBTI stays private");
+  assert.equal(publishedRead.seats[0]?.persona, null, "a human seat is dealt no persona");
+
+  // Matches created before the deal was restricted still carry a human persona in the row; the
+  // read has to hide it, otherwise every old match shows a card a human seat never needs.
+  const legacyHuman = publishedRead.seats[0];
+  assert.ok(legacyHuman);
+  await db
+    .updateTable("game_participants")
+    .set({
+      persona: {
+        mbti: "ISTJ",
+        gender: "男",
+        profession: "教师",
+        personality: "沉默",
+        style: "短句",
+      },
+    })
+    .where("id", "=", legacyHuman.participantId)
+    .execute();
+  const legacyRead = await matchService.read({ actor, instanceId: published.instanceId });
+  assert.equal(
+    legacyRead.seats.find((seat) => seat.participantId === legacyHuman.participantId)?.persona,
+    null,
+    "a legacy human persona never reaches the read",
+  );
 
   // ─── A category instead of words: the platform's model fills the pair ───────────────
   // The model is stubbed here; `pnpm check:model-call` exercises the real one.

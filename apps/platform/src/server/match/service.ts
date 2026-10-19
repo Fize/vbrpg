@@ -784,10 +784,15 @@ export function createMatchService(options: {
           control: seat.control,
           status: seat.status,
           actorUserId: seat.actor_user_id,
-          persona: visiblePersona(readPersona(seat.persona), {
-            own: seat.actor_user_id === actor.userId,
-            published: instance.persona_public,
-          }),
+          // Matches created before the deal was restricted still carry a human persona in the row;
+          // the read hides it, so an old match looks like a new one.
+          persona:
+            seat.control === "ai"
+              ? visiblePersona(readPersona(seat.persona), {
+                  own: seat.actor_user_id === actor.userId,
+                  published: instance.persona_public,
+                })
+              : null,
         })),
         view: mine ? viewFor(game, state, mine.id) : spectatorViewFor(game, state),
         waiting: state.waiting,
