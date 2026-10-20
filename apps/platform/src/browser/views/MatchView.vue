@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { ArrowLeft, Refresh } from "@element-plus/icons-vue";
 import { api, apiRequestId, type MatchSeat } from "../services/api";
@@ -139,6 +139,30 @@ async function load(): Promise<void> {
 
 onMounted(load);
 watch(instanceId, load);
+
+/**
+ * Other seats move on their own — an AI seat answers in seconds — so the page reads again on a
+ * timer. A failed poll stays silent and the next one retries: a background read is not news.
+ */
+const POLL_MS = 3_000;
+let poll: ReturnType<typeof setInterval> | null = null;
+
+async function refreshQuietly(): Promise<void> {
+  if (loading.value || actingOn.value !== null || !open.value) return;
+  try {
+    detail.value = await api.readMatch(instanceId.value);
+  } catch {
+    // The reader keeps the last good page; the next tick asks again.
+  }
+}
+
+onMounted(() => {
+  poll = setInterval(refreshQuietly, POLL_MS);
+});
+onUnmounted(() => {
+  if (poll !== null) clearInterval(poll);
+  poll = null;
+});
 
 async function submit(payload: {
   actionId: string;

@@ -268,6 +268,7 @@ async function render() {
 describe("match room", () => {
   beforeEach(() => {
     current = detail;
+    readMatch.mockClear();
   });
 
   it("seats everyone around the table and says who the match is waiting for", async () => {
@@ -301,6 +302,43 @@ describe("match room", () => {
     expect(wrapper.findAll("[data-testid='seat']").map((seat) => seat.text())).toContainEqual(
       expect.stringContaining("男"),
     );
+  });
+
+  it("keeps the page current without anyone clicking refresh", async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = mount(MatchView, { global: { plugins: [ElementPlus] } });
+      await flushPromises();
+      expect(readMatch).toHaveBeenCalledTimes(1);
+
+      current = { ...voting, summary: { ...voting.summary, sequence: 9 } };
+      await vi.advanceTimersByTimeAsync(3_000);
+      await flushPromises();
+
+      expect(readMatch).toHaveBeenCalledTimes(2);
+      expect(wrapper.find(".seq").text()).toContain("9");
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops reading once the match is over", async () => {
+    vi.useFakeTimers();
+    try {
+      current = { ...detail, summary: { ...detail.summary, status: "completed" } };
+      mount(MatchView, { global: { plugins: [ElementPlus] } });
+      await flushPromises();
+      expect(readMatch).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(9_000);
+      await flushPromises();
+
+      // A finished match does not change; asking again would be noise.
+      expect(readMatch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("promotes nothing when a seat holds more than one secret", async () => {

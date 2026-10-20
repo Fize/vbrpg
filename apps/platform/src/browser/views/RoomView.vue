@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { CopyDocument, Plus, Refresh } from "@element-plus/icons-vue";
 import {
@@ -86,6 +86,33 @@ async function load(): Promise<void> {
 
 onMounted(load);
 watch(roomId, load);
+
+/**
+ * Other people take seats and get ready, so the room reads again on a timer. Only the parts others
+ * move: the owner's unsaved seat plan stays exactly as they left it.
+ */
+const POLL_MS = 3_000;
+let poll: ReturnType<typeof setInterval> | null = null;
+
+async function refreshQuietly(): Promise<void> {
+  const detail = room.value;
+  if (detail === null || detail.status !== "open") return;
+  if (loading.value || busy.value || planDirty.value) return;
+  try {
+    room.value = await api.readRoom(roomId.value);
+    matches.value = await api.listRoomMatches(roomId.value);
+  } catch {
+    // A dropped poll is not something the reader has to see; the next tick asks again.
+  }
+}
+
+onMounted(() => {
+  poll = setInterval(refreshQuietly, POLL_MS);
+});
+onUnmounted(() => {
+  if (poll !== null) clearInterval(poll);
+  poll = null;
+});
 
 async function run(action: () => Promise<unknown>): Promise<void> {
   busy.value = true;
