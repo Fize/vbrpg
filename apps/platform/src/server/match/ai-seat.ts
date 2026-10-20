@@ -12,10 +12,12 @@ import { chooseModelBinding, type ModelBinding } from "../llm/binding.js";
 import { buildSeatPrompt, retryInstruction } from "../llm/prompt.js";
 import { AppError, type CredentialKey } from "../runtime/index.js";
 import {
+  claimAiTurn,
   findReadyAiSeats,
   getGameInstance,
   listGameEvents,
   listGameParticipants,
+  releaseAiTurn,
   type Database,
 } from "../db/index.js";
 import type { MatchService } from "./service.js";
@@ -24,6 +26,8 @@ import { readPersona } from "./persona.js";
 /** A reasoning model spends a few hundred tokens thinking before it acts; leave room for both. */
 const DEFAULT_MAX_TOKENS = 2048;
 const DEFAULT_MAX_CALLS_PER_TURN = 3;
+/** A turn may spend every call it is allowed, each of them capped by the model timeout. */
+const DEFAULT_TURN_LEASE_MS = MODEL_CALL_TIMEOUT_MS * DEFAULT_MAX_CALLS_PER_TURN + 30_000;
 
 /** A seat plays with the platform's shared model binding. */
 export type SeatBinding = ModelBinding;
@@ -41,8 +45,13 @@ export function createAiSeatRunner(deps: {
   logger?: { info(fields: Record<string, unknown>, message: string): void };
   maxTokens?: number;
   maxCallsPerTurn?: number;
+  /** Names this process in the turn lease; two workers with the same name would share a claim. */
+  workerId?: string;
+  leaseMs?: number;
 }): AiSeatRunner {
   const { db, registry, service, credentialKey } = deps;
+  const workerId = deps.workerId ?? `worker-${process.pid}`;
+  const leaseMs = deps.leaseMs ?? DEFAULT_TURN_LEASE_MS;
   const client = deps.client ?? createModelClient();
   const logger = deps.logger ?? console;
   const maxTokens = deps.maxTokens ?? DEFAULT_MAX_TOKENS;
@@ -58,7 +67,24 @@ export function createAiSeatRunner(deps: {
     return { providerId: binding.providerId, modelId: binding.modelId, ...usage };
   }
 
+  /**
+   * Two workers seeing the same waiting seat is normal; both paying for a model call is not. The
+   * lease makes the turn exclusive, and a crashed worker's lease simply expires.
+   */
   async function runTurn(target: {
+    instanceId: string;
+    participantId: string;
+  }): Promise<"acted" | "failed" | "skipped"> {
+    const mine = await claimAiTurn(db, { instanceId: target.instanceId, workerId, leaseMs });
+    if (!mine) return "skipped";
+    try {
+      return await playTurn(target);
+    } finally {
+      await releaseAiTurn(db, { instanceId: target.instanceId, workerId });
+    }
+  }
+
+  async function playTurn(target: {
     instanceId: string;
     participantId: string;
   }): Promise<"acted" | "failed" | "skipped"> {

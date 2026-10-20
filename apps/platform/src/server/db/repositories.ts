@@ -199,6 +199,41 @@ export async function listGameEvents(
 }
 
 /**
+ * Takes the match's current AI turn for one worker. A lease that has not expired belongs to another
+ * worker, and the caller must leave the turn alone — that is the whole point of the claim.
+ */
+export async function claimAiTurn(
+  db: DbExecutor,
+  input: { instanceId: string; workerId: string; leaseMs: number },
+): Promise<boolean> {
+  const now = new Date();
+  const result = await db
+    .updateTable("game_instances")
+    .set({
+      ai_claim_until: new Date(now.getTime() + input.leaseMs),
+      ai_claim_worker: input.workerId,
+    })
+    .where("id", "=", input.instanceId)
+    .where("status", "in", ["running", "waiting"])
+    .where(({ eb, or }) => or([eb("ai_claim_until", "is", null), eb("ai_claim_until", "<", now)]))
+    .executeTakeFirst();
+  return Number(result.numUpdatedRows ?? 0) > 0;
+}
+
+/** Hands the turn back. Only the worker that claimed it may release it. */
+export async function releaseAiTurn(
+  db: DbExecutor,
+  input: { instanceId: string; workerId: string },
+): Promise<void> {
+  await db
+    .updateTable("game_instances")
+    .set({ ai_claim_until: null, ai_claim_worker: null })
+    .where("id", "=", input.instanceId)
+    .where("ai_claim_worker", "=", input.workerId)
+    .execute();
+}
+
+/**
  * Matches that have not moved for a while. `updated_at` is bumped on every advance, so an old
  * stamp on an active match means nobody — human or worker — has pushed it forward.
  */

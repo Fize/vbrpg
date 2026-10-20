@@ -19,6 +19,12 @@
 4. `game_instances` 增加租约列 `ai_claim_until` / `ai_claim_worker`（迁移 0007）：worker 调模型前先抢租约，
    抢不到就跳过这一轮；回合结束释放。租约过期自动可被抢占，进程崩掉不会永久占坑。
 
+## 说明
+
+- 超时只由 worker 扫（`role=api` 不扫）：作废是运维动作，不该跟接口进程的请求量绑在一起。
+- 租约长度按「一次模型调用的超时 × 每回合允许的调用次数 + 余量」算，共 210 秒；
+  进程崩掉不需要清理，租约自己过期。
+
 ## Impact
 
 - `apps/platform/src/server/games/undercover.ts`：最小席位数与说明。
@@ -31,14 +37,14 @@
 
 ## Tasks
 
-- [ ] `undercover.ts`：`MIN_SEATS = 4`；`undercover.test.ts` 补 3 席被拒用例。
-- [ ] `docs/platform-migration-plan.md`、`docs/room-design.md`：席位区间 3–12 → 4–12。
-- [ ] `MatchView.vue`：3 秒静默轮询，对局结束后停。
-- [ ] `RoomView.vue`：3 秒静默轮询，房间关闭后停。
-- [ ] `migrations/0007_ai_turn_claim.sql` + `.down.sql`：租约列。
-- [ ] `db/repositories.ts`：`claimAiTurn` / `releaseAiTurn` / `findIdleInstances`。
-- [ ] `match/service.ts`：`expireIdle`（写 `timerExpired`、改 `cancelled`、审计）。
-- [ ] `match/ai-seat.ts` + `main.ts`：抢租约、worker 扫超时、`MATCH_IDLE_TIMEOUT_MS`。
-- [ ] 测试：单个 worker 只跑一次、租约互斥与过期可抢、超时作废、轮询不打断输入。
-- [ ] 门禁：typecheck / 单测 / test:db / eslint / prettier / e2e。
-- [ ] 真机：两个 worker 同时在线跑一局，模型调用数不再冗余；挂机对局在超时后被作废。
+- [x] `undercover.ts`：`MIN_SEATS = 4`；`undercover.test.ts` 补 3 席被拒用例。
+- [x] `docs/platform-migration-plan.md`、`docs/room-design.md`：席位区间 3–12 → 4–12。
+- [x] `MatchView.vue`：3 秒静默轮询，对局结束后停。
+- [x] `RoomView.vue`：3 秒静默轮询，房间关闭后停。
+- [x] `migrations/0007_ai_turn_claim.sql` + `.down.sql`：租约列。
+- [x] `db/repositories.ts`：`claimAiTurn` / `releaseAiTurn` / `findIdleInstances`。
+- [x] `match/service.ts`：`expireIdle`（写 `timerExpired`、改 `cancelled`、审计）。
+- [x] `match/ai-seat.ts` + `main.ts`：抢租约、worker 扫超时、`MATCH_IDLE_TIMEOUT_MS`。
+- [x] 测试：单个 worker 只跑一次、租约互斥与过期可抢、超时作废、轮询不打断输入。
+- [x] 门禁：typecheck / 单测 / test:db / eslint / prettier / e2e。
+- [x] 真机：两个 worker 同时在线跑一局，模型调用数不再冗余；挂机对局在超时后被作废。

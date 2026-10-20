@@ -94,6 +94,9 @@ export interface GameInstancesTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   completed_at: Date | null;
+  /** Lease on the current AI turn: which worker holds it, and until when. */
+  ai_claim_until: Date | null;
+  ai_claim_worker: string | null;
 }
 
 export interface GameParticipantsTable {

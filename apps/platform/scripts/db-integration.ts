@@ -20,7 +20,9 @@ import {
   deleteProvider,
   deleteProviderModel,
   findPlatformUserByUsername,
+  claimAiTurn,
   findReadyAiSeats,
+  releaseAiTurn,
   getAuthSessionByTokenHash,
   getGameInstance,
   listProvidersWithModels,
@@ -51,6 +53,7 @@ let lifecycleMatchId: string | null = null;
 let publishedMatchId: string | null = null;
 let generatedMatchId: string | null = null;
 let expiredMatchId: string | null = null;
+let contendedMatchId: string | null = null;
 let roomIdValue: string | null = null;
 
 try {
@@ -644,6 +647,52 @@ try {
   const idle = await runnerWith(scriptedClient([answer({})]).client).runOnce({ limit: 1 });
   assert.deepEqual(idle, { turns: 0, failures: 0 });
 
+  // ─── One worker owns a turn: the other one must not pay for the same model call ──────
+  const contended = await matchService.create({
+    actor,
+    request: {
+      gameId: "undercover",
+      variables: { civilianWord: "咖啡", undercoverWord: "茶" },
+      seats: [
+        { key: "p1", control: "human" },
+        { key: "p2", control: "ai" },
+        { key: "p3", control: "ai" },
+        { key: "p4", control: "ai" },
+      ],
+    },
+  });
+  contendedMatchId = contended.instanceId;
+  const claim = { instanceId: contended.instanceId, leaseMs: 60_000 };
+  assert.equal(await claimAiTurn(db, { ...claim, workerId: "worker-a" }), true, "the first worker wins");
+  assert.equal(
+    await claimAiTurn(db, { ...claim, workerId: "worker-b" }),
+    false,
+    "a live lease belongs to one worker",
+  );
+  await releaseAiTurn(db, { instanceId: contended.instanceId, workerId: "worker-b" });
+  assert.equal(
+    await claimAiTurn(db, { ...claim, workerId: "worker-b" }),
+    false,
+    "only the worker holding the lease can release it",
+  );
+  await releaseAiTurn(db, { instanceId: contended.instanceId, workerId: "worker-a" });
+  assert.equal(
+    await claimAiTurn(db, { ...claim, workerId: "worker-b" }),
+    true,
+    "a released turn is available again",
+  );
+  // A worker that died mid-turn never releases; the lease running out is what frees the match.
+  await db
+    .updateTable("game_instances")
+    .set({ ai_claim_until: new Date(Date.now() - 1_000) })
+    .where("id", "=", contended.instanceId)
+    .execute();
+  assert.equal(
+    await claimAiTurn(db, { ...claim, workerId: "worker-c" }),
+    true,
+    "an expired lease is free to take",
+  );
+
   // ─── Silence ends a match, and the record says why ──────────────────────────────────
   const stale = await matchService.create({
     actor,
@@ -1099,6 +1148,7 @@ try {
     ...(publishedMatchId === null ? [] : [publishedMatchId]),
     ...(generatedMatchId === null ? [] : [generatedMatchId]),
     ...(expiredMatchId === null ? [] : [expiredMatchId]),
+    ...(contendedMatchId === null ? [] : [contendedMatchId]),
   ];
   await db.deleteFrom("game_instances").where("id", "in", instanceIds).execute();
   if (roomIdValue !== null) {

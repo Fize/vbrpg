@@ -129,16 +129,18 @@ async function startWorker(databaseUrl: string | undefined): Promise<void> {
     throw new Error("PLATFORM_CREDENTIAL_KEY is required to run AI seats");
   }
   const matchService = createMatchService({ db, registry });
+  const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
   const runner = createAiSeatRunner({
     db,
     registry,
     service: matchService,
     credentialKey,
+    workerId,
   });
   const idleMs = Number(process.env.MATCH_IDLE_TIMEOUT_MS ?? 1_800_000);
   const worker = createWorker(
     {
-      workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,
+      workerId,
       pollIntervalMs: Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1_000),
     },
     console,
