@@ -12,9 +12,15 @@ import { createMatchService } from "./match/service.js";
 import { createRoomService } from "./room/service.js";
 import { createWordPairGenerator } from "./llm/word-pair.js";
 import { createAiSeatRunner } from "./match/ai-seat.js";
+import { createMetrics, readAiHealth } from "./metrics.js";
 import { createWorker } from "./worker.js";
 
 type Role = "api" | "worker" | "both";
+
+/** How long a match may sit without an advance before the platform ends it. */
+function idleTimeoutMs(): number {
+  return Number(process.env.MATCH_IDLE_TIMEOUT_MS ?? 1_800_000);
+}
 
 /** One package, one image, two roles: `--role=api|worker|both`, default api. */
 function parseRole(argv: readonly string[]): Role {
@@ -79,6 +85,7 @@ async function startHttp(databaseUrl: string | undefined): Promise<void> {
     ...(db
       ? {
           platformStore: createPlatformStore(db),
+          metrics: createMetrics({ db, idleMs: idleTimeoutMs() }),
           ...mountedServices(db, config),
         }
       : {}),
@@ -130,6 +137,7 @@ async function startWorker(databaseUrl: string | undefined): Promise<void> {
   }
   const matchService = createMatchService({ db, registry });
   const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
+  const idleMs = idleTimeoutMs();
   const runner = createAiSeatRunner({
     db,
     registry,
@@ -137,7 +145,6 @@ async function startWorker(databaseUrl: string | undefined): Promise<void> {
     credentialKey,
     workerId,
   });
-  const idleMs = Number(process.env.MATCH_IDLE_TIMEOUT_MS ?? 1_800_000);
   const worker = createWorker(
     {
       workerId,
@@ -146,6 +153,11 @@ async function startWorker(databaseUrl: string | undefined): Promise<void> {
     console,
     () => runner.runOnce(),
   );
+
+  /** A minute between health samples: an outage is obvious fast, a blip is not worth a warning. */
+  const AI_CHECK_INTERVAL_MS = 60_000;
+  const AI_FAILURE_ALERT = 0.2;
+  let lastHealthCheck = 0;
 
   let running = true;
   const stop = (): void => {
@@ -166,6 +178,17 @@ async function startWorker(databaseUrl: string | undefined): Promise<void> {
       if (expired.length > 0) console.warn({ expired, idleMs }, "idle matches cancelled");
     } catch (error) {
       console.error({ err: error }, "idle sweep failed");
+    }
+    if (Date.now() - lastHealthCheck >= AI_CHECK_INTERVAL_MS) {
+      lastHealthCheck = Date.now();
+      try {
+        const health = await readAiHealth(db, AI_CHECK_INTERVAL_MS * 60);
+        if (health.calls >= 5 && health.failureRate >= AI_FAILURE_ALERT) {
+          console.warn({ ...health }, "ai failure rate is high");
+        }
+      } catch (error) {
+        console.error({ err: error }, "ai health check failed");
+      }
     }
     if (!running) break;
     await new Promise((done) => setTimeout(done, worker.config.pollIntervalMs));

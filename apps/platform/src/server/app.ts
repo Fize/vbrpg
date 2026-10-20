@@ -7,16 +7,22 @@ import { registerPlatformAuthRoutes } from "./routes/platform-auth.js";
 import { registerPlatformAdminRoutes } from "./routes/platform-admin.js";
 import { registerMatchRoutes } from "./routes/matches.js";
 import { registerRoomRoutes } from "./routes/rooms.js";
+import { registerMetricsRoutes } from "./routes/platform-metrics.js";
 import type { MatchService } from "./match/service.js";
 import type { RoomService } from "./room/service.js";
 import type { PlatformStore } from "./store.js";
+import type { Metrics } from "./metrics.js";
 import { createPlatformRequestContext } from "./platform-auth.js";
+
+/** The one route whose latency is also a capacity number. */
+const ACTION_ROUTE = "/v1/instances/:instanceId/events";
 
 export interface BuildAppOptions {
   config?: ApiConfig;
   platformStore?: PlatformStore;
   matchService?: MatchService;
   roomService?: RoomService;
+  metrics?: Metrics;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -32,6 +38,18 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.addHook("onSend", async (request, reply) => {
     reply.header("x-request-id", request.id);
   });
+
+  const metrics = options.metrics;
+  if (metrics) {
+    // Every reply is counted; the action path is timed separately because that is the write the
+    // table waits on, and it is the number capacity is judged by.
+    app.addHook("onResponse", async (request, reply) => {
+      metrics.observeResponse(reply.statusCode);
+      if (request.routeOptions.url === ACTION_ROUTE) {
+        metrics.observeAction(reply.elapsedTime);
+      }
+    });
+  }
 
   app.setNotFoundHandler((request, reply) => {
     const response: ErrorResponse = {
@@ -76,6 +94,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     const platformContext = createPlatformRequestContext(options.platformStore, config);
     void registerPlatformAuthRoutes(app, platformContext);
     void registerPlatformAdminRoutes(app, platformContext);
+    if (options.metrics) {
+      void registerMetricsRoutes(app, platformContext, options.metrics);
+    }
     if (options.matchService) {
       void registerMatchRoutes(app, platformContext, options.matchService);
     }

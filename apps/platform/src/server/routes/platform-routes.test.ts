@@ -12,6 +12,7 @@ import type { PlatformUserRecord } from "../db/index.js";
 import { AppError } from "../runtime/index.js";
 import type { MatchService } from "../match/service.js";
 import type { RoomService } from "../room/service.js";
+import { createMetrics, type Metrics } from "../metrics.js";
 
 const ORIGIN = "http://localhost:5173";
 const MASTER_KEY = randomBytes(32).toString("base64");
@@ -227,7 +228,12 @@ function makeUser(
   };
 }
 
-async function createApp(state: FakeState, matchService?: MatchService, roomService?: RoomService) {
+async function createApp(
+  state: FakeState,
+  matchService?: MatchService,
+  roomService?: RoomService,
+  metrics?: Metrics,
+) {
   return buildApp({
     config: loadConfig({
       NODE_ENV: "test",
@@ -237,6 +243,7 @@ async function createApp(state: FakeState, matchService?: MatchService, roomServ
     platformStore: state.store,
     ...(matchService === undefined ? {} : { matchService }),
     ...(roomService === undefined ? {} : { roomService }),
+    ...(metrics === undefined ? {} : { metrics }),
   });
 }
 
@@ -1303,5 +1310,52 @@ describe("match routes", () => {
     });
     assert.equal(response.statusCode, 404);
     assert.equal(response.json().code, "MATCH_NOT_FOUND");
+  });
+});
+
+describe("operator metrics", () => {
+  it("shows an administrator what this process has seen, and nobody else", async () => {
+    const passwordHash = await hashPassword(PASSWORD);
+    const state = createFakeStore({
+      passwordHash,
+      users: [
+        makeUser({ passwordHash, username: "alice", role: "admin" }),
+        makeUser({ passwordHash, username: "bob" }),
+      ],
+    });
+    const metrics = createMetrics({ idleMs: 60_000 });
+    metrics.observeAction(12);
+    metrics.observeResponse(200);
+    const app = await createApp(state, undefined, undefined, metrics);
+
+    const admin = await login(app, "alice");
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/admin/metrics",
+      headers: { cookie: admin.cookie },
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    const body = response.json() as {
+      actions: { count: number; latencyMs: Record<string, number | null> };
+      http: { responses: number };
+      matches: unknown;
+      ai: unknown;
+    };
+    assert.equal(body.actions.count, 1);
+    assert.equal(body.actions.latencyMs["p50"], 25);
+    // The login that got us here is a response too; the point is that replies are counted.
+    assert.ok(body.http.responses >= 1);
+    assert.equal(body.http.serverErrors, 0);
+    // A process without a database cannot answer for matches or models.
+    assert.equal(body.matches, null);
+    assert.equal(body.ai, null);
+
+    const player = await login(app, "bob");
+    const refused = await app.inject({
+      method: "GET",
+      url: "/v1/admin/metrics",
+      headers: { cookie: player.cookie },
+    });
+    assert.equal(refused.statusCode, 403);
   });
 });
