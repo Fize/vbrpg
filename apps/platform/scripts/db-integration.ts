@@ -50,6 +50,7 @@ let aiMatchIdValue: string | null = null;
 let lifecycleMatchId: string | null = null;
 let publishedMatchId: string | null = null;
 let generatedMatchId: string | null = null;
+let expiredMatchId: string | null = null;
 let roomIdValue: string | null = null;
 
 try {
@@ -643,6 +644,48 @@ try {
   const idle = await runnerWith(scriptedClient([answer({})]).client).runOnce({ limit: 1 });
   assert.deepEqual(idle, { turns: 0, failures: 0 });
 
+  // ─── Silence ends a match, and the record says why ──────────────────────────────────
+  const stale = await matchService.create({
+    actor,
+    request: {
+      gameId: "undercover",
+      variables: { civilianWord: "咖啡", undercoverWord: "茶" },
+      seats: [
+        { key: "p1", control: "human" },
+        { key: "p2", control: "ai" },
+        { key: "p3", control: "ai" },
+        { key: "p4", control: "ai" },
+      ],
+    },
+  });
+  expiredMatchId = stale.instanceId;
+  // Nobody has touched it for an hour: the state's own waiting list is unchanged, only the clock.
+  await db
+    .updateTable("game_instances")
+    .set({ updated_at: new Date(Date.now() - 60 * 60 * 1000) })
+    .where("id", "=", stale.instanceId)
+    .execute();
+  const swept = await matchService.expireIdle({ idleMs: 60_000 });
+  assert.ok(swept.expired.includes(stale.instanceId), "an hour of silence ends the match");
+  assert.ok(!swept.expired.includes(aiMatchId), "a match that is already over is left alone");
+
+  const staleRead = await matchService.read({ actor, instanceId: stale.instanceId });
+  assert.equal(staleRead.summary.status, "cancelled");
+  const timeoutRow = staleRead.record.at(-1);
+  assert.equal(timeoutRow?.type, "timerExpired");
+  assert.equal(timeoutRow?.payload["idleMs"], 60_000);
+  assert.deepEqual(
+    timeoutRow?.payload["waiting"],
+    [staleRead.seats[0]?.participantId],
+    "the row names the seat that never answered",
+  );
+  const audit = await db
+    .selectFrom("audit_logs")
+    .select(["action", "actor_user_id"])
+    .where("resource_id", "=", stale.instanceId)
+    .execute();
+  assert.deepEqual(audit, [{ action: "match.expired", actor_user_id: null }]);
+
   // Personas reach the table as a gender tag and nothing more.
   const published = await matchService.create({
     actor,
@@ -1055,6 +1098,7 @@ try {
     ...(lifecycleMatchId === null ? [] : [lifecycleMatchId]),
     ...(publishedMatchId === null ? [] : [publishedMatchId]),
     ...(generatedMatchId === null ? [] : [generatedMatchId]),
+    ...(expiredMatchId === null ? [] : [expiredMatchId]),
   ];
   await db.deleteFrom("game_instances").where("id", "in", instanceIds).execute();
   if (roomIdValue !== null) {

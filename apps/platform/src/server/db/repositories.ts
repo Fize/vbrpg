@@ -199,6 +199,25 @@ export async function listGameEvents(
 }
 
 /**
+ * Matches that have not moved for a while. `updated_at` is bumped on every advance, so an old
+ * stamp on an active match means nobody — human or worker — has pushed it forward.
+ */
+export async function findIdleInstanceIds(
+  db: DbExecutor,
+  input: { cutoff: Date; limit: number },
+): Promise<string[]> {
+  const rows = await db
+    .selectFrom("game_instances")
+    .select("id")
+    .where("status", "in", ["running", "waiting"])
+    .where("updated_at", "<", input.cutoff)
+    .orderBy("updated_at", "asc")
+    .limit(input.limit)
+    .execute();
+  return rows.map((row) => row.id);
+}
+
+/**
  * Matches where a waiting point still expects an AI seat. The pending list lives in the state, so
  * the filter is a jsonb containment check rather than a scan followed by a filter in JavaScript.
  */

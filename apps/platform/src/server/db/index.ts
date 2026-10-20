@@ -37,6 +37,7 @@ export {
   advanceGameInstance,
   createGameInstance,
   findEventByIdempotencyKey,
+  findIdleInstanceIds,
   findReadyAiSeats,
   getGameInstance,
   insertGameEvent,

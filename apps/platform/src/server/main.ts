@@ -128,12 +128,14 @@ async function startWorker(databaseUrl: string | undefined): Promise<void> {
   if (!credentialKey) {
     throw new Error("PLATFORM_CREDENTIAL_KEY is required to run AI seats");
   }
+  const matchService = createMatchService({ db, registry });
   const runner = createAiSeatRunner({
     db,
     registry,
-    service: createMatchService({ db, registry }),
+    service: matchService,
     credentialKey,
   });
+  const idleMs = Number(process.env.MATCH_IDLE_TIMEOUT_MS ?? 1_800_000);
   const worker = createWorker(
     {
       workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,
@@ -155,6 +157,13 @@ async function startWorker(databaseUrl: string | undefined): Promise<void> {
       await worker.runOnce();
     } catch (error) {
       console.error({ err: error }, "worker poll failed");
+    }
+    try {
+      // A match nobody pushes forward is over: the rules never see a clock, so the platform ends it.
+      const { expired } = await matchService.expireIdle({ idleMs });
+      if (expired.length > 0) console.warn({ expired, idleMs }, "idle matches cancelled");
+    } catch (error) {
+      console.error({ err: error }, "idle sweep failed");
     }
     if (!running) break;
     await new Promise((done) => setTimeout(done, worker.config.pollIntervalMs));

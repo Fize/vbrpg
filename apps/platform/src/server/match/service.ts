@@ -31,6 +31,7 @@ import {
   advanceGameInstance,
   createGameInstance,
   findEventByIdempotencyKey,
+  findIdleInstanceIds,
   findPlatformUserByUsername,
   getGameInstance,
   insertGameEvent,
@@ -117,6 +118,11 @@ export interface MatchService {
   recordTurn(input: RecordTurnInput): Promise<RecordTurnResult>;
   /** Records a turn that produced no action: one `aiFailed` row for the game to react to. */
   recordFailure(input: RecordFailureInput): Promise<MatchSummary>;
+  /**
+   * Ends matches nobody has pushed forward in `idleMs`. The row lock is what keeps this from
+   * racing a submission; a match that moved since the scan is left alone.
+   */
+  expireIdle(input: { idleMs: number; limit?: number }): Promise<{ expired: string[] }>;
   submit(input: {
     actor: MatchActor;
     instanceId: string;
@@ -682,6 +688,59 @@ export function createMatchService(options: {
           sequence: applied.lastSequence,
         };
       });
+    },
+
+    async expireIdle({ idleMs, limit }) {
+      const cutoff = new Date(Date.now() - idleMs);
+      const candidates = await findIdleInstanceIds(db, { cutoff, limit: limit ?? 50 });
+      const expired: string[] = [];
+      for (const instanceId of candidates) {
+        const ended = await db.transaction().execute(async (transaction) => {
+          const instance = await lockGameInstance(transaction, instanceId);
+          if (!instance) return false;
+          if (!ACTIVE_STATUSES.includes(instance.status)) return false;
+          // Somebody may have moved it since the scan; that match is not idle.
+          if (instance.updated_at.getTime() > cutoff.getTime()) return false;
+
+          const state = stateOf(instance);
+          const applied = await applyEvent(transaction, {
+            game: requireGame(instance.game_id),
+            instanceId,
+            state: { ...state, sequence: instance.current_sequence },
+            event: {
+              eventId: randomUUID(),
+              instanceId,
+              sequence: instance.current_sequence + 1,
+              type: platformEventTypes.timerExpired,
+              participantId: null,
+              actorUserId: null,
+              stepId: state.stepId,
+              occurredAtMs: Date.now(),
+              idempotencyKey: `${instanceId}:idle:${instance.current_sequence}`,
+              payload: { idleMs, waiting: state.waiting?.participantIds ?? [] },
+              usage: null,
+            },
+          });
+          // The rules do not run on a timeout, so the platform closes the match itself.
+          await advanceGameInstance(transaction, {
+            instanceId,
+            expectedSequence: applied.lastSequence,
+            state: { ...applied.state, status: "cancelled", waiting: null },
+          });
+          await recordAuditLog(transaction, {
+            id: randomUUID(),
+            actorUserId: null,
+            action: "match.expired",
+            resourceType: "game_instance",
+            resourceId: instanceId,
+            metadata: { idleMs },
+            succeeded: true,
+          });
+          return true;
+        });
+        if (ended) expired.push(instanceId);
+      }
+      return { expired };
     },
 
     async submit({ actor, instanceId, idempotencyKey, request }) {
