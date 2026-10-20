@@ -282,8 +282,10 @@ describe("undercover rules", () => {
       { type: "vote", actor: "p4", payload: { target: "p1" } },
     ]);
 
-    const summary = view(resolved, "p1").publicState["summary"] as { eliminated: string | null };
-    expect(summary.eliminated).toBe("p1");
+    const summary = view(resolved, "p1").publicState["summary"] as Record<string, unknown>;
+    expect(summary["eliminated"]).toBe("p1");
+    // The match goes on, so what p1 was stays hidden; roles only show in the end-of-match report.
+    expect(JSON.stringify(summary)).not.toMatch(/civilian|undercover/);
   });
 
   it("rejects illegal moves with the rule's own code", () => {
@@ -352,7 +354,7 @@ describe("undercover rules", () => {
     expect(again.variables["revoteTargets"]).toEqual([]);
   });
 
-  it("publishes who left, what they were, and how each seat played", () => {
+  it("publishes who left and how each seat played once the match ends", () => {
     const described = describeAll(start());
     const undercoverSeat = described.participants.find((seat) => seat.roleId === "undercover")!;
     const alive = described.variables["alive"] as string[];
@@ -373,7 +375,6 @@ describe("undercover rules", () => {
     expect(resolved.variables["winner"]).toBe("civilian");
     expect(resolved.variables["summary"]).toMatchObject({
       eliminated: undercoverSeat.participantId,
-      eliminatedRole: "undercover",
     });
 
     const scores = view(resolved, civilian).publicState["scores"] as Array<Record<string, unknown>>;

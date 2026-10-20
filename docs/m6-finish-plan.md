@@ -35,7 +35,7 @@ M6 剩下的三项一起做完：`M6-08(c)` 诊断缺口、`M6-06` 输出语气�
 - **平票重投**：`resolveRound` 判定平票时，若本轮还没重投过，清空 `votes` 回到投票阶段再投一次，
   并给出 `revoteStarted` 派生事件；重投仍平票则不淘汰、进入下一回合。用 `revoted: boolean` 记录
   本回合是否已重投，进入下一回合时清零。
-- **淘汰后公开身份**：`summary.eliminatedRole`（`civilian` / `undercover`）。词始终不公开。
+- **淘汰只公布出局席位**：`summary.eliminated`。身份要到对局结束才随 `scores` 公开，词始终不公开。
 - **出局不再发言**：现有 `alive` 过滤已保证，补用例钉住。
 - **表现统计**：变量 `stats`（每席 `spoke` / `votesAgainst`），结算时累计；终局写入
   `scores`（每席角色、发言数、被投票数、存活回合、是否胜方）并公开。客观统计，不调模型。
@@ -59,14 +59,14 @@ M6 剩下的三项一起做完：`M6-08(c)` 诊断缺口、`M6-06` 输出语气�
 
 - [x] `undercover.ts`：`briefing` 重写（顺序发言、平票重投、公开身份、语气）+ 顺序发言校验
 - [x] `undercover.ts`：平票重投（`revoted` 变量 + `revoteStarted` 派生事件 + 结算分支）
-- [x] `undercover.ts`：`summary.eliminatedRole` 与 `scores`（`stats` 累计）
+- [x] `undercover.ts`：`summary.eliminated` 与 `scores`（`stats` 累计）
 - [x] `undercover.test.ts`：五条规则的对应用例
 - [x] `prompt.ts`：输出要求加语气说明；`prompt.test.ts` 断言
 - [x] `domain.ts` + `service.ts` + `ai-seat.ts`：`retryReason` 与 `lastFeedback`
 - [x] `docs/platform-migration-plan.md`：勾选与描述修正
 - [x] 门禁：typecheck / 单测 195 例 / test:db / eslint / prettier / e2e 8 例
-- [x] 真机：一局跑完（31 次状态推进到 `completed`），顺序发言按席位接力；`scores` 与
-  `eliminatedRole` 落库；AI 发言出现（笑）（叹气）（小声）；`scores` 在界面渲染成 4 行表格。
+- [x] 真机：一局跑完（31 次状态推进到 `completed`），顺序发言按席位接力；`scores` 落库；
+  AI 发言出现（笑）（叹气）（小声）；`scores` 在界面渲染成 4 行表格。
   平票重投在真机上不易凑出（AI 投票不可控），由 `undercover.test.ts` 两例与手工状态覆盖。
 
 ## 补充：表现统计的显示

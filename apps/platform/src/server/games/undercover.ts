@@ -72,7 +72,6 @@ type UndercoverVariables = {
     round: number;
     tally: Record<string, number>;
     eliminated: string | null;
-    eliminatedRole: string | null;
     tie: boolean;
     revote: boolean;
   } | null;
@@ -140,7 +139,6 @@ const WORD_NAMES: Readonly<Record<string, string>> = {
   winner: "胜方",
   tally: "票数",
   eliminated: "出局席位",
-  eliminatedRole: "出局身份",
   tie: "平票",
   revoted: "已重投",
   revoteTargets: "重投候选人",
@@ -256,7 +254,7 @@ export const undercover: GameModule = {
       "每回合分三段：所有在世席位按席位表顺序、一人一句描述自己的词；然后讨论至多三轮，每轮每人最多说一次，",
       "也可以选择这轮不说；最后全体投票，得票最多的席位出局。第三轮讨论结束后只能投票，不能再发言。",
       "投票出现平票时立刻重投一次，且只能投平票的那几个席位；重投仍然平票就不淘汰，直接进入下一回合。",
-      "出局的席位身份会公开，之后不再发言。卧底出局则平民获胜；卧底留到最后两人则卧底获胜。",
+      "出局的席位不再发言，身份要到对局结束才公开。卧底出局则平民获胜；卧底留到最后两人则卧底获胜。",
       `你在这局里的角色是 ${seat.roleId === "undercover" ? "卧底" : "平民"}。`,
       "不要直接说出你的词，用一句话让别人猜不出又让同伴认得出。",
       "说话可以带（笑）（小声）（叹气）这类括号语气，平台会原样播出。",
@@ -547,7 +545,6 @@ function resolveRound(state: GameState): TransitionResult {
             round: variables.round,
             tally,
             eliminated: null,
-            eliminatedRole: null,
             tie: true,
             revote: false,
           },
@@ -568,10 +565,6 @@ function resolveRound(state: GameState): TransitionResult {
     round: variables.round,
     tally,
     eliminated,
-    eliminatedRole:
-      eliminated === null
-        ? null
-        : (state.participants.find((seat) => seat.participantId === eliminated)?.roleId ?? null),
     tie: tied,
     revote: variables.revoted,
   };
