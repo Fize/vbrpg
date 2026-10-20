@@ -386,6 +386,7 @@ try {
         { key: "p1", control: "human" },
         { key: "p2", control: "ai" },
         { key: "p3", control: "ai" },
+        { key: "p4", control: "ai" },
       ],
     },
   });
@@ -397,7 +398,7 @@ try {
   assert.equal(created.sequence, 1);
 
   const opened = await matchService.read({ actor, instanceId: matchId });
-  assert.equal(opened.seats.length, 3);
+  assert.equal(opened.seats.length, 4);
   assert.equal(opened.record.length, 1);
   assert.equal(opened.record[0]?.type, "instanceCreated");
   assert.equal(opened.view?.publicState["phase"], "describe");
@@ -535,7 +536,7 @@ try {
     .select(["participant_key", "status"])
     .where("instance_id", "=", matchId)
     .execute();
-  assert.equal(eliminated.length, 3);
+  assert.equal(eliminated.length, 4);
   assert.ok(eliminated.every((seat) => seat.status === "active"));
 
   // ─── AI seats: one call per row, refusals fed back, no action means failure ─────────
@@ -551,6 +552,7 @@ try {
         { key: "p1", control: "ai" },
         { key: "p2", control: "ai" },
         { key: "p3", control: "ai" },
+        { key: "p4", control: "ai" },
       ],
     },
   });
@@ -651,6 +653,7 @@ try {
         { key: "p1", control: "human" },
         { key: "p2", control: "ai" },
         { key: "p3", control: "ai" },
+        { key: "p4", control: "ai" },
       ],
     },
   });
@@ -704,6 +707,7 @@ try {
         { key: "p1", control: "human" },
         { key: "p2", control: "ai" },
         { key: "p3", control: "ai" },
+        { key: "p4", control: "ai" },
       ],
     },
   });
@@ -831,7 +835,14 @@ try {
     await roomService.update({
       actor: host,
       roomId: room.roomId,
-      patch: { seats: [{ key: "s1", control: "human" }, { key: "s2", control: "human" }, { key: "s3", control: "ai" }] },
+      patch: {
+        seats: [
+          { key: "s1", control: "human" },
+          { key: "s2", control: "human" },
+          { key: "s3", control: "ai" },
+          { key: "s4", control: "ai" },
+        ],
+      },
     });
   } catch (error) {
     editWhilePlaying = error instanceof Error && "code" in error && error.code === "ROOM_BUSY";
@@ -855,11 +866,12 @@ try {
         { key: "s1", control: "human" },
         { key: "s2", control: "human" },
         { key: "s3", control: "ai" },
+        { key: "s4", control: "ai" },
       ],
     },
   });
-  assert.equal(reshaped.seats, 3, "the layout is free to change between matches");
-  assert.equal(reshaped.aiSeats, 1);
+  assert.equal(reshaped.seats, 4, "the layout is free to change between matches");
+  assert.equal(reshaped.aiSeats, 2);
 
   await roomService.setReady({ actor: host, roomId: room.roomId, ready: true });
   await roomService.setReady({ actor: guest, roomId: room.roomId, ready: true });
@@ -896,6 +908,7 @@ try {
         { key: "p1", control: "human" },
         { key: "p2", control: "ai" },
         { key: "p3", control: "ai" },
+        { key: "p4", control: "ai" },
       ],
     },
   });

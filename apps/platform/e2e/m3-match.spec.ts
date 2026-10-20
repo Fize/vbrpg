@@ -24,12 +24,30 @@ async function csrf(page: Page): Promise<string> {
   return csrfToken;
 }
 
+/**
+ * A run needs its two accounts to exist with known passwords. A previous run may have left them
+ * behind, so an existing name is reset rather than refused: the test is about playing, not about
+ * database hygiene.
+ */
 async function provision(page: Page, username: string, password: string): Promise<void> {
-  const response = await page.request.post("/v1/admin/users", {
-    headers: { "x-csrf-token": await csrf(page), origin },
+  const token = await csrf(page);
+  const created = await page.request.post("/v1/admin/users", {
+    headers: { "x-csrf-token": token, origin },
     data: { username, temporaryPassword: password, role: "user" },
   });
-  expect(response.ok(), await response.text()).toBeTruthy();
+  if (created.ok()) return;
+
+  const listed = await page.request.get("/v1/admin/users");
+  const { users } = (await listed.json()) as {
+    users: Array<{ id: string; username: string }>;
+  };
+  const existing = users.find((user) => user.username === username);
+  expect(existing, await created.text()).toBeTruthy();
+  const patched = await page.request.patch(`/v1/admin/users/${existing?.id ?? ""}`, {
+    headers: { "x-csrf-token": token, origin },
+    data: { resetPassword: password },
+  });
+  expect(patched.ok(), await patched.text()).toBeTruthy();
 }
 
 /**
@@ -76,6 +94,7 @@ test.describe.serial("M7 房间与对局", () => {
       { key: "s1", control: "human" },
       { key: "s2", control: "human" },
       { key: "s3", control: "ai" },
+      { key: "s4", control: "ai" },
     ]);
     await page.goto(`/rooms/${roomId}`);
 
