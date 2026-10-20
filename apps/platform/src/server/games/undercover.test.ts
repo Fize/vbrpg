@@ -104,6 +104,20 @@ describe("undercover rules", () => {
     );
   });
 
+  it("refuses a table too small to have a game", () => {
+    const three = SEATS.slice(0, 3);
+    expect(() =>
+      undercover.initialState({
+        instanceId: "instance-1",
+        gameVersionId: "undercover@1.0.0",
+        engineVersion: undercover.engineVersion,
+        randomSeed: "seed-1",
+        participants: three,
+        variables: WORDS,
+      }),
+    ).toThrowError(/At least 4 seats/);
+  });
+
   it("deals the words it was given", () => {
     const state = start("seed-1", { civilianWord: "地铁", undercoverWord: "公交" });
     const words = SEATS.map((seat) => state.variables[`word:${seat.participantId}`]);

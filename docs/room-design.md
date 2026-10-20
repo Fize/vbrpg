@@ -58,7 +58,7 @@ create table room_members (
 
 ## 3. 契约：游戏声明自己的席位上下限
 
-`GameModule` 增 `minSeats` / `maxSeats`（必填）。谁是卧底：`3 / 12`。
+`GameModule` 增 `minSeats` / `maxSeats`（必填）。谁是卧底：`4 / 12`。
 平台在**建房**时校验 `seat_plan` 的长度落在区间内，越界直接拒绝（`SEATS_OUT_OF_RANGE`），
 界面也不允许超出（选择器按区间渲染）。
 

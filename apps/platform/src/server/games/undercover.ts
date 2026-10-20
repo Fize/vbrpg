@@ -20,7 +20,8 @@ import type { Visibility } from "../game/projector.js";
  * （`votes` 不写进可见性，任何席位都看不到；只有结算后的 `summary` 公开）。
  */
 
-const MIN_SEATS = 3;
+/** Four seats is the floor: with three, one wrong vote in round one already leaves two alive. */
+const MIN_SEATS = 4;
 const MAX_SEATS = 12;
 /** Talking stops when the rules say so: after this many rounds comes the vote, not another round. */
 const DISCUSSION_ROUNDS = 3;
